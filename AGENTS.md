@@ -135,11 +135,6 @@ The script patches exactly these bridges:
    from footer), and `createExtensionUIContext()` exposes
    `getExtensionStatuses: () => this.footerDataProvider.getExtensionStatuses()`.
 
-`usesCompactSpacing()` remains in the tool-execution bridge (recognizing
-`compactSpacing: true`) but is currently unused: removing per-tool blank lines
-made tool groups visually collide with model prose, so each tool call keeps
-its standard leading blank line.
-
 ### Upgrade warning
 
 A Pi upgrade overwrites the patched core files. Symptom: built-ins stay

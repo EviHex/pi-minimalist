@@ -35,15 +35,6 @@
 import { homedir } from "node:os";
 import { readFileSync, writeFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import {
-  createBashToolDefinition,
-  createEditToolDefinition,
-  createFindToolDefinition,
-  createGrepToolDefinition,
-  createLsToolDefinition,
-  createReadToolDefinition,
-  createWriteToolDefinition,
-} from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text, truncateToWidth, matchesKey } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
 
@@ -72,10 +63,21 @@ const STATUS_TAP = Symbol.for("pi.statusTap");
 
 // This type documents the object contract shared with the small core bridge.
 // It disappears after TypeScript compilation; it has no runtime cost.
+type NativeResultRenderer = (result: any, options: any, theme: any, context: any) => Component;
+
 type GlobalRenderer = {
   renderShell: "self";
+  /** Named overrides replace rendering only; tool definition/execution stays native. */
+  handles: (name: string) => boolean;
   renderCall: (name: string, args: unknown, theme: any, context: any) => CompactLine;
-  renderResult: (name: string, result: unknown, options: any) => Container | undefined;
+  renderResult: (
+    name: string,
+    result: any,
+    options: any,
+    theme: any,
+    context: any,
+    nativeRenderer?: NativeResultRenderer,
+  ) => Component | undefined;
 };
 
 /**
@@ -341,37 +343,9 @@ function colorAction(text: string, theme: any, color: string, timer?: string): s
   return theme.fg(color, action) + timerPart + theme.fg("toolTitle", details);
 }
 
-/**
- * Decide which built-in tools to override, by parsing the CLI arguments the
- * same way pi does:
- * - `--no-tools` / `-nt` / `--no-builtin-tools` / `-nbt` → nothing (pi runs
- *   without built-in tools, nothing to override)
- * - `--tools a,b,c` / `-t a,b,c` (or `=` form) → exactly those of ours that
- *   appear in the list (others were disabled, overriding them would show
- *   compact rows for tools that don't exist)
- * - default → read, bash, edit, write (pi's core four; grep/find/ls are
- *   opt-in built-ins and render fine without us)
- *
- * Must run at extension load time (not session_start): tool registration
- * during loading is required to reliably replace built-ins before the first
- * model request.
- */
-/**
- * Built-in tools this extension compacts, matching `defaultTools` in
- * `~/.pi/agent/settings.json` (the single source of truth for which
- * built-ins are enabled). Rendering an unenabled tool is harmless — Pi only
- * calls renderers for tools it actually invoked.
- *
- * Formerly this was selectedTools(), a hand-rolled parser of `--tools`/`-t`/
- * `--no-tools`/`--no-builtin-tools` CLI flags, because tools are registered
- * during extension loading, before any action API exists. That duplicated
- * Pi's own flag semantics and could drift; the settings array is the config
- * Pi documents for exactly this purpose. Trade-off: running with a one-off
- * `--tools grep,find` makes those tools fall back to native rendering for
- * that session (harmless, just verbose).
- */
-function selectedTools(): ToolName[] {
-  return ["read", "bash", "edit", "write"];
+/** True for native tools whose rendering (only) we replace. */
+function isBuiltIn(name: string): name is ToolName {
+  return BUILT_INS.includes(name as ToolName);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -549,44 +523,48 @@ export default function (pi: ExtensionAPI) {
   const globals = globalThis as typeof globalThis & { [DEFAULT_RENDERER]?: GlobalRenderer };
   const renderer: GlobalRenderer = {
     renderShell: "self",
-    // Leading underscore means this parameter is required by the bridge API
-    // but intentionally unused by this implementation.
-    renderCall(name, _args, theme, context) {
+    // Core uses this predicate to override only RENDERING for native tools.
+    // Their definitions remain built-in, preserving pi-subagents host-tool
+    // discovery and every native execute/schema/security behavior.
+    handles: isBuiltIn,
+    renderCall(name, args, theme, context) {
       const { glyph, color, elapsed } = statusGlyph(context);
-      // Elapsed seconds shown right after the action word, before the tool name.
       const timer = elapsed !== undefined ? `[⏱ ${elapsed}s]` : "";
-      // Generic MCP/plugin fallback: label it as a tool call, then show the
-      // registered tool name. "toolcall" uses the same action color as read,
-      // edit, bash, etc.; the concrete tool name keeps the normal title color.
       const component = context.lastComponent instanceof CompactLine
         ? context.lastComponent
         : new CompactLine();
-      // Tick the timer every second while running; stop at a terminal state.
-      // requestRender alone is NOT enough: it repaints the cached line text,
-      // and elapsed is baked in during updateDisplay → renderCall. context
-      // .invalidate() re-runs updateDisplay (recomputing elapsed) then renders.
-      // Safe here because the ticker fires asynchronously — the documented
-      // recursion bug was synchronous invalidate DURING render.
       if (elapsed !== undefined) component.startTicker(() => context.invalidate());
       else component.stopTicker();
-      // Build the row from parts so a missing glyph (running, spinner shows)
-      // or missing timer never leaves a stray leading space.
+
+      // Named native overrides retain their rich call summaries. Rendererless
+      // third-party tools still reach this method through createCallFallback()
+      // and receive the generic "toolcall <name>" label.
+      const text = isBuiltIn(name) ? callText(name, args, context.expanded) : `toolcall ${name}`;
       const parts: string[] = [];
       if (glyph) parts.push(theme.fg(color, glyph));
-      parts.push(colorAction("toolcall", theme, actionColor("toolcall"), timer));
-      parts.push(theme.fg("toolTitle", name));
+      parts.push(colorAction(text, theme, actionColor(name), timer));
       component.setGutter(gutter(theme));
-      component.set(
-        parts.join(" "),
-        // No background while executing — the animated timer already signals
-        // activity, and the highlight flashing on each repaint was distracting.
-      );
+      component.set(parts.join(" "));
       return component;
     },
-    renderResult(_name, _result, options) {
-      // Collapsed: zero-height component. Expanded: undefined means
-      // "no custom rendering" so Pi's native full-output fallback runs.
-      return options.expanded ? undefined : new EmptyComponent();
+    renderResult(name, result, options, theme, context, nativeRenderer) {
+      // Rendererless third-party tools use Pi's text fallback when expanded.
+      if (!isBuiltIn(name)) return options.expanded ? undefined : new EmptyComponent();
+
+      // Native built-ins: collapsed result is hidden; expanded result delegates
+      // to the original renderer and adds the dim continuation gutter.
+      if (!options.expanded || !nativeRenderer) return new EmptyComponent();
+      const state = context.state as RenderState;
+      const component = nativeRenderer(result, options, theme, {
+        ...context,
+        lastComponent: state.originalResult,
+      });
+      state.originalResult = component;
+      const wrapper = context.lastComponent instanceof GutteredComponent
+        ? context.lastComponent
+        : new GutteredComponent(component, outputGutter(theme), GUTTER_WIDTH);
+      wrapper.setInner(component);
+      return wrapper;
     },
   };
   // Every /reload overwrites this slot with the newest renderer. Do not clear
@@ -713,101 +691,4 @@ export default function (pi: ExtensionAPI) {
   //  Removed: the /footer dialog already shows everything; two commands
   //  for the same data was confusing.)
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // FEATURE 1 (built-ins): compact rows for pi's own tools
-  // ─────────────────────────────────────────────────────────────────────────
-
-  // Built-in tool factories are cwd-bound (paths in args are relative to it).
-  const cwd = process.cwd();
-
-  /** Factory per tool name so we only construct what we actually override. */
-  // Record<K, V> means every ToolName key must exist and each value must be a
-  // no-argument factory function. TypeScript flags a forgotten tool here.
-  const factories: Record<ToolName, () => any> = {
-    read: () => createReadToolDefinition(cwd),
-    bash: () => createBashToolDefinition(cwd),
-    edit: () => createEditToolDefinition(cwd),
-    write: () => createWriteToolDefinition(cwd),
-    grep: () => createGrepToolDefinition(cwd),
-    find: () => createFindToolDefinition(cwd),
-    ls: () => createLsToolDefinition(cwd),
-  };
-
-  for (const name of selectedTools()) {
-    // Fresh original definition: execute() stays untouched, we only wrap
-    // the rendering slots. Keep a handle to the original renderResult so the
-    // expanded view still gets the full native rendering (diffs, highlighting).
-    const tool = factories[name]();
-    const originalRenderResult = tool.renderResult;
-
-    pi.registerTool({
-      // Object spread copies native execute(), schema, description, label, and
-      // every other field. Properties written below override copied renderers.
-      ...tool,
-      renderShell: "self", // custom one-line shell instead of Pi's padded Box
-      renderCall(args: any, theme: any, context: any) {
-        // Status glyph: "›" queued, "•" running, "✓" done, "✗" failed.
-        // Derived purely from context flags — safe to call on every render
-        // with no side effects.
-        const { glyph, color, elapsed } = statusGlyph(context);
-
-        // Reuse the previously returned component when possible: the TUI
-        // updates it in place rather than allocating a new one per render.
-        const component = context.lastComponent instanceof CompactLine
-          ? context.lastComponent
-          : new CompactLine();
-
-        // Live elapsed timer while any tool runs. CompactLine's ticker repaints
-        // once per second (context.ui comes from the core bridge), so the timer
-        // advances even for silent commands with no streaming output.
-        const timer = elapsed !== undefined ? `[⏱ ${elapsed}s]` : "";
-        // Tick while running; stop at a terminal state. context.invalidate()
-        // re-runs updateDisplay (recomputing elapsed) then renders — a plain
-        // requestRender would only repaint the cached, stale text. Async timer
-        // fires are safe; the documented bug was synchronous invalidate during
-        // render.
-        if (elapsed !== undefined) component.startTicker(() => context.invalidate());
-        else component.stopTicker();
-
-        // Build the row from parts so a missing glyph (running, spinner shows)
-        // or missing timer never leaves a stray leading space.
-        const parts: string[] = [];
-        if (glyph) parts.push(theme.fg(color, glyph));
-        parts.push(colorAction(callText(name, args, context.expanded), theme, actionColor(name), timer));
-        component.setGutter(gutter(theme));
-        component.set(
-          parts.join(" "),
-          // No background while executing — the animated timer already signals
-          // activity, and the highlight flashing on each repaint was distracting.
-        );
-        return component;
-      },
-      renderResult(result: any, options: any, theme: any, context: any) {
-        // Default (collapsed): render nothing — the call line above already
-        // carries status. Returning an empty Text rather than undefined keeps
-        // the slot contract (must return a Component).
-        if (!options.expanded || !originalRenderResult) return new EmptyComponent();
-
-        // Expanded (Ctrl+O): delegate to the original built-in renderer.
-        // We forward lastComponent from our cached slot state so the built-in
-        // can reuse its component across expanded re-renders.
-        const state = context.state as RenderState;
-        const component = originalRenderResult(result, options, theme, {
-          // Copy Pi's context, replacing only lastComponent with the component
-          // cached for the original result renderer (not our compact call row).
-          // Unwrap first: the built-in expects to see ITS component, not our
-          // gutter wrapper.
-          ...context,
-          lastComponent: state.originalResult,
-        });
-        state.originalResult = component;
-        // Reuse one wrapper across re-renders so the TUI updates in place.
-        const wrapper = context.lastComponent instanceof GutteredComponent
-          ? context.lastComponent
-          : new GutteredComponent(component, outputGutter(theme), GUTTER_WIDTH);
-        wrapper.setInner(component);
-        return wrapper;
-      },
-    });
-  }
 }

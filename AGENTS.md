@@ -8,10 +8,10 @@ script. Formerly two extensions: `compact-tool-renderer` and
 
 ### 0. Required settings
 
-`~/.pi/agent/settings.json` must keep `"defaultTools": ["read", "bash", "edit", "write"]`
-in sync with `selectedTools()` in `index.ts` — the extension renders a hard-coded
-list of built-ins (registering a renderer for an unenabled tool is harmless,
-but keeping them aligned documents intent in the same place Pi reads it).
+`~/.pi/agent/settings.json` keeps `"defaultTools": ["read", "bash", "edit", "write"]`
+as Pi's enabled-tool policy. The extension's render-only bridge recognizes all
+seven native names (`read/bash/edit/write/grep/find/ls`) but only renders tools
+Pi actually enables and invokes.
 
 ### 1. Compact tool renderer
 
@@ -133,11 +133,14 @@ the unbundled files are patched for consistency):
 
 The script patches exactly these bridges:
 
-1. `getRenderShell()` — use the global fallback `renderShell` when a tool has
-   neither `renderCall` nor `renderResult`.
-2. `createCallFallback()` — ask the global renderer first, else Pi native fallback.
-3. `createResultFallback()` — ask the global renderer first; returning
-   `undefined` delegates to Pi native fallback.
+1. `getCallRenderer()` / `getResultRenderer()` / `getRenderShell()` — when
+   global `handles(name)` is true, override rendering only and pass the native
+   result renderer through for expanded output; built-in definitions remain
+   native (required by pi-subagents host-tool discovery).
+2. `createCallFallback()` — ask the global renderer first for tools with no
+   native renderer, else Pi native fallback.
+3. `createResultFallback()` — same generic fallback; returning `undefined`
+   delegates to Pi native text output.
 4. `getRenderContext()` — expose `ui: this.ui` so the elapsed timer can repaint live.
 5. `assistant-message.js` — collapsed thinking blocks call
    `globalThis[Symbol.for("pi.thinkingPreview")]` (falls back to the native
@@ -151,8 +154,8 @@ The script patches exactly these bridges:
 
 ### Upgrade warning
 
-A Pi upgrade overwrites the patched core files. Symptom: built-ins stay
-compact, but MCP/third-party tools return to verbose cards, thinking blocks
+A Pi upgrade overwrites the patched core files. Symptom: built-ins and
+MCP/third-party tools return to verbose cards, thinking blocks
 show the bare "Thinking..." label, footer hiding stops working, and markdown
 blockquotes return to a thin gutter.
 
@@ -204,12 +207,10 @@ hand-apply the same edits, then update the script's perl patterns.
 Extension runtime not initialized. Action methods cannot be called during extension loading.
 ```
 
-That is why the compacted built-ins are a hard-coded list (`["read","bash","edit","write"]`) matching `defaultTools` in `~/.pi/agent/settings.json`, instead of querying the enabled tools at load time.
-
-### Register built-in overrides during extension loading
-
-Do not move `pi.registerTool()` into `session_start`; registration there is
-too late for reliable built-in replacement.
+The render-only bridge therefore recognizes a static native-name list and Pi
+simply never invokes it for disabled tools. Do not reintroduce `pi.registerTool`
+for built-in names: that changes their source ownership to extension-owned and
+pi-subagents removes them from child host tool allowlists.
 
 ### Do not invalidate synchronously inside renderers
 
@@ -220,9 +221,10 @@ exception and silently displayed its verbose fallback. Read
 
 ### Preserve original execution and expanded rendering
 
-Keep `...tool`; it carries native `execute`, schema, description. Keep
-delegation to `originalRenderResult` for expanded built-in output, including
-syntax highlighting and edit diffs.
+Built-in definitions must stay untouched. Core passes the native result
+renderer into the global render-only bridge; `renderResult` delegates to it for
+expanded output, preserving syntax highlighting and edit diffs. Collapsed
+output returns `EmptyComponent`.
 
 ### Footer status tap ordering
 
@@ -240,8 +242,9 @@ label back to a key via a Map (see `/footer` handler).
 
 ### Avoid duplicate renderer packages
 
-`pi-collapse-tools` was removed from active packages because it overrides the
-same built-ins. Do not enable both unless testing load-order conflicts.
+`pi-collapse-tools` was removed because it re-registers built-ins. Re-enabling
+it can recreate the same pi-subagents host-tool ownership failure even though
+pi-minimalist's core bridge wins the visible rendering.
 
 ## Validation
 

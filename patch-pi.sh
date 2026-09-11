@@ -42,41 +42,41 @@ ASSISTANT="$PI_ROOT/dist/modes/interactive/components/assistant-message.js"
 # Marker strings. We check for the exact bridge code we insert (not just the
 # symbol name) so that a leftover reference elsewhere in the file can never
 # cause a false "already patched" skip. If the exact code is absent, we patch.
-BUNDLE_MARKER='getRenderShell(){let fallback=globalThis[Symbol.for("pi.defaultToolRenderer")]'
-CORE_MARKER='const fallback = globalThis[Symbol.for("pi.defaultToolRenderer")]'
+BUNDLE_MARKER='getCallRenderer(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")]'
+CORE_MARKER='if (renderer?.handles?.(this.toolName) && renderer.renderCall)'
 
 patched=0
 
 # -----------------------------------------------------------------------------
 # Patch 1: default tool renderer bridge (both files)
 # -----------------------------------------------------------------------------
-# Core `getRenderShell()` consults a process-global renderer when a tool has
-# neither renderCall nor renderResult. The extension stores its compact
-# renderer under this symbol, so MCP/third-party tools without their own
-# renderer get the same compact one-line style as the built-ins.
+# Core consults a process-global renderer in two modes:
+# 1. `handles(name)` — replace rendering ONLY for selected native tools while
+#    preserving their built-in definitions/source ownership (pi-subagents needs
+#    that ownership to expose read/bash/write to child runtimes).
+# 2. No native renderers — generic fallback for rendererless third-party tools.
 # -----------------------------------------------------------------------------
 if ! grep -qF "$BUNDLE_MARKER" "$BUNDLE"; then
-  echo "Patching bundle: default tool renderer bridge"
-  # getRenderShell: use global fallback renderShell when tool has no renderers
-  perl -0pi -e 's/getRenderShell\(\)\{return this\.toolDefinition\?\.renderShell\?\?"default"\}/getRenderShell(){let fallback=globalThis[Symbol.for("pi.defaultToolRenderer")];return!this.getCallRenderer()\&\&!this.getResultRenderer()\&\&fallback?.renderShell?fallback.renderShell:this.toolDefinition?.renderShell??"default"}/' "$BUNDLE"
-  # createCallFallback: ask global renderer first
+  echo "Patching bundle: named/default tool renderer bridge"
+  # Replace the renderer-selection methods as one bounded block. This matches
+  # both clean Pi and the older fallback-only bridge from previous releases.
+  perl -0pi -e 's/getCallRenderer\(\)\{.*?\}getRenderContext/getCallRenderer(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")];return renderer?.handles?.(this.toolName)\&\&renderer.renderCall?(args,renderTheme,context)=>renderer.renderCall(this.toolName,args,renderTheme,context):this.toolDefinition?.renderCall}getResultRenderer(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")];if(renderer?.handles?.(this.toolName)\&\&renderer.renderResult){let nativeRenderer=this.toolDefinition?.renderResult;return(result,options,renderTheme,context)=>renderer.renderResult(this.toolName,result,options,renderTheme,context,nativeRenderer)}return this.toolDefinition?.renderResult}hasRendererDefinition(){return this.toolDefinition!==void 0}getRenderShell(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")],handlesTool=renderer?.handles?.(this.toolName)===!0,rendererlessTool=!this.toolDefinition?.renderCall\&\&!this.toolDefinition?.renderResult;return(handlesTool||rendererlessTool)\&\&renderer?.renderShell?renderer.renderShell:this.toolDefinition?.renderShell??"default"}getRenderContext/s' "$BUNDLE"
+  # Generic fallback paths for rendererless tools.
   perl -0pi -e 's/createCallFallback\(\)\{return new Text\(theme\.fg\("toolTitle",theme\.bold\(this\.toolName\)\),0,0\)\}/createCallFallback(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")]?.renderCall,component=renderer?.(this.toolName,this.args,theme,this.getRenderContext(void 0));return component??new Text(theme.fg("toolTitle",theme.bold(this.toolName)),0,0)}/' "$BUNDLE"
-  # createResultFallback: ask global renderer first, else native fallback
   perl -0pi -e 's/createResultFallback\(\)\{let output=this\.getTextOutput\(\);/createResultFallback(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")]?.renderResult,component=renderer?.(this.toolName,this.result,{expanded:this.expanded,isPartial:this.isPartial},theme,this.getRenderContext(void 0));if(component!==void 0)return component;let output=this.getTextOutput();/' "$BUNDLE"
   patched=1
 else
-  echo "Bundle: default tool renderer bridge already present, skipping"
+  echo "Bundle: named/default tool renderer bridge already present, skipping"
 fi
 
 if ! grep -qF "$CORE_MARKER" "$CORE"; then
-  echo "Patching core: default tool renderer bridge"
-  # Same three edits, unbundled (readable) form.
-  perl -0pi -e 's/getRenderShell\(\) \{\n        return this\.toolDefinition\?\.renderShell \?\? "default";\n    \}/getRenderShell() {\n        const fallback = globalThis[Symbol.for("pi.defaultToolRenderer")];\n        if (!this.getCallRenderer() \&\& !this.getResultRenderer() \&\& fallback?.renderShell) {\n            return fallback.renderShell;\n        }\n        return this.toolDefinition?.renderShell ?? "default";\n    }/' "$CORE"
+  echo "Patching core: named/default tool renderer bridge"
+  perl -0pi -e 's/    getCallRenderer\(\) \{.*?    getRenderContext/    getCallRenderer() {\n        const renderer = globalThis[Symbol.for("pi.defaultToolRenderer")];\n        if (renderer?.handles?.(this.toolName) \&\& renderer.renderCall) {\n            return (args, renderTheme, context) => renderer.renderCall(this.toolName, args, renderTheme, context);\n        }\n        return this.toolDefinition?.renderCall;\n    }\n    getResultRenderer() {\n        const renderer = globalThis[Symbol.for("pi.defaultToolRenderer")];\n        if (renderer?.handles?.(this.toolName) \&\& renderer.renderResult) {\n            const nativeRenderer = this.toolDefinition?.renderResult;\n            return (result, options, renderTheme, context) => renderer.renderResult(this.toolName, result, options, renderTheme, context, nativeRenderer);\n        }\n        return this.toolDefinition?.renderResult;\n    }\n    hasRendererDefinition() {\n        return this.toolDefinition !== undefined;\n    }\n    getRenderShell() {\n        const renderer = globalThis[Symbol.for("pi.defaultToolRenderer")];\n        const handlesTool = renderer?.handles?.(this.toolName) === true;\n        const rendererlessTool = !this.toolDefinition?.renderCall \&\& !this.toolDefinition?.renderResult;\n        if ((handlesTool || rendererlessTool) \&\& renderer?.renderShell) {\n            return renderer.renderShell;\n        }\n        return this.toolDefinition?.renderShell ?? "default";\n    }\n    getRenderContext/s' "$CORE"
   perl -0pi -e 's/createCallFallback\(\) \{\n        return new Text\(theme\.fg\("toolTitle", theme\.bold\(this\.toolName\)\), 0, 0\);\n    \}/createCallFallback() {\n        const renderer = globalThis[Symbol.for("pi.defaultToolRenderer")]?.renderCall;\n        const component = renderer?.(this.toolName, this.args, theme, this.getRenderContext(undefined));\n        return component ?? new Text(theme.fg("toolTitle", theme.bold(this.toolName)), 0, 0);\n    }/' "$CORE"
   perl -0pi -e 's/createResultFallback\(\) \{\n        const output = this\.getTextOutput\(\);/createResultFallback() {\n        const renderer = globalThis[Symbol.for("pi.defaultToolRenderer")]?.renderResult;\n        const component = renderer?.(this.toolName, this.result, { expanded: this.expanded, isPartial: this.isPartial }, theme, this.getRenderContext(undefined));\n        if (component !== undefined) {\n            return component;\n        }\n        const output = this.getTextOutput();/' "$CORE"
   patched=1
 else
-  echo "Core: default tool renderer bridge already present, skipping"
+  echo "Core: named/default tool renderer bridge already present, skipping"
 fi
 
 # -----------------------------------------------------------------------------

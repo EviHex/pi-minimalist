@@ -291,26 +291,22 @@ function colorAction(text: string, theme: any, color: string, timer?: string): s
  * during loading is required to reliably replace built-ins before the first
  * model request.
  */
-function selectedTools(argv = process.argv.slice(2)): ToolName[] {
-  let explicit: string | undefined;
-  let disabled = false;
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--no-tools" || arg === "-nt" || arg === "--no-builtin-tools" || arg === "-nbt") disabled = true;
-    // Prefix increment advances i first because the value after --tools is
-    // its comma-separated argument, not another independent CLI option.
-    else if (arg === "--tools" || arg === "-t") explicit = argv[++i];
-    else if (arg.startsWith("--tools=")) explicit = arg.slice(8);
-    else if (arg.startsWith("-t=")) explicit = arg.slice(3);
-  }
-
-  if (!explicit) return disabled ? [] : ["read", "bash", "edit", "write"];
-
-  // split creates names, filter rejects unsupported ones, Set removes repeats,
-  // and `[...set]` converts Set back to an array. `name is ToolName` is a
-  // TypeScript type predicate: surviving values are known-valid tool names.
-  return [...new Set(explicit.split(",").filter((name): name is ToolName => BUILT_INS.includes(name as ToolName)))];
+/**
+ * Built-in tools this extension compacts, matching `defaultTools` in
+ * `~/.pi/agent/settings.json` (the single source of truth for which
+ * built-ins are enabled). Rendering an unenabled tool is harmless — Pi only
+ * calls renderers for tools it actually invoked.
+ *
+ * Formerly this was selectedTools(), a hand-rolled parser of `--tools`/`-t`/
+ * `--no-tools`/`--no-builtin-tools` CLI flags, because tools are registered
+ * during extension loading, before any action API exists. That duplicated
+ * Pi's own flag semantics and could drift; the settings array is the config
+ * Pi documents for exactly this purpose. Trade-off: running with a one-off
+ * `--tools grep,find` makes those tools fall back to native rendering for
+ * that session (harmless, just verbose).
+ */
+function selectedTools(): ToolName[] {
+  return ["read", "bash", "edit", "write"];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

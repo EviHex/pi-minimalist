@@ -6,6 +6,13 @@ script. Formerly two extensions: `compact-tool-renderer` and
 
 ## Features
 
+### 0. Required settings
+
+`~/.pi/agent/settings.json` must keep `"defaultTools": ["read", "bash", "edit", "write"]`
+in sync with `selectedTools()` in `index.ts` — the extension renders a hard-coded
+list of built-ins (registering a renderer for an unenabled tool is harmless,
+but keeping them aligned documents intent in the same place Pi reads it).
+
 ### 1. Compact tool renderer
 
 ```text
@@ -189,7 +196,7 @@ hand-apply the same edits, then update the script's perl patterns.
 Extension runtime not initialized. Action methods cannot be called during extension loading.
 ```
 
-That is why `selectedTools()` reads CLI arguments instead.
+That is why the compacted built-ins are a hard-coded list (`["read","bash","edit","write"]`) matching `defaultTools` in `~/.pi/agent/settings.json`, instead of querying the enabled tools at load time.
 
 ### Register built-in overrides during extension loading
 

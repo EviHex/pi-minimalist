@@ -160,6 +160,30 @@ else
 fi
 
 # -----------------------------------------------------------------------------
+# Patch 5: thick markdown blockquote gutter (pi-tui markdown.js + bundle)
+# -----------------------------------------------------------------------------
+# Pi hard-codes the thin │ prefix for every rendered blockquote line. Replace
+# it with half-block ▌; signal.json maps mdQuoteBorder to text (white).
+# -----------------------------------------------------------------------------
+MARKDOWN="$PI_ROOT/node_modules/@earendil-works/pi-tui/dist/components/markdown.js"
+
+if ! grep -qF 'quoteBorder("▌ ")' "$MARKDOWN"; then
+  echo "Patching pi-tui markdown: thick blockquote gutter"
+  perl -0pi -e 's/quoteBorder\("│ "\)/quoteBorder("▌ ")/' "$MARKDOWN"
+  patched=1
+else
+  echo "pi-tui markdown: thick blockquote gutter already present, skipping"
+fi
+
+if ! grep -qF 'quoteBorder("\u258c ")' "$BUNDLE"; then
+  echo "Patching bundle: thick blockquote gutter"
+  perl -0pi -e 's/quoteBorder\("\\u2502 "\)/quoteBorder("\\u258c ")/' "$BUNDLE"
+  patched=1
+else
+  echo "Bundle: thick blockquote gutter already present, skipping"
+fi
+
+# -----------------------------------------------------------------------------
 # Verify: syntax-check all patched files so a bad regex never leaves Pi broken.
 # -----------------------------------------------------------------------------
 echo "Verifying syntax..."
@@ -167,6 +191,7 @@ node --check "$BUNDLE"
 node --check "$CORE"
 node --check "$ASSISTANT"
 node --check "$INTERACTIVE"
+node --check "$MARKDOWN"
 echo "Syntax OK."
 
 if [ "$patched" -eq 1 ]; then

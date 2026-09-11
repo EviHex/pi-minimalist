@@ -127,6 +127,7 @@ the unbundled files are patched for consistency):
 /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tool-execution.js
 /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/assistant-message.js
 /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/interactive-mode.js
+/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/components/markdown.js
 /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-JVUZSMYM.js
 ```
 
@@ -145,12 +146,15 @@ The script patches exactly these bridges:
    `globalThis[Symbol.for("pi.statusTap")]` first (true = swallow → hidden
    from footer), and `createExtensionUIContext()` exposes
    `getExtensionStatuses: () => this.footerDataProvider.getExtensionStatuses()`.
+7. `pi-tui/components/markdown.js` — replace the thin blockquote prefix `│`
+   with half-block `▌`; `signal.json` maps `mdQuoteBorder` to white `text`.
 
 ### Upgrade warning
 
 A Pi upgrade overwrites the patched core files. Symptom: built-ins stay
 compact, but MCP/third-party tools return to verbose cards, thinking blocks
-show the bare "Thinking..." label, and footer hiding stops working.
+show the bare "Thinking..." label, footer hiding stops working, and markdown
+blockquotes return to a thin gutter.
 
 Fix: re-run the idempotent patch script after every Pi update:
 

@@ -147,7 +147,7 @@ The script patches exactly these bridges:
    from footer), and `createExtensionUIContext()` exposes
    `getExtensionStatuses: () => this.footerDataProvider.getExtensionStatuses()`.
 7. `pi-tui/components/markdown.js` — replace the thin blockquote prefix `│`
-   with half-block `▌`; `signal.json` maps `mdQuoteBorder` to white `text`.
+   with full-block `█`; `signal.json` maps `mdQuoteBorder` to white `text`.
 
 ### Upgrade warning
 

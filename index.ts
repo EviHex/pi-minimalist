@@ -217,11 +217,11 @@ type RenderState = {
  * reads as one indented block instead of same-weight lines mixed into text.
  * Indented one column so the bar sits inside the text area instead of
  * colliding with the left border of user-message code blocks. Uses the
- * dedicated pastel green (toolGutter in the theme, softer than success so
- * it echoes the green status glyphs without matching them at full volume).
+ * borderAccent, configured as pastel green in signal.json. borderAccent is a
+ * native Pi theme token; custom color keys make theme.fg() throw at runtime.
  */
 function gutter(theme: any): string {
-  return ` ${theme.fg("toolGutter", "▌")} `;
+  return ` ${theme.fg("borderAccent", "▌")} `;
 }
 
 /**
@@ -260,10 +260,12 @@ function callText(name: ToolName, args: any, expanded = false): string {
     case "bash":
       // Spell out the action; "$" looked like terminal output rather than a
       // tool name and could not receive the same action color as other tools.
-      // Collapsed rows truncate at 100 chars for compactness; expanded rows
-      // (Ctrl+O) show the full command — CompactLine still guards the line
-      // against exceeding the real terminal width.
-      return `bash ${expanded ? String(args.command ?? "") : compact(args.command)}`;
+      // Collapsed rows truncate at 100 chars. Expanded rows preserve the full
+      // command LENGTH but still collapse newlines/whitespace into one physical
+      // line; otherwise a multiline `python -c`/heredoc escapes the call-row
+      // gutter and visually merges with the expanded output below it.
+      // CompactLine then clips that one line at the real terminal width.
+      return `bash ${compact(args.command, expanded ? Number.POSITIVE_INFINITY : 100)}`;
     case "read": {
       // Show the line range when offset/limit were used, mirroring the
       // built-in read tool's "path:start-end" notation.

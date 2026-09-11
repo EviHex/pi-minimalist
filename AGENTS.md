@@ -57,11 +57,15 @@ Hidden keys persist in `hidden.json` next to `index.ts`.
 the /footer dialog already shows everything.)
 - `AGENTS.md` — this file.
 
-Global Pi setting enables this directory:
+Global Pi setting loads the entry file explicitly:
 
 ```json
-"+extensions/pi-minimalist"
+"extensions/pi-minimalist/index.ts"
 ```
+
+Do not use the directory form or a leading `+`. This folder is its own
+colocated jj/git repo; Pi's resource scanner skips nested `.git` directories.
+An explicit file path bypasses scanning and loads the extension reliably.
 
 ## Architecture
 

@@ -90,10 +90,22 @@ class CompactLine implements Component {
   private text = "";
   private background: ((text: string) => string) | undefined;
   private ticker: ReturnType<typeof setInterval> | undefined;
+  private gutter = "";
 
   set(text: string, background?: (text: string) => string): void {
     this.text = text;
     this.background = background;
+  }
+
+  /**
+   * Left gutter marker, e.g. a dim "│ " drawn before the row content.
+   * Consecutive tool rows then form one continuous vertical line, which
+   * visually groups them into a block distinct from model prose (which
+   * stays flush against the left edge). Pre-colored by the caller so the
+   * gutter can use a different color than the row text.
+   */
+  setGutter(gutter: string): void {
+    this.gutter = gutter;
   }
 
   /**
@@ -119,8 +131,12 @@ class CompactLine implements Component {
     // TUI pads each line to terminal width with spaces, so no manual trailing
     // padding is needed. truncateToWidth understands ANSI color codes and
     // wide Unicode glyphs, so colored text truncates at visible columns.
-    const line = truncateToWidth(this.text, width, "…");
-    return this.background ? [this.background(line)] : [line];
+    // The gutter is a fixed-width prefix, so truncate the content to the
+    // remaining columns. gutterWidth counts visible columns (the gutter
+    // string carries ANSI color codes, which occupy no screen width).
+    const gutterWidth = this.gutter ? GUTTER_WIDTH : 0;
+    const line = truncateToWidth(this.text, Math.max(1, width - gutterWidth), "…");
+    return this.background ? [this.gutter + this.background(line)] : [this.gutter + line];
   }
 
   // Component contract allows cached components to be invalidated. This class
@@ -144,6 +160,38 @@ class EmptyComponent implements Component {
   invalidate(): void {}
 }
 
+/**
+ * Wraps another component and prefixes EVERY line it renders with the tool
+ * gutter, so expanded output stays visually attached to the call row above it
+ * instead of blending into model prose.
+ *
+ * The inner component renders at a reduced width (the gutter occupies real
+ * columns), otherwise its own wrapping/truncation would overflow the row.
+ */
+class GutteredComponent implements Component {
+  // The wrapped component is stored so repeated renders reuse one instance,
+  // which built-in result renderers rely on for their internal caching.
+  constructor(
+    private inner: Component,
+    private gutterText: string,
+    private gutterWidth: number,
+  ) {}
+
+  /** Swap in the newest inner component while keeping this wrapper stable. */
+  setInner(inner: Component): void {
+    this.inner = inner;
+  }
+
+  render(width: number): string[] {
+    const lines = this.inner.render(Math.max(1, width - this.gutterWidth));
+    return lines.map((line) => this.gutterText + line);
+  }
+
+  invalidate(): void {
+    this.inner.invalidate?.();
+  }
+}
+
 /** Every built-in tool this extension knows how to compact. */
 // `as const` preserves literal names instead of widening every item to string.
 const BUILT_INS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
@@ -162,6 +210,31 @@ type RenderState = {
   /** Wall-clock timestamp (ms) of the first render after execution started. */
   startedAt?: number;
 };
+
+/**
+ * Dim vertical bar drawn at the left of every compact row (tool calls and
+ * the thinking preview). Model prose stays flush left, so a run of tool rows
+ * reads as one indented block instead of same-weight lines mixed into text.
+ * Indented one column so the bar sits inside the text area instead of
+ * colliding with the left border of user-message code blocks. Uses the
+ * dedicated pastel green (toolGutter in the theme, softer than success so
+ * it echoes the green status glyphs without matching them at full volume).
+ */
+function gutter(theme: any): string {
+  return ` ${theme.fg("toolGutter", "▌")} `;
+}
+
+/**
+ * Gutter for expanded OUTPUT lines: same glyph and column position as the
+ * call row, but dimmed so the call row still reads as the block header while
+ * the bar visually binds the output to it.
+ */
+function outputGutter(theme: any): string {
+  return ` ${theme.fg("borderMuted", "▌")} `;
+}
+
+/** Visible columns consumed by both gutter variants (space + block + space). */
+const GUTTER_WIDTH = 3;
 
 /** Collapse whitespace and truncate long values for one-line display. */
 function compact(value: unknown, max = 100): string {
@@ -242,25 +315,15 @@ function statusGlyph(context: any): { glyph: string; color: string; elapsed?: nu
 }
 
 /**
- * Map each tool category to its action color:
- * - read-only tools (read, grep, find, ls) and generic toolcall → success
- * - mutating tools (edit, write) and bash → warning
+ * Action color for the leading action word (read/bash/edit/toolcall…).
+ * All green — see the note inside for why mutating tools are not warning.
  */
-function actionColor(name: string): string {
-  switch (name) {
-    case "read":
-    case "grep":
-    case "find":
-    case "ls":
-    case "toolcall":
-      return "success";
-    case "edit":
-    case "write":
-    case "bash":
-      return "warning";
-    default:
-      return "success";
-  }
+function actionColor(_name: string): string {
+  // All actions green (user preference): mutating tools used to be warning
+  // orange, but orange already carries "highlighted output" semantics in
+  // prose, and the action word is a label, not a warning. Status is conveyed
+  // by the glyph color (✗ red on failure), not the action color.
+  return "success";
 }
 
 /**
@@ -510,6 +573,7 @@ export default function (pi: ExtensionAPI) {
       if (glyph) parts.push(theme.fg(color, glyph));
       parts.push(colorAction("toolcall", theme, actionColor("toolcall"), timer));
       parts.push(theme.fg("toolTitle", name));
+      component.setGutter(gutter(theme));
       component.set(
         parts.join(" "),
         // No background while executing — the animated timer already signals
@@ -545,6 +609,7 @@ export default function (pi: ExtensionAPI) {
     // highlight the row like running tools; once done, show a check and plain
     // text, matching the tool-call status language (› • ✓).
     const glyph = streaming ? "•" : "✓";
+    line.setGutter(gutter(theme));
     line.set(
       `${theme.fg("success", glyph)} ${theme.fg("success", "think")} ${theme.fg("toolTitle", text.replace(/\s+/g, " ").trim())}`,
       streaming ? (text) => theme.bg("toolPendingBg", text) : undefined,
@@ -707,6 +772,7 @@ export default function (pi: ExtensionAPI) {
         const parts: string[] = [];
         if (glyph) parts.push(theme.fg(color, glyph));
         parts.push(colorAction(callText(name, args, context.expanded), theme, actionColor(name), timer));
+        component.setGutter(gutter(theme));
         component.set(
           parts.join(" "),
           // No background while executing — the animated timer already signals
@@ -727,11 +793,18 @@ export default function (pi: ExtensionAPI) {
         const component = originalRenderResult(result, options, theme, {
           // Copy Pi's context, replacing only lastComponent with the component
           // cached for the original result renderer (not our compact call row).
+          // Unwrap first: the built-in expects to see ITS component, not our
+          // gutter wrapper.
           ...context,
           lastComponent: state.originalResult,
         });
         state.originalResult = component;
-        return component;
+        // Reuse one wrapper across re-renders so the TUI updates in place.
+        const wrapper = context.lastComponent instanceof GutteredComponent
+          ? context.lastComponent
+          : new GutteredComponent(component, outputGutter(theme), GUTTER_WIDTH);
+        wrapper.setInner(component);
+        return wrapper;
       },
     });
   }

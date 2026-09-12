@@ -241,6 +241,35 @@ extensions (MCP adapters etc.) may load first and set statuses earlier, so
 and in the command handler, because autocomplete runs outside any handler).
 Never call `ctx.ui.setStatus` inside the tap callback (infinite loop).
 
+### Core's fallback path never passes lastComponent
+
+`createCallFallback()` / `createResultFallback()` call
+`getRenderContext(undefined)`, so `context.lastComponent` is ALWAYS undefined for
+rendererless MCP/third-party tools. Caching the row only on `lastComponent` made
+every repaint allocate a new `CompactLine` and start another 1s ticker while
+clearing none — an exponential interval leak that froze the UI on long-running
+MCP calls, and left a permanent 1Hz repaint per finished call. The row is
+therefore cached in `context.state.callLine` (`state` is core's `rendererState`:
+one object per tool call, stable across renders). Regression test: "reuses one row
+and one ticker when core passes no lastComponent".
+
+### Hidden statuses that get cleared must stay listable
+
+`tap(key, undefined)` removes a key from the registry, and hidden keys never
+appear in `getExtensionStatuses()` either. So a hidden key whose status is later
+cleared would be unreachable from both `/footer` and the dialog — stranded hidden
+until `hidden.json` was hand-edited. `entries()`/`keys()`/`has()` therefore also
+report hidden-only keys (shown as `(cleared)`).
+
+### Theme tokens and keybinding actions are typed unions
+
+`ThemeLike.fg`/`bg` take `ThemeColor`/`ThemeBg`, and `KeybindingLookup.matches`
+takes `Keybinding`. A mistyped token would otherwise throw at runtime (core
+catches it and shows the verbose card), and a mistyped action name would silently
+never match, turning a key into a dead key. Both are now compile errors.
+Method-shorthand syntax is required so Pi's `Theme` and `KeybindingsManager`
+remain assignable under `strictFunctionTypes`.
+
 ### notify() has no "success" level
 
 `ctx.ui.notify(message, type?)` accepts only `info | warning | error`. Passing
@@ -283,7 +312,7 @@ how Pi discovers it, so `tsconfig.json` uses `module: esnext` +
 ### Automated tests
 
 ```bash
-./run-tests.sh              # unit + core-bridge integration (57 tests)
+./run-tests.sh              # unit + core-bridge integration (66 tests)
 ./run-tests.sh --unit       # unit only, skips anything needing Pi's install
 ./run-tests.sh --typecheck  # tsc --noEmit, strict
 ```

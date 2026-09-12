@@ -70,10 +70,22 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
 
     renderCall(name, args, theme: ThemeLike, context) {
       const status = statusGlyph(context, now);
-      // Reuse the previous component so the TUI updates it in place.
-      const component = context.lastComponent instanceof CompactLine
+      const state = context.state as RenderState;
+
+      // Reuse the previous component so the TUI updates it in place. Two caches
+      // on purpose: core's named-override path passes lastComponent, but its
+      // FALLBACK path (rendererless MCP/third-party tools) always passes
+      // undefined, so state.callLine is the only stable cache there. Allocating
+      // a fresh row on every repaint used to start a NEW ticker each second
+      // while leaving the old ones running — an exponential interval leak that
+      // froze the UI on long-running MCP calls.
+      const cached = context.lastComponent instanceof CompactLine
         ? context.lastComponent
-        : new CompactLine(timers);
+        : state.callLine instanceof CompactLine
+          ? state.callLine
+          : undefined;
+      const component = cached ?? new CompactLine(timers);
+      state.callLine = component;
 
       // Tick while running; stop at a terminal state. context.invalidate()
       // re-runs updateDisplay (recomputing elapsed) then renders — a plain
@@ -100,6 +112,8 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
       // syntax highlighting survive, then gets the dim continuation gutter.
       if (!options.expanded || !nativeRenderer) return new EmptyComponent();
 
+      // Built-ins always reach here through the named-override path, which does
+      // pass lastComponent, so no state cache is needed for the wrapper itself.
       const state = context.state as RenderState;
       const component = nativeRenderer(result, options, theme, {
         // Replace only lastComponent: the built-in must see ITS component, not

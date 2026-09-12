@@ -6,6 +6,7 @@
  */
 
 import { homedir } from "node:os";
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { ThemeLike } from "./components.ts";
 
 /** Every native tool whose RENDERING (never its definition) we replace. */
@@ -28,6 +29,14 @@ export function isBuiltIn(name: string): name is ToolName {
  */
 export type RenderState = {
   originalResult?: unknown;
+  /**
+   * Cached call row. Core's FALLBACK path (createCallFallback, used for tools
+   * with no renderer of their own) always calls getRenderContext(undefined), so
+   * context.lastComponent is never populated there and state is the only stable
+   * per-call cache. Without it, every repaint allocated a new row and registered
+   * another 1s ticker that nothing could ever clear.
+   */
+  callLine?: unknown;
   /** Wall-clock timestamp (ms) of the first render after execution started. */
   startedAt?: number;
 };
@@ -99,7 +108,9 @@ export function fallbackCallText(name: string): string {
   return `toolcall ${name}`;
 }
 
-export type Status = { glyph: string; color: string; elapsed?: number };
+// color is a real ThemeColor so a mistyped token fails to compile: at runtime
+// theme.fg() would throw and core would silently fall back to a verbose card.
+export type Status = { glyph: string; color: ThemeColor; elapsed?: number };
 
 /**
  * Pick the status glyph + color for a render context:
@@ -139,7 +150,7 @@ export function timerBadge(elapsed: number | undefined): string {
  * label, not a warning. Status is conveyed by the glyph color (✗ red on
  * failure), not by the action color.
  */
-export function actionColor(_name: string): string {
+export function actionColor(_name: string): ThemeColor {
   return "success";
 }
 
@@ -147,7 +158,12 @@ export function actionColor(_name: string): string {
  * Color the action word, insert the elapsed timer right after it (before the
  * command/path details), then the details in tool-title color.
  */
-export function colorAction(text: string, theme: ThemeLike, color: string, timer?: string): string {
+export function colorAction(
+  text: string,
+  theme: ThemeLike,
+  color: ThemeColor,
+  timer?: string,
+): string {
   const separator = text.indexOf(" ");
   const action = separator === -1 ? text : text.slice(0, separator);
   const details = separator === -1 ? "" : text.slice(separator);

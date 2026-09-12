@@ -7,6 +7,14 @@
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
+// Type-only imports: erased at runtime, so this stays free of Pi runtime deps
+// while a mistyped token ("succes") becomes a compile error instead of a
+// runtime theme.fg() throw that core silently turns into verbose fallback output.
+import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+
+// ThemeBg is not exported publicly, so recover it from Theme.bg's own signature
+// rather than importing a deep dist path (which is not a package export).
+type ThemeBg = Parameters<Theme["bg"]>[0];
 
 /** Visible columns consumed by every gutter variant (space + block + space). */
 export const GUTTER_WIDTH = 3;
@@ -17,11 +25,11 @@ export const GUTTER_WIDTH = 3;
  * assertions check the token, never a machine-specific RGB escape sequence.
  */
 // Method shorthand (not property-with-function-type) on purpose: methods are
-// bivariant, so Pi's Theme — whose fg takes a narrow ThemeColor union — remains
-// assignable to this wider structural type under strictFunctionTypes.
+// bivariant, so Pi's Theme stays assignable under strictFunctionTypes while
+// tests can pass a small fake.
 export type ThemeLike = {
-  fg(token: string, text: string): string;
-  bg(token: string, text: string): string;
+  fg(token: ThemeColor, text: string): string;
+  bg(token: ThemeBg, text: string): string;
   bold?(text: string): string;
 };
 

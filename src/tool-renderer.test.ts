@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { CompactLine, EmptyComponent, GutteredComponent } from "./components.ts";
+import { BUILT_INS } from "./tool-rows.ts";
 import { createToolRenderer } from "./tool-renderer.ts";
 import { fakeClock, fakeTheme, fakeTimers, makeContext, plain, plainTheme } from "./test-support.ts";
 
@@ -72,6 +73,31 @@ describe("renderCall", () => {
     assert.deepEqual(again.render(80).map(plain), [" ▌ • bash [⏱ 3s] sleep 30"]);
   });
 
+  it("reuses one row and one ticker when core passes no lastComponent", () => {
+    // Core's createCallFallback() (every rendererless MCP/third-party tool)
+    // always calls getRenderContext(undefined), so lastComponent is never set.
+    // Reallocating per render used to register a new 1s ticker each time and
+    // clear none of them: an exponential interval leak that froze the UI.
+    const { renderer: r, timers } = renderer();
+    const running = makeContext("running");
+
+    const first = r.renderCall("goland__execute_tool", {}, widthTheme, running);
+    const second = r.renderCall("goland__execute_tool", {}, widthTheme, running);
+    const third = r.renderCall("goland__execute_tool", {}, widthTheme, running);
+
+    assert.equal(second, first, "the fallback path must not reallocate the row");
+    assert.equal(third, first);
+    assert.equal(timers.pending(), 1, "each repaint must not leak a ticker");
+
+    // Completion must reach the SAME component and stop the surviving ticker.
+    r.renderCall("goland__execute_tool", {}, widthTheme, {
+      ...makeContext("completed"),
+      state: running.state,
+    });
+    assert.equal(timers.pending(), 0, "completion must stop the ticker");
+    assert.equal(first.isTicking(), false);
+  });
+
   it("stops the ticker when the row reaches a final state", () => {
     const { renderer: r, timers } = renderer();
     const running = makeContext("running");
@@ -138,6 +164,16 @@ describe("renderCall", () => {
     const line = r.renderCall("ls", {}, theme, makeContext("completed", { lastComponent: foreign }));
     assert.ok(line instanceof CompactLine);
   });
+
+  it("handles every BUILT_INS name and rejects non-native names", () => {
+    // Guards against Pi renaming a built-in: an unhandled name silently falls
+    // back to the verbose card.
+    const { renderer: r } = renderer();
+    for (const name of BUILT_INS) {
+      assert.equal(r.handles(name), true, name);
+      assert.doesNotThrow(() => r.renderCall(name, {}, theme, makeContext("completed")));
+    }
+  });
 });
 
 describe("renderResult", () => {
@@ -174,6 +210,22 @@ describe("renderResult", () => {
 
     assert.ok(component instanceof GutteredComponent);
     assert.deepEqual(component.render(80).map(plain), [" ▌ first", " ▌ second", " ▌ third"]);
+  });
+
+  it("reuses the wrapper and native component while output is still streaming", () => {
+    // Expanding a tool that is still producing output: partial results keep
+    // arriving, so both the wrapper and the native component must stay stable.
+    const { renderer: r } = renderer();
+    const native = nativeRenderer(["partial"]);
+    const context = makeContext("partial", { expanded: true });
+    const options = { expanded: true, isPartial: true };
+
+    const first = r.renderResult("bash", {}, options, theme, context, native.render);
+    const second = r.renderResult("bash", {}, options, theme, { ...context, lastComponent: first }, native.render);
+
+    assert.equal(second, first, "wrapper must be stable while streaming");
+    assert.ok(native.seenLastComponents[1] !== undefined, "native component must be reused");
+    assert.deepEqual(second!.render(80).map(plain), [" ▌ partial"]);
   });
 
   it("passes the cached native component back on expanded re-render", () => {

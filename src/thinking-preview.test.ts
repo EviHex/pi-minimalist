@@ -50,9 +50,13 @@ describe("thinking preview", () => {
     assert.deepEqual(preview("x", widthTheme, 0, false).render(40), preview("x", widthTheme, 8, false).render(40));
   });
 
-  it("leaves no ticker registered", () => {
+  it("registers no ticker (defensive: the preview has no elapsed timer)", () => {
+    // The preview is repainted by streaming text, so it must never start the
+    // 1s interval. This is a guard for a future change, not current logic.
     const timers = fakeTimers();
-    createThinkingPreview(timers)("x", widthTheme, 0, true).render(40);
+    const line = createThinkingPreview(timers)("x", widthTheme, 0, true);
+    line.render(40);
+    assert.equal(line.isTicking(), false);
     assert.equal(timers.pending(), 0);
   });
 });

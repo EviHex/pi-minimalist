@@ -85,6 +85,11 @@ export type TestContext = {
   isPartial: boolean;
   isError: boolean;
   executionStarted: boolean;
+  /**
+   * Core sets this while streaming arguments, but no renderer reads it: queued
+   * vs running is decided by executionStarted. Kept so contexts mirror core's
+   * real shape, and so a future renderer that DOES read it has it available.
+   */
   argsComplete: boolean;
   expanded: boolean;
   lastComponent?: unknown;

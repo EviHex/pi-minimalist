@@ -12,7 +12,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import type { Component } from "@earendil-works/pi-tui";
+import type { Component, Keybinding } from "@earendil-works/pi-tui";
 import type { ThemeLike } from "./components.ts";
 
 /** Where hidden keys persist. Injectable so tests never touch user files. */
@@ -43,12 +43,13 @@ export function memoryStore(initial: string[] = []): HiddenStore {
 export type StatusUi = { getExtensionStatuses?: () => Map<string, string> };
 
 /**
- * Keybinding lookup used by the dialog. Method shorthand on purpose: methods
- * are bivariant, so Pi's KeybindingsManager — whose second parameter is the
- * narrow `keyof Keybindings` union — stays assignable under strictFunctionTypes,
- * and tests can pass a tiny stub.
+ * Keybinding lookup used by the dialog. Method shorthand on purpose (methods are
+ * bivariant, so Pi's KeybindingsManager stays assignable under
+ * strictFunctionTypes and tests can pass a tiny stub), and the action is the
+ * real `Keybinding` union so a mistyped action name fails to compile instead of
+ * silently never matching — which would turn a key into a dead key.
  */
-export type KeybindingLookup = { matches(keyData: string, action: string): boolean };
+export type KeybindingLookup = { matches(keyData: string, action: Keybinding): boolean };
 
 /**
  * Everything the footer feature owns: which statuses exist, which are hidden,
@@ -103,19 +104,29 @@ export class FooterStatuses {
     return this.hidden.has(key);
   }
 
-  /** All known statuses (tap registry + pre-existing ones), sorted by key. */
+  /**
+   * All known statuses (tap registry + pre-existing ones), sorted by key.
+   *
+   * Hidden keys whose status was later CLEARED are kept in the list with empty
+   * text: they are gone from the registry and never appear in the
+   * getExtensionStatuses map either, so dropping them here would strand them
+   * hidden forever with no UI able to un-hide them.
+   */
   entries(): [string, string][] {
     this.mergeLive();
-    return [...this.registry.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const merged = new Map(this.registry);
+    for (const key of this.hidden) if (!merged.has(key)) merged.set(key, "(cleared)");
+    return [...merged.entries()].sort(([a], [b]) => a.localeCompare(b));
   }
 
   keys(): string[] {
     this.mergeLive();
-    return [...this.registry.keys()];
+    return [...new Set([...this.registry.keys(), ...this.hidden])];
   }
 
+  /** True when the key is known, including a hidden key whose status was cleared. */
   has(key: string): boolean {
-    return this.registry.has(key);
+    return this.registry.has(key) || this.hidden.has(key);
   }
 
   text(key: string): string | undefined {
@@ -176,10 +187,14 @@ export class FooterToggleDialog implements Component {
     this.onClose = onClose;
   }
 
-  render(): string[] {
+  // The real viewport width arrives here, so each row is truncated against it
+  // rather than a hard-coded column count that wrapped on narrow terminals.
+  render(width: number): string[] {
     const theme = this.theme;
+    const limit = Math.max(1, width);
+    const clip = (row: string) => truncateToWidth(row, limit, "…");
     const lines: string[] = [];
-    lines.push(theme.fg("accent", theme.bold?.("extension footer statuses") ?? "extension footer statuses"));
+    lines.push(clip(theme.fg("accent", theme.bold?.("extension footer statuses") ?? "extension footer statuses")));
     for (let i = 0; i < this.entries.length; i++) {
       const [key, text] = this.entries[i];
       const cursor = i === this.selected ? theme.fg("accent", "→ ") : "  ";
@@ -187,16 +202,19 @@ export class FooterToggleDialog implements Component {
       const state = this.statuses.isHidden(key)
         ? theme.fg("warning", "✗")
         : theme.fg("success", "✓");
-      lines.push(
-        `${cursor}${state} ${theme.fg("success", key)} ${theme.fg("muted", "→")} ${truncateToWidth(text, 80, "…")}`,
-      );
+      lines.push(clip(`${cursor}${state} ${theme.fg("success", key)} ${theme.fg("muted", "→")} ${text}`));
     }
-    lines.push(theme.fg("dim", "↑↓ select · space toggle · Enter/Esc close"));
+    lines.push(clip(theme.fg("dim", "↑↓ select · space toggle · Enter/Esc close")));
     return lines;
   }
 
   handleInput(keyData: string): boolean {
     const kb = this.keybindings;
+    // index.ts never opens the dialog empty, but stay robust: entries[-1] would throw.
+    if (this.entries.length === 0) {
+      this.onClose();
+      return true;
+    }
     if (kb.matches(keyData, "tui.select.up") || keyData === "k") {
       this.selected = Math.max(0, this.selected - 1);
     } else if (kb.matches(keyData, "tui.select.down") || keyData === "j") {

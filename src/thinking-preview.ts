@@ -9,7 +9,7 @@
  * CompactLine truncates at the real viewport width during render().
  */
 
-import { CompactLine, gutter, realTimers, type ThemeLike, type Timers } from "./components.ts";
+import { CompactLine, realTimers, type ThemeLike, type Timers } from "./components.ts";
 
 /** Core calls this with the full hidden thinking text plus a streaming flag. */
 export type ThinkingPreview = (
@@ -27,7 +27,10 @@ export function createThinkingPreview(timers: Timers = realTimers): ThinkingPrev
     // Match the tool-call status language (› • ✓): a dot while streaming, a
     // check once the message completes.
     const glyph = streaming ? "•" : "✓";
-    line.setGutter(gutter(theme));
+    // Purple gutter (thinkingText = #c4a7e7): matches the expanded thinking
+    // text color, so collapsed and expanded thinking share one hue. Tool rows
+    // stay pastel green.
+    line.setGutter(` ${theme.fg("thinkingText", "▌")} `);
     line.set(
       `${theme.fg("success", glyph)} ${theme.fg("success", "think")} ${theme.fg("toolTitle", text.replace(/\s+/g, " ").trim())}`,
       streaming ? (row) => theme.bg("toolPendingBg", row) : undefined,

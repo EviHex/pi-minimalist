@@ -61,8 +61,8 @@ export const realTimers: Timers = {
  * Pi theme token (custom color keys make theme.fg() throw at runtime); signal
  * .json maps it to pastel green.
  */
-export function gutter(theme: ThemeLike): string {
-  return ` ${theme.fg("borderAccent", "▌")} `;
+export function gutter(theme: ThemeLike, token: ThemeColor = "borderAccent"): string {
+  return ` ${theme.fg(token, "▌")} `;
 }
 
 /**

@@ -23,7 +23,7 @@ describe("thinking preview", () => {
   it("uses success for the glyph and label, toolTitle for the preview text", () => {
     assert.equal(
       preview("why", theme, 0, false).render(500)[0],
-      " <borderAccent>▌</borderAccent> <success>✓</success> <success>think</success> <toolTitle>why</toolTitle>",
+      " <thinkingText>▌</thinkingText> <success>✓</success> <success>think</success> <toolTitle>why</toolTitle>",
     );
   });
 

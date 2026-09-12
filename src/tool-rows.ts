@@ -58,9 +58,9 @@ export function compact(value: unknown, max = 100): string {
 }
 
 /** Shorten absolute paths inside the home directory to ~/... for display. */
-export function shortPath(value: unknown, home: string = homedir()): string {
+export function shortPath(value: unknown): string {
   const path = String(value ?? "");
-  return path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+  return path.startsWith(homedir()) ? `~${path.slice(homedir().length)}` : path;
 }
 
 /**
@@ -143,32 +143,17 @@ export function timerBadge(elapsed: number | undefined): string {
 }
 
 /**
- * Action color for the leading action word (read/bash/edit/toolcall…).
- *
- * All green: mutating tools used to be warning orange, but orange already
- * carries "highlighted output" semantics in prose, and the action word is a
- * label, not a warning. Status is conveyed by the glyph color (✗ red on
- * failure), not by the action color.
+ * Color the action word (always success green), insert the elapsed timer right
+ * after it (before the command/path details), then the details in tool-title
+ * color. The action color is hard-coded: every action is green now that the
+ * per-category actionColor() is gone.
  */
-export function actionColor(_name: string): ThemeColor {
-  return "success";
-}
-
-/**
- * Color the action word, insert the elapsed timer right after it (before the
- * command/path details), then the details in tool-title color.
- */
-export function colorAction(
-  text: string,
-  theme: ThemeLike,
-  color: ThemeColor,
-  timer?: string,
-): string {
+export function colorAction(text: string, theme: ThemeLike, timer?: string): string {
   const separator = text.indexOf(" ");
   const action = separator === -1 ? text : text.slice(0, separator);
   const details = separator === -1 ? "" : text.slice(separator);
   const timerPart = timer ? ` ${theme.fg("success", timer)}` : "";
-  return theme.fg(color, action) + timerPart + theme.fg("toolTitle", details);
+  return theme.fg("success", action) + timerPart + theme.fg("toolTitle", details);
 }
 
 /** Assemble the full row text: glyph, colored action word, timer, details. */
@@ -183,6 +168,6 @@ export function rowText(
   const parts: string[] = [];
   // Skip an absent glyph so the row never starts with a stray space.
   if (status.glyph) parts.push(theme.fg(status.color, status.glyph));
-  parts.push(colorAction(text, theme, actionColor(name), timerBadge(status.elapsed)));
+  parts.push(colorAction(text, theme, timerBadge(status.elapsed)));
   return parts.join(" ");
 }

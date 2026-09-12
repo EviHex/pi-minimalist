@@ -16,7 +16,6 @@ import {
   CompactLine,
   EmptyComponent,
   GutteredComponent,
-  GUTTER_WIDTH,
   gutter,
   outputGutter,
   realTimers,
@@ -125,7 +124,7 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
 
       const wrapper = context.lastComponent instanceof GutteredComponent
         ? context.lastComponent
-        : new GutteredComponent(component, outputGutter(theme), GUTTER_WIDTH);
+        : new GutteredComponent(component, outputGutter(theme));
       wrapper.setInner(component);
       return wrapper;
     },

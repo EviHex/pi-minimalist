@@ -30,7 +30,6 @@ export const GUTTER_WIDTH = 3;
 export type ThemeLike = {
   fg(token: ThemeColor, text: string): string;
   bg(token: ThemeBg, text: string): string;
-  bold?(text: string): string;
 };
 
 /**
@@ -168,12 +167,10 @@ export class EmptyComponent implements Component {
 export class GutteredComponent implements Component {
   private inner: Component;
   private gutterText: string;
-  private gutterWidth: number;
 
-  constructor(inner: Component, gutterText: string, gutterWidth: number = GUTTER_WIDTH) {
+  constructor(inner: Component, gutterText: string) {
     this.inner = inner;
     this.gutterText = gutterText;
-    this.gutterWidth = gutterWidth;
   }
 
   /** Swap in the newest inner component while keeping this wrapper stable. */
@@ -182,7 +179,7 @@ export class GutteredComponent implements Component {
   }
 
   render(width: number): string[] {
-    const lines = this.inner.render(Math.max(1, width - this.gutterWidth));
+    const lines = this.inner.render(Math.max(1, width - GUTTER_WIDTH));
     return lines.map((line) => this.gutterText + line);
   }
 

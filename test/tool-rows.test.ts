@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import { describe, it } from "node:test";
 import {
-  actionColor,
   callText,
   colorAction,
   compact,
@@ -43,7 +42,7 @@ describe("callText", () => {
 
   it("shortens home-directory paths", () => {
     assert.equal(callText("read", { path: `${homedir()}/x/y.ts` }), "read ~/x/y.ts");
-    assert.equal(shortPath("/etc/hosts", "/home/u"), "/etc/hosts");
+    assert.equal(shortPath("/etc/hosts"), "/etc/hosts");
   });
 
   it("collapses a multiline command into ONE row, collapsed and expanded", () => {
@@ -128,16 +127,15 @@ describe("statusGlyph", () => {
 
 describe("colorAction / rowText", () => {
   it("colors the action word green and the details with toolTitle", () => {
-    assert.equal(actionColor("edit"), "success");
     assert.equal(
-      colorAction("read a.ts", theme, actionColor("read")),
+      colorAction("read a.ts", theme),
       "<success>read</success><toolTitle> a.ts</toolTitle>",
     );
   });
 
   it("places the timer between the action word and the details", () => {
     assert.equal(
-      plain(colorAction("bash sleep 5", theme, "success", "[⏱ 3s]")),
+      plain(colorAction("bash sleep 5", theme, "[⏱ 3s]")),
       "bash [⏱ 3s] sleep 5",
     );
   });

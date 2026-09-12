@@ -133,21 +133,22 @@ fi
 # Patch 5: thick markdown blockquote gutter (pi-tui markdown.js + bundle)
 # -----------------------------------------------------------------------------
 # Pi hard-codes the thin │ prefix for every rendered blockquote line. Replace
-# it with full-block █; signal.json maps mdQuoteBorder to text (white).
+# it with ▌ (same half-block as the tool-call gutter); signal.json maps
+# mdQuoteBorder to text (white).
 # -----------------------------------------------------------------------------
 MARKDOWN="$PI_ROOT/node_modules/@earendil-works/pi-tui/dist/components/markdown.js"
 
-if ! grep -qF 'quoteBorder("█ ")' "$MARKDOWN"; then
+if ! grep -qF 'quoteBorder("▌ ")' "$MARKDOWN"; then
   echo "Patching pi-tui markdown: thick blockquote gutter"
-  perl -0pi -e 's/quoteBorder\("│ "\)|quoteBorder\("▌ "\)/quoteBorder("█ ")/' "$MARKDOWN"
+  perl -0pi -e 's/quoteBorder\("│ "\)|quoteBorder\("█ "\)/quoteBorder("▌ ")/' "$MARKDOWN"
   patched=1
 else
   echo "pi-tui markdown: thick blockquote gutter already present, skipping"
 fi
 
-if ! grep -qF 'quoteBorder("\u2588 ")' "$BUNDLE"; then
+if ! grep -qF 'quoteBorder("\u258c ")' "$BUNDLE"; then
   echo "Patching bundle: thick blockquote gutter"
-  perl -0pi -e 's/quoteBorder\("\\u2502 "\)|quoteBorder\("\\u258c "\)/quoteBorder("\\u2588 ")/' "$BUNDLE"
+  perl -0pi -e 's/quoteBorder\("\\u2502 "\)|quoteBorder\("\\u2588 "\)/quoteBorder("\\u258c ")/' "$BUNDLE"
   patched=1
 else
   echo "Bundle: thick blockquote gutter already present, skipping"

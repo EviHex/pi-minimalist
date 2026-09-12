@@ -5,7 +5,6 @@
  * given its arguments, which is what makes the row layout unit-testable.
  */
 
-import { homedir } from "node:os";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { ThemeLike } from "./components.ts";
 
@@ -57,12 +56,6 @@ export function compact(value: unknown, max = 100): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-/** Shorten absolute paths inside the home directory to ~/... for display. */
-export function shortPath(value: unknown): string {
-  const path = String(value ?? "");
-  return path.startsWith(homedir()) ? `~${path.slice(homedir().length)}` : path;
-}
-
 /**
  * Build the one-line summary shown next to the status glyph, e.g.
  * "read src/a.ts:1-50", "bash go test ./...", "edit src/b.ts".
@@ -71,6 +64,9 @@ export function shortPath(value: unknown): string {
  */
 export function callText(name: ToolName, args: any, expanded = false): string {
   const safeArgs = args ?? {};
+  // Paths are shown verbatim (no ~/ home abbreviation — it was decorative and
+  // cost a homedir() call per render).
+  const path = (value: unknown) => String(value ?? "");
   switch (name) {
     case "bash":
       // Spell out the action; "$" looked like terminal output rather than a tool
@@ -89,17 +85,17 @@ export function callText(name: ToolName, args: any, expanded = false): string {
       const range = safeArgs.offset !== undefined || safeArgs.limit !== undefined
         ? `:${start}${safeArgs.limit ? `-${start + safeArgs.limit - 1}` : ""}`
         : "";
-      return `read ${shortPath(safeArgs.path)}${range}`;
+      return `read ${path(safeArgs.path)}${range}`;
     }
     case "edit":
     case "write":
-      return `${name} ${shortPath(safeArgs.path)}`;
+      return `${name} ${path(safeArgs.path)}`;
     case "grep":
-      return `grep /${compact(safeArgs.pattern, 50)}/ in ${shortPath(safeArgs.path ?? ".")}`;
+      return `grep /${compact(safeArgs.pattern, 50)}/ in ${path(safeArgs.path ?? ".")}`;
     case "find":
-      return `find ${compact(safeArgs.pattern, 50)} in ${shortPath(safeArgs.path ?? ".")}`;
+      return `find ${compact(safeArgs.pattern, 50)} in ${path(safeArgs.path ?? ".")}`;
     case "ls":
-      return `ls ${shortPath(safeArgs.path ?? ".")}`;
+      return `ls ${path(safeArgs.path ?? ".")}`;
   }
 }
 

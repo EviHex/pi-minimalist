@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { homedir } from "node:os";
 import { describe, it } from "node:test";
 import {
   callText,
@@ -8,7 +7,6 @@ import {
   fallbackCallText,
   isBuiltIn,
   rowText,
-  shortPath,
   statusGlyph,
   timerBadge,
 } from "../src/tool-rows.ts";
@@ -40,9 +38,9 @@ describe("callText", () => {
     assert.equal(callText("ls", {}), "ls .");
   });
 
-  it("shortens home-directory paths", () => {
-    assert.equal(callText("read", { path: `${homedir()}/x/y.ts` }), "read ~/x/y.ts");
-    assert.equal(shortPath("/etc/hosts"), "/etc/hosts");
+  it("shows paths verbatim (no ~/ abbreviation)", () => {
+    assert.equal(callText("read", { path: "/Users/me/x/y.ts" }), "read /Users/me/x/y.ts");
+    assert.equal(callText("read", { path: "src/a.ts" }), "read src/a.ts");
   });
 
   it("collapses a multiline command into ONE row, collapsed and expanded", () => {

@@ -119,6 +119,8 @@ describe("statusGlyph", () => {
   it("stops reporting elapsed once the result is final", () => {
     assert.equal(statusGlyph(makeContext("completed")).elapsed, undefined);
     assert.equal(timerBadge(undefined), "");
+    assert.equal(timerBadge(0), "", "no badge under one second (avoids 0s flicker)");
+    assert.equal(timerBadge(1), "[⏱ 1s]");
     assert.equal(timerBadge(7), "[⏱ 7s]");
   });
 });

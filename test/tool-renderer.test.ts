@@ -57,7 +57,7 @@ describe("renderCall", () => {
     const context = makeContext("running");
 
     const line = r.renderCall("bash", { command: "sleep 30" }, widthTheme, context);
-    assert.deepEqual(line.render(80).map(plain), [" ▌ • bash [⏱ 0s] sleep 30"]);
+    assert.deepEqual(line.render(80).map(plain), [" ▌ • bash sleep 30"]);
     assert.equal(timers.pending(), 1, "a running row must tick");
 
     // The ticker asks core to invalidate, which re-runs renderCall.

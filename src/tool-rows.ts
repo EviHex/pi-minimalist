@@ -133,9 +133,14 @@ export function statusGlyph(context: CallContext, now: () => number = Date.now):
   return { glyph: "›", color: "success" };
 }
 
-/** Elapsed-timer badge inserted after the action word, or "" when not running. */
+/**
+ * Elapsed-timer badge inserted after the action word, or "" when not running
+ * or under one second. Hiding the first second avoids a `[⏱ 0s]` flicker on
+ * commands that finish instantly; the 1s ticker repaints the row once the
+ * elapsed time reaches 1s, so the badge appears only when it is meaningful.
+ */
 export function timerBadge(elapsed: number | undefined): string {
-  return elapsed === undefined ? "" : `[⏱ ${elapsed}s]`;
+  return elapsed !== undefined && elapsed >= 1 ? `[⏱ ${elapsed}s]` : "";
 }
 
 /**

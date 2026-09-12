@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { CompactLine, EmptyComponent, GutteredComponent } from "./components.ts";
-import { BUILT_INS } from "./tool-rows.ts";
-import { createToolRenderer } from "./tool-renderer.ts";
-import { fakeClock, fakeTheme, fakeTimers, makeContext, plain, plainTheme } from "./test-support.ts";
+import { CompactLine, EmptyComponent, GutteredComponent } from "../src/components.ts";
+import { BUILT_INS } from "../src/tool-rows.ts";
+import { createToolRenderer } from "../src/tool-renderer.ts";
+import { fakeClock, fakeTheme, fakeTimers, makeContext, plain, plainTheme } from "../test/test-support.ts";
 
 const theme = fakeTheme();
 // Width/truncation assertions need a theme whose markup costs zero columns.

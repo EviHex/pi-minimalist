@@ -9,8 +9,8 @@
  * - render contexts are built explicitly per UI state (queued/running/…).
  */
 
-import type { ThemeLike, Timers } from "./components.ts";
-import type { RenderState } from "./tool-rows.ts";
+import type { ThemeLike, Timers } from "../src/components.ts";
+import type { RenderState } from "../src/tool-rows.ts";
 
 /**
  * Theme whose output NAMES the token it used, e.g. `<success>✓</success>`.

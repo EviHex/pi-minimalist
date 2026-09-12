@@ -52,4 +52,4 @@ fi
 # Node runs TypeScript directly by stripping types (Node >= 22.6), so no build
 # step and no test framework dependency. --test-force-exit is deliberately NOT
 # used: a leaked interval must fail the run, not be papered over.
-exec node --test --experimental-strip-types src/*.test.ts
+exec node --test --experimental-strip-types test/*.test.ts

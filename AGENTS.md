@@ -1,8 +1,8 @@
 # pi-minimalist — Agent Notes
 
-One home for all Pi UI simplification. Three features, one folder, one patch
-script. Formerly two extensions: `compact-tool-renderer` and
-`footer-status-manager` (both deleted after the merge — do not recreate them).
+One home for all Pi UI simplification. Two features, one folder, one patch
+script. Formerly the `compact-tool-renderer` extension (deleted after the merge —
+do not recreate it).
 
 ## Features
 
@@ -34,32 +34,16 @@ bare "Thinking..." label. While the model streams thinking it shows
 `• think …` with a `toolPendingBg` row highlight, flipping to `✓` on
 completion. Expanded view keeps Pi's native italic markdown.
 
-### 3. Footer status manager
-
-Extensions advertise state via `ctx.ui.setStatus(key, text)` — polyglot,
-caveman, ponytail, MCP adapters, JetBrains MCP, etc. Commands:
-
-- `/footer` — interactive dialog (ctx.ui.custom): ↑↓/jk move, space toggles
-  hidden ↔ visible (persists immediately), s/Enter/Esc closes.
-- `/footer <key>` — direct toggle, no dialog. The key autocompletes: Pi
-  calls the command's `getArgumentCompletions(argumentPrefix)` hook, and we
-  offer every status key (hidden ones described as such).
-
-Hidden keys persist in `hidden.json` next to `index.ts`.
-
 ## Files
 
-- `index.ts` — wiring only: installs the core bridges, registers `/footer`.
+- `index.ts` — wiring only: installs the core bridges.
 - `src/` — all behavior, heavily commented (user is not a TS expert). See Layout.
-- `src/*.test.ts` — deterministic UI tests (`node --test`). See Validation.
+- `test/*.test.ts` — deterministic UI tests (`node --test`). See Validation.
 - `run-tests.sh` — test + typecheck runner (symlinks Pi's packages locally).
 - `tsconfig.json` — typecheck-only config (never emits).
 - `patch-pi.sh` — idempotent script re-applying all core bridges after a Pi update.
-- `hidden.json` — persisted hidden footer-status keys (created on first toggle).
 - `node_modules/` — gitignored symlinks created by `run-tests.sh`.
 
-(`/footer-statuses`, a sticky-widget variant of the viewer, was removed —
-the /footer dialog already shows everything.)
 - `AGENTS.md` — this file.
 
 Global Pi setting loads the entry file explicitly:
@@ -74,27 +58,19 @@ An explicit file path bypasses scanning and loads the extension reliably.
 
 ## Architecture
 
-Pi supports per-tool `renderCall`, `renderResult`, `renderShell` and
-`ctx.ui.setStatus`, but has no public global/default renderer API, no
-thinking-renderer hook, and no way to list or selectively hide footer
-statuses. All three features therefore use the same two-layer pattern:
+Pi supports per-tool `renderCall`, `renderResult`, `renderShell`, but has no
+public global/default renderer API and no thinking-renderer hook. Both features
+therefore use the same two-layer pattern:
 
 1. **Normal extension code** does everything possible via public API.
 2. **Small local Pi core bridges** (patch-pi.sh) make core consult
    process-global symbols; ALL styling/behavior lives in this folder so
    `/reload` refreshes it without touching core.
 
-Bridge symbols registered by the extension (the statusTap branch ALSO purges
-any already-stored value via `setExtensionStatus(key, undefined)` before
-returning — without that, a status set before the tap registered would only
-disappear on its next update, so hiding appeared to do nothing):
+Bridge symbols registered by the extension:
 
 - `Symbol.for("pi.defaultToolRenderer")` → `{ renderShell: "self", renderCall, renderResult }`
 - `Symbol.for("pi.thinkingPreview")` → `(text, theme, pad, isStreaming) => Component`
-- `Symbol.for("pi.statusTap")` → `(key, text) => boolean` (true = hide from footer)
-
-Plus one context exposure: `ctx.ui.getExtensionStatuses()` (read-only map of
-live statuses, covers ones set before this extension loaded).
 
 ### Renderer details
 
@@ -132,7 +108,6 @@ the unbundled files are patched for consistency):
 ```text
 /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tool-execution.js
 /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/assistant-message.js
-/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/interactive-mode.js
 /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/components/markdown.js
 /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-JVUZSMYM.js
 ```
@@ -151,19 +126,15 @@ The script patches exactly these bridges:
 5. `assistant-message.js` — collapsed thinking blocks call
    `globalThis[Symbol.for("pi.thinkingPreview")]` (falls back to the native
    "Thinking..." label when unregistered).
-6. `interactive-mode.js` — `setExtensionStatus` consults
-   `globalThis[Symbol.for("pi.statusTap")]` first (true = swallow → hidden
-   from footer), and `createExtensionUIContext()` exposes
-   `getExtensionStatuses: () => this.footerDataProvider.getExtensionStatuses()`.
-7. `pi-tui/components/markdown.js` — replace the thin blockquote prefix `│`
+6. `pi-tui/components/markdown.js` — replace the thin blockquote prefix `│`
    with full-block `█`; `signal.json` maps `mdQuoteBorder` to white `text`.
 
 ### Upgrade warning
 
 A Pi upgrade overwrites the patched core files. Symptom: built-ins and
 MCP/third-party tools return to verbose cards, thinking blocks
-show the bare "Thinking..." label, footer hiding stops working, and markdown
-blockquotes return to a thin gutter.
+show the bare "Thinking..." label, and markdown blockquotes return to a thin
+gutter.
 
 Fix: re-run the idempotent patch script after every Pi update:
 
@@ -184,8 +155,6 @@ createCallFallback
 createResultFallback
 getRenderContext
 thinkingVisibilityOverrides
-setExtensionStatus
-setStatus:(key,text)
 ```
 
 hand-apply the same edits, then update the script's perl patterns.
@@ -232,15 +201,6 @@ renderer into the global render-only bridge; `renderResult` delegates to it for
 expanded output, preserving syntax highlighting and edit diffs. Collapsed
 output returns `EmptyComponent`.
 
-### Footer status tap ordering
-
-`pi.statusTap` only sees setStatus calls made AFTER it registers. Other
-extensions (MCP adapters etc.) may load first and set statuses earlier, so
-`FooterStatuses.entries()`/`keys()` call `mergeLive()`, reading the
-`getExtensionStatuses` bridge (ctx.ui captured via `attachUi` on session_start
-and in the command handler, because autocomplete runs outside any handler).
-Never call `ctx.ui.setStatus` inside the tap callback (infinite loop).
-
 ### Core's fallback path never passes lastComponent
 
 `createCallFallback()` / `createResultFallback()` call
@@ -252,14 +212,6 @@ MCP calls, and left a permanent 1Hz repaint per finished call. The row is
 therefore cached in `context.state.callLine` (`state` is core's `rendererState`:
 one object per tool call, stable across renders). Regression test: "reuses one row
 and one ticker when core passes no lastComponent".
-
-### Hidden statuses that get cleared must stay listable
-
-`tap(key, undefined)` removes a key from the registry, and hidden keys never
-appear in `getExtensionStatuses()` either. So a hidden key whose status is later
-cleared would be unreachable from both `/footer` and the dialog — stranded hidden
-until `hidden.json` was hand-edited. `entries()`/`keys()`/`has()` therefore also
-report hidden-only keys (shown as `(cleared)`).
 
 ### Theme tokens and keybinding actions are typed unions
 
@@ -284,7 +236,7 @@ pi-minimalist's core bridge wins the visible rendering.
 
 ## Layout
 
-`index.ts` is WIRING ONLY (bridge installation + `/footer` command). All
+`index.ts` is WIRING ONLY (bridge installation). All
 behavior lives in `src/`, so it can be unit tested without an extension
 runtime:
 
@@ -294,9 +246,8 @@ runtime:
 | `src/tool-rows.ts` | pure row text: `callText`, `statusGlyph`, `colorAction`, `rowText`, `BUILT_INS` |
 | `src/tool-renderer.ts` | feature 1: `createToolRenderer()` factory |
 | `src/thinking-preview.ts` | feature 2: `createThinkingPreview()` factory |
-| `src/footer.ts` | feature 3: `FooterStatuses`, `FooterToggleDialog`, hidden-key stores |
-| `src/test-support.ts` | deterministic doubles (fake theme/clock/timers, context builder) |
-| `src/*.test.ts` | the tests |
+| `test/test-support.ts` | deterministic doubles (fake theme/clock/timers, context builder) |
+| `test/*.test.ts` | the tests |
 
 Why factories instead of module-level singletons: tests drive the exact
 production renderer with an injected clock and interval, so the elapsed timer is
@@ -328,7 +279,7 @@ asserted through a fake theme that emits `<success>✓</success>`, so no asserti
 depends on the machine's palette or the active theme. Use `plainTheme()` for
 width assertions — `fakeTheme()` markup occupies real columns.
 
-`src/integration.test.ts` is the regression guard for the core patch: it loads
+`test/integration.test.ts` is the regression guard for the core patch: it loads
 this extension through Pi's real extension loader, builds a real
 `ToolExecutionComponent` around the real `createReadToolDefinition`, and asserts
 both the compact/guttered rendering AND that the extension registers zero tools
@@ -336,8 +287,7 @@ both the compact/guttered rendering AND that the extension registers zero tools
 
 What automated tests still cannot cover: real terminal escape output, actual
 keybinding delivery (Ctrl+O / Ctrl+T), markdown code-block and blockquote
-patches, footer/powerline composition, and MCP adapter interplay. Those remain
-manual interactive checks below.
+patches and MCP adapter interplay. Those remain manual interactive checks below.
 
 Fast startup/syntax check:
 
@@ -351,7 +301,6 @@ Core bundle syntax checks:
 node --check /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-JVUZSMYM.js
 node --check /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tool-execution.js
 node --check /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/assistant-message.js
-node --check /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/interactive-mode.js
 ```
 
 Patch script self-check (idempotent, safe anytime):
@@ -374,11 +323,6 @@ Interactive checks after restart/reload:
 7. Trigger an error: expect red `✗`.
 8. Toggle thinking collapsed (`Ctrl+T`): expect `• think …` (highlighted) while
    streaming, `✓ think <preview>` when done.
-9. `/footer ` (trailing space) → autocomplete panel lists every status key.
-10. `/footer` → select a noisy status → it disappears from the footer;
-    select again → reappears.
-11. Restart Pi → hidden choices survived (`hidden.json`).
-
 ## Scope
 
 Keep implementation small. No config format, package.json, runtime dependency,
@@ -390,7 +334,3 @@ When adding or changing a renderer, add or update its test in the same commit:
 the UI has repeatedly regressed silently, and these tests exist to name the
 broken behavior instead of showing a large snapshot diff.
 
-User's powerline-footer extension (npm:pi-powerline-footer) is SEPARATE and
-must keep working: this extension only taps statuses before they reach
-powerline's `extension_statuses` segment; powerline's own config
-(`settings.json` → `powerline`) remains the place for segment layout.

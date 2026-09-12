@@ -15,7 +15,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { BUILT_INS } from "./tool-rows.ts";
+import { BUILT_INS } from "../src/tool-rows.ts";
 
 const PI_ROOT = process.env.PI_ROOT;
 const EXTENSION = new URL("../index.ts", import.meta.url).pathname;
@@ -55,9 +55,8 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
     assert.equal(bridge.handles("read"), true);
     assert.equal(bridge.handles("mcp"), false);
 
-    // The other two bridges must be installed by the same load.
+    // The other bridge must be installed by the same load.
     assert.equal(typeof (globalThis as any)[Symbol.for("pi.thinkingPreview")], "function");
-    assert.equal(typeof (globalThis as any)[Symbol.for("pi.statusTap")], "function");
 
     const native = createReadToolDefinition("/tmp");
     assert.equal(native.name, "read", "the native definition must remain intact");
@@ -113,24 +112,19 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
     }
   });
 
-  it("applies the unbundled thinking + status bridges in the installed Pi", () => {
+  it("applies the unbundled thinking bridge in the installed Pi", () => {
     // patch-pi.sh edits compiled files that a Pi upgrade overwrites, and only
     // the renderer bridge is observable through the rendering test above. Check
-    // the other two in the UNBUNDLED files (the bundle chunk filename is a build
-    // hash and would make this test brittle); patch-pi.sh keeps both forms in
-    // sync, so a missing marker here means the patch needs re-running.
-    const files: [string, string][] = [
-      ["components/assistant-message.js", 'Symbol.for("pi.thinkingPreview")'],
-      ["interactive-mode.js", 'Symbol.for("pi.statusTap")'],
-      ["interactive-mode.js", "getExtensionStatuses:"],
-    ];
-
-    for (const [file, marker] of files) {
-      const source = readFileSync(`${PI_ROOT}/dist/modes/interactive/${file}`, "utf-8");
-      assert.ok(
-        source.includes(marker),
-        `${file} is missing ${marker} — run ./patch-pi.sh and restart Pi`,
-      );
-    }
+    // the thinking bridge in the UNBUNDLED file (the bundle chunk filename is a
+    // build hash and would make this test brittle); patch-pi.sh keeps both forms
+    // in sync, so a missing marker here means the patch needs re-running.
+    const source = readFileSync(
+      `${PI_ROOT}/dist/modes/interactive/components/assistant-message.js`,
+      "utf-8",
+    );
+    assert.ok(
+      source.includes('Symbol.for("pi.thinkingPreview")'),
+      "assistant-message.js is missing the thinking bridge — run ./patch-pi.sh and restart Pi",
+    );
   });
 });

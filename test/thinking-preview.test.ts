@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { createThinkingPreview } from "./thinking-preview.ts";
-import { fakeTheme, fakeTimers, plain, plainTheme } from "./test-support.ts";
+import { createThinkingPreview } from "../src/thinking-preview.ts";
+import { fakeTheme, fakeTimers, plain, plainTheme } from "../test/test-support.ts";
 
 // Token assertions use the naming theme; layout/width assertions use the
 // zero-width one, because fake markup would consume real columns.

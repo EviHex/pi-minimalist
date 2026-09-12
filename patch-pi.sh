@@ -130,36 +130,6 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Patch 4: footer-status-manager bridges (interactive-mode.js, both forms)
-# Used by extensions/footer-status-manager. Two bridges:
-#   a) setExtensionStatus consults globalThis[Symbol.for("pi.statusTap")] first;
-#      returning true swallows the update (status hidden from footer).
-#   b) ctx.ui exposes getExtensionStatuses() so the viewer can list statuses
-#      set before the extension loaded.
-# -----------------------------------------------------------------------------
-INTERACTIVE="$PI_ROOT/dist/modes/interactive/interactive-mode.js"
-TAP_MARKER='Symbol.for("pi.statusTap")'
-
-if ! grep -qF "$TAP_MARKER" "$INTERACTIVE"; then
-  echo "Patching interactive-mode: status tap + getExtensionStatuses bridges"
-  perl -0pi -e 's/    setExtensionStatus\(key, text\) \{\n        this\.footerDataProvider\.setExtensionStatus\(key, text\);/    setExtensionStatus(key, text) {\n        if (globalThis[Symbol.for("pi.statusTap")]?.(key, text)) {\n            this.footerDataProvider.setExtensionStatus(key, undefined);\n            this.ui.requestRender();\n            return;\n        }\n        this.footerDataProvider.setExtensionStatus(key, text);/' "$INTERACTIVE"
-  perl -0pi -e 's/            setStatus: \(key, text\) => this\.setExtensionStatus\(key, text\),/            setStatus: (key, text) => this.setExtensionStatus(key, text),\n            getExtensionStatuses: () => this.footerDataProvider.getExtensionStatuses(),/' "$INTERACTIVE"
-  patched=1
-else
-  echo "Interactive-mode: footer status bridges already present, skipping"
-fi
-
-# Bundle equivalents (minified).
-if ! grep -qF "$TAP_MARKER" "$BUNDLE"; then
-  echo "Patching bundle: status tap + getExtensionStatuses bridges"
-  perl -0pi -e 's/setExtensionStatus\(key,text\)\{this\.footerDataProvider\.setExtensionStatus\(key,text\),this\.ui\.requestRender\(\)\}/setExtensionStatus(key,text){if(globalThis[Symbol.for("pi.statusTap")]?.(key,text)){this.footerDataProvider.setExtensionStatus(key,void 0),this.ui.requestRender();return}this.footerDataProvider.setExtensionStatus(key,text),this.ui.requestRender()}/' "$BUNDLE"
-  perl -0pi -e 's/setStatus:\(key,text\)=>this\.setExtensionStatus\(key,text\),/setStatus:(key,text)=>this.setExtensionStatus(key,text),getExtensionStatuses:()=>this.footerDataProvider.getExtensionStatuses(),/' "$BUNDLE"
-  patched=1
-else
-  echo "Bundle: footer status bridges already present, skipping"
-fi
-
-# -----------------------------------------------------------------------------
 # Patch 5: thick markdown blockquote gutter (pi-tui markdown.js + bundle)
 # -----------------------------------------------------------------------------
 # Pi hard-codes the thin │ prefix for every rendered blockquote line. Replace
@@ -190,7 +160,6 @@ echo "Verifying syntax..."
 node --check "$BUNDLE"
 node --check "$CORE"
 node --check "$ASSISTANT"
-node --check "$INTERACTIVE"
 node --check "$MARKDOWN"
 echo "Syntax OK."
 

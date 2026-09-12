@@ -9,8 +9,8 @@ import {
   GutteredComponent,
   gutter,
   outputGutter,
-} from "./components.ts";
-import { fakeTheme, fakeTimers, plain, plainTheme } from "./test-support.ts";
+} from "../src/components.ts";
+import { fakeTheme, fakeTimers, plain, plainTheme } from "../test/test-support.ts";
 
 const theme = fakeTheme();
 // Width/truncation assertions need a theme whose markup costs zero columns.

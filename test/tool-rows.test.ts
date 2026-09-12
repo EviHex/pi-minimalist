@@ -12,8 +12,8 @@ import {
   shortPath,
   statusGlyph,
   timerBadge,
-} from "./tool-rows.ts";
-import { fakeClock, fakeTheme, makeContext, plain } from "./test-support.ts";
+} from "../src/tool-rows.ts";
+import { fakeClock, fakeTheme, makeContext, plain } from "../test/test-support.ts";
 
 const theme = fakeTheme();
 

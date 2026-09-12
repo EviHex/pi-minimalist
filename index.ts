@@ -12,18 +12,18 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { GutteredComponent } from "./src/components.ts";
+import { GutteredComponent, TopBorderComponent } from "./src/components.ts";
 import { createThinkingPreview, type ThinkingPreview } from "./src/thinking-preview.ts";
 import { createToolRenderer, type ToolRenderer } from "./src/tool-renderer.ts";
 
 const DEFAULT_RENDERER = Symbol.for("pi.defaultToolRenderer");
 const THINKING_PREVIEW = Symbol.for("pi.thinkingPreview");
-const GUTTER_WRAP = Symbol.for("pi.gutterWrap");
+const CONTENT_WRAP = Symbol.for("pi.contentWrap");
 
 type Bridges = {
   [DEFAULT_RENDERER]?: ToolRenderer;
   [THINKING_PREVIEW]?: ThinkingPreview;
-  [GUTTER_WRAP]?: (component: Component, theme: unknown) => Component;
+  [CONTENT_WRAP]?: (component: Component, kind: "thinking" | "text", theme: unknown) => Component;
 };
 
 export default function (_pi: ExtensionAPI) {
@@ -35,9 +35,12 @@ export default function (_pi: ExtensionAPI) {
   globals[DEFAULT_RENDERER] = createToolRenderer();
   globals[THINKING_PREVIEW] = createThinkingPreview();
 
-  // Expanded thinking blocks (Ctrl+T): core hands us the native Markdown
-  // component and we wrap it so every line carries the purple thinking gutter,
-  // matching the collapsed preview. theme is Pi's Theme at runtime.
-  globals[GUTTER_WRAP] = (component, theme: any) =>
-    new GutteredComponent(component, ` ${theme.fg("thinkingText", "▌")} `);
+  // Assistant content wrapper. Core hands us its native components and we add
+  // the visual language: expanded thinking gets the purple gutter (matching the
+  // collapsed preview), and prose that follows a thinking block or tool call
+  // gets an orange top border so the transition back to narrative text shows.
+  globals[CONTENT_WRAP] = (component, kind, theme: any) =>
+    kind === "thinking"
+      ? new GutteredComponent(component, ` ${theme.fg("thinkingText", "▌")} `)
+      : new TopBorderComponent(component, theme);
 }

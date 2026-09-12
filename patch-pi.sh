@@ -108,9 +108,10 @@ fi
 #   a) collapsed thinking preview — Pi shows a bare "Thinking..." label when a
 #      thinking block is hidden (Ctrl+T); the extension renders a compact
 #      one-line preview instead, via globalThis[Symbol.for("pi.thinkingPreview")].
-#   b) expanded thinking gutter — the expanded thinking block (native Markdown)
-#      gets wrapped by globalThis[Symbol.for("pi.gutterWrap")] so every line
-#      carries the purple thinking gutter, matching the collapsed preview.
+#   b) content wrapper — expanded thinking (native Markdown) gets the purple
+#      gutter via globalThis[Symbol.for("pi.contentWrap")](c, "thinking", theme);
+#      prose that follows a thinking block or tool call gets an orange top
+#      border via the same bridge with kind "text".
 # -----------------------------------------------------------------------------
 ASSISTANT_MARKER='Symbol.for("pi.thinkingPreview")'
 if ! grep -qF "$ASSISTANT_MARKER" "$ASSISTANT"; then
@@ -121,22 +122,24 @@ else
   echo "Assistant: thinking preview bridge already present, skipping"
 fi
 
-GUTTER_WRAP_MARKER='Symbol.for("pi.gutterWrap")'
+GUTTER_WRAP_MARKER='Symbol.for("pi.contentWrap")'
 if ! grep -qF "$GUTTER_WRAP_MARKER" "$ASSISTANT"; then
-  echo "Patching assistant-message: expanded thinking gutter bridge"
-  perl -0pi -e 's/this\.contentContainer\.addChild\(new MouseRegion\(thinkingComponent, \(event\) => \{/const gutterWrap = globalThis[Symbol.for("pi.gutterWrap")];\n                this.contentContainer.addChild(new MouseRegion(hidden ? thinkingComponent : (gutterWrap?.(thinkingComponent, theme) ?? thinkingComponent), (event) => {/' "$ASSISTANT"
+  echo "Patching assistant-message: thinking gutter + prose top border bridges"
+  perl -0pi -e 's/this\.contentContainer\.addChild\(new MouseRegion\(thinkingComponent, \(event\) => \{/const contentWrap = globalThis[Symbol.for("pi.contentWrap")];\n                this.contentContainer.addChild(new MouseRegion(hidden ? thinkingComponent : (contentWrap?.(thinkingComponent, "thinking", theme) ?? thinkingComponent), (event) => {/' "$ASSISTANT"
+  perl -0pi -e 's/this\.contentContainer\.addChild\(new Markdown\(content\.text\.trim\(\), this\.outputPad, 0, this\.markdownTheme, undefined, \{\n                    transform: createMarkdownTransform\("assistant", this\.isStreaming, this\.markdownTransformers\),\n                \}\)\);/const textComponent = new Markdown(content.text.trim(), this.outputPad, 0, this.markdownTheme, undefined, {\n                    transform: createMarkdownTransform("assistant", this.isStreaming, this.markdownTransformers),\n                });\n                const prevContent = message.content[i - 1];\n                const prevIsBlock = prevContent \&\& (prevContent.type === "thinking" || prevContent.type === "toolCall");\n                const contentWrap = globalThis[Symbol.for("pi.contentWrap")];\n                this.contentContainer.addChild(prevIsBlock \&\& contentWrap ? contentWrap(textComponent, "text", theme) : textComponent);/' "$ASSISTANT"
   patched=1
 else
-  echo "Assistant: thinking gutter bridge already present, skipping"
+  echo "Assistant: content wrap bridges already present, skipping"
 fi
 
 # Bundle equivalent: same bridge added to the minified hidden-branch expression.
 if ! grep -qF "$GUTTER_WRAP_MARKER" "$BUNDLE"; then
-  echo "Patching bundle: expanded thinking gutter bridge"
-  perl -0pi -e 's/addChild\(new MouseRegion\(thinkingComponent,event=>\{/addChild(new MouseRegion(hidden?thinkingComponent:(()=>{let gutterWrap=globalThis[Symbol.for("pi.gutterWrap")];return gutterWrap?.(thinkingComponent,theme)??thinkingComponent})(),event=>{/' "$BUNDLE"
+  echo "Patching bundle: thinking gutter + prose top border bridges"
+  perl -0pi -e 's/addChild\(new MouseRegion\(thinkingComponent,event=>\{/addChild(new MouseRegion(hidden?thinkingComponent:(()=>{let contentWrap=globalThis[Symbol.for("pi.contentWrap")];return contentWrap?.(thinkingComponent,"thinking",theme)??thinkingComponent})(),event=>{/' "$BUNDLE"
+  perl -0pi -e 's/if\(content\.type==="text"&&content\.text\.trim\(\)\)this\.contentContainer\.addChild\(new Markdown\(content\.text\.trim\(\),this\.outputPad,0,this\.markdownTheme,void 0,\{transform:createMarkdownTransform\("assistant",this\.isStreaming,this\.markdownTransformers\)\}\)\)/if(content.type==="text"\&\&content.text.trim()){let textComponent=new Markdown(content.text.trim(),this.outputPad,0,this.markdownTheme,void 0,{transform:createMarkdownTransform("assistant",this.isStreaming,this.markdownTransformers)});let prevContent=message.content[i-1],prevIsBlock=prevContent\&\&(prevContent.type==="thinking"||prevContent.type==="toolCall"),contentWrap=globalThis[Symbol.for("pi.contentWrap")];this.contentContainer.addChild(prevIsBlock\&\&contentWrap?contentWrap(textComponent,"text",theme):textComponent)}/' "$BUNDLE"
   patched=1
 else
-  echo "Bundle: thinking gutter bridge already present, skipping"
+  echo "Bundle: content wrap bridges already present, skipping"
 fi
 
 # Bundle preview bridge: same expression as the unbundled file, minified.

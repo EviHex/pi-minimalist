@@ -1,0 +1,209 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { CompactLine, EmptyComponent, GutteredComponent } from "./components.ts";
+import { createToolRenderer } from "./tool-renderer.ts";
+import { fakeClock, fakeTheme, fakeTimers, makeContext, plain, plainTheme } from "./test-support.ts";
+
+const theme = fakeTheme();
+// Width/truncation assertions need a theme whose markup costs zero columns.
+const widthTheme = plainTheme();
+
+/** The renderer as production builds it, but with a deterministic clock/timers. */
+function renderer(options: { clock?: ReturnType<typeof fakeClock>; timers?: ReturnType<typeof fakeTimers> } = {}) {
+  const clock = options.clock ?? fakeClock();
+  const timers = options.timers ?? fakeTimers();
+  return { renderer: createToolRenderer({ now: clock.now, timers }), clock, timers };
+}
+
+/** Native renderResult stand-in: multiline output, reuse-aware like the real ones. */
+function nativeRenderer(lines: string[]) {
+  const seenLastComponents: unknown[] = [];
+  const render = (_result: any, _options: any, _theme: any, context: any) => {
+    seenLastComponents.push(context.lastComponent);
+    return { render: () => lines, invalidate() {} };
+  };
+  return { render, seenLastComponents };
+}
+
+describe("tool renderer bridge contract", () => {
+  it("declares self shell and handles only native tool names", () => {
+    const { renderer: r } = renderer();
+    assert.equal(r.renderShell, "self");
+    assert.equal(r.handles("read"), true);
+    assert.equal(r.handles("bash"), true);
+    assert.equal(r.handles("write"), true);
+    assert.equal(r.handles("mcp"), false);
+  });
+});
+
+describe("renderCall", () => {
+  it("renders one guttered line per state", () => {
+    const { renderer: r } = renderer();
+
+    const queued = r.renderCall("read", { path: "a.ts" }, theme, makeContext("queued"));
+    assert.deepEqual(queued.render(80).map(plain), [" ▌ › read a.ts"]);
+
+    const done = r.renderCall("read", { path: "a.ts" }, theme, makeContext("completed"));
+    assert.deepEqual(done.render(80).map(plain), [" ▌ ✓ read a.ts"]);
+
+    const failed = r.renderCall("bash", { command: "false" }, theme, makeContext("failed"));
+    assert.deepEqual(failed.render(80).map(plain), [" ▌ ✗ bash false"]);
+  });
+
+  it("shows the live timer while running and advances it with the clock", () => {
+    const { renderer: r, clock, timers } = renderer();
+    const context = makeContext("running");
+
+    const line = r.renderCall("bash", { command: "sleep 30" }, widthTheme, context);
+    assert.deepEqual(line.render(80).map(plain), [" ▌ • bash [⏱ 0s] sleep 30"]);
+    assert.equal(timers.pending(), 1, "a running row must tick");
+
+    // The ticker asks core to invalidate, which re-runs renderCall.
+    clock.advance(3_000);
+    timers.fire();
+    assert.equal(context.invalidateCount(), 1);
+
+    const again = r.renderCall("bash", { command: "sleep 30" }, widthTheme, {
+      ...context,
+      lastComponent: line,
+    });
+    assert.equal(again, line, "the component must be reused, not reallocated");
+    assert.deepEqual(again.render(80).map(plain), [" ▌ • bash [⏱ 3s] sleep 30"]);
+  });
+
+  it("stops the ticker when the row reaches a final state", () => {
+    const { renderer: r, timers } = renderer();
+    const running = makeContext("running");
+
+    const line = r.renderCall("bash", { command: "sleep 1" }, theme, running);
+    assert.equal(timers.pending(), 1);
+
+    r.renderCall("bash", { command: "sleep 1" }, theme, {
+      ...makeContext("completed"),
+      state: running.state,
+      lastComponent: line,
+    });
+    assert.equal(timers.pending(), 0, "no interval may survive completion");
+    assert.equal(line.isTicking(), false);
+  });
+
+  it("keeps a multiline expanded command on ONE row within the width", () => {
+    const { renderer: r } = renderer();
+    const command = "python3 - <<'EOF'\nprint(1)\nprint(2)\nEOF";
+
+    // Fits in 60 columns: the whole command shows, on ONE row, newlines gone.
+    const wide = r.renderCall("bash", { command }, widthTheme, makeContext("completed", { expanded: true }));
+    assert.deepEqual(
+      wide.render(60).map(plain),
+      [" ▌ ✓ bash python3 - <<'EOF' print(1) print(2) EOF"],
+    );
+
+    // Too narrow: it must CLIP, never wrap onto a second row.
+    const narrow = r.renderCall("bash", { command }, widthTheme, makeContext("completed", { expanded: true }));
+    const rendered = narrow.render(30);
+    assert.equal(rendered.length, 1);
+    assert.ok(visibleWidth(rendered[0]) <= 30);
+    assert.ok(!plain(rendered[0]).includes("print(2)"), "row must clip, not wrap");
+  });
+
+  it("never exceeds the requested width for long arguments at any size", () => {
+    const { renderer: r } = renderer();
+    const args = { path: "/very/deep/" + "segment/".repeat(40) + "file.ts" };
+
+    for (const width of [8, 16, 30, 72, 120]) {
+      const rendered = r.renderCall("edit", args, widthTheme, makeContext("completed")).render(width);
+      assert.equal(rendered.length, 1, `width ${width}`);
+      assert.ok(visibleWidth(rendered[0]) <= width, `width ${width}: ${visibleWidth(rendered[0])}`);
+    }
+  });
+
+  it("renders rendererless third-party tools with the generic label", () => {
+    const { renderer: r } = renderer();
+    const line = r.renderCall("goland__execute_tool", {}, widthTheme, makeContext("completed"));
+    assert.deepEqual(line.render(80).map(plain), [" ▌ ✓ toolcall goland__execute_tool"]);
+  });
+
+  it("does not throw on missing or partial arguments", () => {
+    const { renderer: r } = renderer();
+    for (const state of ["queued", "running", "completed", "failed"] as const) {
+      assert.doesNotThrow(() => r.renderCall("read", undefined, theme, makeContext(state)));
+      assert.doesNotThrow(() => r.renderCall("bash", {}, theme, makeContext(state, { argsComplete: false })));
+    }
+  });
+
+  it("reuses lastComponent only when it is a CompactLine", () => {
+    const { renderer: r } = renderer();
+    const foreign = new EmptyComponent();
+    const line = r.renderCall("ls", {}, theme, makeContext("completed", { lastComponent: foreign }));
+    assert.ok(line instanceof CompactLine);
+  });
+});
+
+describe("renderResult", () => {
+  it("hides collapsed built-in output entirely", () => {
+    const { renderer: r } = renderer();
+    const native = nativeRenderer(["line one", "line two"]);
+
+    const component = r.renderResult(
+      "read",
+      { content: [] },
+      { expanded: false, isPartial: false },
+      theme,
+      makeContext("completed"),
+      native.render,
+    );
+
+    assert.deepEqual(component!.render(80), [], "collapsed result must add zero lines");
+    assert.equal(native.seenLastComponents.length, 0, "native renderer must not run when collapsed");
+  });
+
+  it("delegates expanded built-in output to the native renderer and gutters every line", () => {
+    const { renderer: r } = renderer();
+    const native = nativeRenderer(["first", "second", "third"]);
+    const context = makeContext("completed", { expanded: true });
+
+    const component = r.renderResult(
+      "read",
+      { content: [] },
+      { expanded: true, isPartial: false },
+      theme,
+      context,
+      native.render,
+    );
+
+    assert.ok(component instanceof GutteredComponent);
+    assert.deepEqual(component.render(80).map(plain), [" ▌ first", " ▌ second", " ▌ third"]);
+  });
+
+  it("passes the cached native component back on expanded re-render", () => {
+    const { renderer: r } = renderer();
+    const native = nativeRenderer(["out"]);
+    const context = makeContext("completed", { expanded: true });
+    const options = { expanded: true, isPartial: false };
+
+    const first = r.renderResult("read", {}, options, theme, context, native.render);
+    const second = r.renderResult("read", {}, options, theme, { ...context, lastComponent: first }, native.render);
+
+    assert.equal(second, first, "the gutter wrapper must be stable across renders");
+    assert.equal(native.seenLastComponents[0], undefined, "first pass has no cached component");
+    assert.ok(native.seenLastComponents[1] !== undefined, "second pass must reuse the native component");
+  });
+
+  it("falls back to core rendering for rendererless tools when expanded", () => {
+    const { renderer: r } = renderer();
+    const context = makeContext("completed", { expanded: true });
+
+    const expanded = r.renderResult("mcp", {}, { expanded: true }, theme, context, undefined);
+    assert.equal(expanded, undefined, "undefined tells core to use its own full output");
+
+    const collapsed = r.renderResult("mcp", {}, { expanded: false }, theme, makeContext("completed"), undefined);
+    assert.deepEqual(collapsed!.render(80), []);
+  });
+
+  it("hides output when a built-in ships no native result renderer", () => {
+    const { renderer: r } = renderer();
+    const component = r.renderResult("ls", {}, { expanded: true }, theme, makeContext("completed", { expanded: true }), undefined);
+    assert.deepEqual(component!.render(80), []);
+  });
+});

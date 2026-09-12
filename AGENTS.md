@@ -49,9 +49,14 @@ Hidden keys persist in `hidden.json` next to `index.ts`.
 
 ## Files
 
-- `index.ts` — the whole extension, heavily commented (user is not a TS expert).
+- `index.ts` — wiring only: installs the core bridges, registers `/footer`.
+- `src/` — all behavior, heavily commented (user is not a TS expert). See Layout.
+- `src/*.test.ts` — deterministic UI tests (`node --test`). See Validation.
+- `run-tests.sh` — test + typecheck runner (symlinks Pi's packages locally).
+- `tsconfig.json` — typecheck-only config (never emits).
 - `patch-pi.sh` — idempotent script re-applying all core bridges after a Pi update.
 - `hidden.json` — persisted hidden footer-status keys (created on first toggle).
+- `node_modules/` — gitignored symlinks created by `run-tests.sh`.
 
 (`/footer-statuses`, a sticky-widget variant of the viewer, was removed —
 the /footer dialog already shows everything.)
@@ -76,7 +81,7 @@ statuses. All three features therefore use the same two-layer pattern:
 
 1. **Normal extension code** does everything possible via public API.
 2. **Small local Pi core bridges** (patch-pi.sh) make core consult
-   process-global symbols; ALL styling/behavior lives in `index.ts` so
+   process-global symbols; ALL styling/behavior lives in this folder so
    `/reload` refreshes it without touching core.
 
 Bridge symbols registered by the extension (the statusTap branch ALSO purges
@@ -97,26 +102,27 @@ Renderer priority: tool's explicit renderer → global compact fallback →
 Pi native fallback. MCP tools with no renderer get one compact borderless
 line prefixed with `toolcall`.
 
-Action labels are colored per category via `actionColor()`: read-only tools
-(`read`, `grep`, `find`, `ls`) and generic `toolcall` use `success`; mutating
-tools (`edit`, `write`) and `bash` use `warning`. Paths, commands, and
-concrete tool names use `toolTitle`. Status glyphs are all `success` green
-except failures: queued caret `›`, running dot `•`, completed `✓`, failed `✗`
-= `error`. "Finished" keys off `!context.isPartial`, not `executionStarted`:
-session replay (restart with history) never calls `markExecutionStarted()`,
-so keying off it made every historical tool show as queued after a restart.
-Elapsed seconds `[⏱ Ns]` in success green sit immediately after the action
-word (e.g. `bash [⏱ 3s] go test ./...`). While running, the whole row gets a
-`toolPendingBg` background highlight that disappears once the tool finishes,
-and `CompactLine.startTicker()` fires once per second calling `context.invalidate()`
+Every action label uses `success` green via `actionColor()` (mutating tools were
+once warning orange; orange already means "highlighted prose", and the action
+word is a label, not a warning). Paths, commands, and concrete tool names use
+`toolTitle`. Status glyphs are all `success` green except failures: queued caret
+`›`, running dot `•`, completed `✓`, failed `✗` = `error`. "Finished" keys off
+`!context.isPartial`, not `executionStarted`: session replay (restart with
+history) never calls `markExecutionStarted()`, so keying off it made every
+historical tool show as queued after a restart.
+
+Elapsed seconds `[⏱ Ns]` in success green sit immediately after the action word
+(e.g. `bash [⏱ 3s] go test ./...`). Tool rows have NO background highlight while
+executing (removed at user request — the timer already signals activity); only
+the streaming thinking preview keeps a `toolPendingBg` row.
+`CompactLine.startTicker()` fires once per second calling `context.invalidate()`
 so the timer advances even for silent commands with no streaming output. Plain
 `ui.requestRender()` would only repaint the cached line (elapsed is baked into the
 text during updateDisplay → renderCall); invalidate re-runs updateDisplay, which
 recomputes it. The async ticker is safe — the documented recursion bug was
 synchronous invalidate DURING render. The ticker stops at the terminal state and
-is `unref()`d so it never holds the process open. Tool rows have no background
-highlight while executing (removed at user request — the timer already signals
-activity).
+is `unref()`d so it never holds the process open (`components.test.ts` fails if a
+finished row leaves an interval registered).
 
 ## Local Pi Core Bridges
 
@@ -188,7 +194,7 @@ hand-apply the same edits, then update the script's perl patterns.
 
 - After changing any Pi core bridge: fully quit and restart Pi once.
   `/reload` cannot reload already-cached core modules.
-- After that, edits to `index.ts` are hot-reloadable with `/reload`.
+- After that, edits to `index.ts` and `src/` are hot-reloadable with `/reload`.
 - Reload while Pi is idle. Avoid reloading during a running tool or open
   questionnaire overlay.
 - Each reload overwrites the process-global renderer slots with the newest
@@ -230,15 +236,16 @@ output returns `EmptyComponent`.
 
 `pi.statusTap` only sees setStatus calls made AFTER it registers. Other
 extensions (MCP adapters etc.) may load first and set statuses earlier, so
-`currentStatuses()` and `getArgumentCompletions` both merge the live map via
-the `getExtensionStatuses` bridge (ctx.ui cached on first use + session_start).
+`FooterStatuses.entries()`/`keys()` call `mergeLive()`, reading the
+`getExtensionStatuses` bridge (ctx.ui captured via `attachUi` on session_start
+and in the command handler, because autocomplete runs outside any handler).
 Never call `ctx.ui.setStatus` inside the tap callback (infinite loop).
 
-### ui.select takes plain strings
+### notify() has no "success" level
 
-`ctx.ui.select(title, string[])` returns the exact chosen string (or
-undefined on Esc). Objects as options will not work; match the returned
-label back to a key via a Map (see `/footer` handler).
+`ctx.ui.notify(message, type?)` accepts only `info | warning | error`. Passing
+`"success"` typechecked as `any` for a long time and was caught by
+`./run-tests.sh --typecheck`.
 
 ### Avoid duplicate renderer packages
 
@@ -246,7 +253,62 @@ label back to a key via a Map (see `/footer` handler).
 it can recreate the same pi-subagents host-tool ownership failure even though
 pi-minimalist's core bridge wins the visible rendering.
 
+## Layout
+
+`index.ts` is WIRING ONLY (bridge installation + `/footer` command). All
+behavior lives in `src/`, so it can be unit tested without an extension
+runtime:
+
+| File | Contents |
+| --- | --- |
+| `src/components.ts` | `CompactLine`, `EmptyComponent`, `GutteredComponent`, gutters, `ThemeLike`, injectable `Timers` |
+| `src/tool-rows.ts` | pure row text: `callText`, `statusGlyph`, `colorAction`, `rowText`, `BUILT_INS` |
+| `src/tool-renderer.ts` | feature 1: `createToolRenderer()` factory |
+| `src/thinking-preview.ts` | feature 2: `createThinkingPreview()` factory |
+| `src/footer.ts` | feature 3: `FooterStatuses`, `FooterToggleDialog`, hidden-key stores |
+| `src/test-support.ts` | deterministic doubles (fake theme/clock/timers, context builder) |
+| `src/*.test.ts` | the tests |
+
+Why factories instead of module-level singletons: tests drive the exact
+production renderer with an injected clock and interval, so the elapsed timer is
+verifiable without sleeping and a leaked ticker fails the run.
+
+Why no `package.json`: this folder is a nested jj/git repo loaded by explicit
+path (`"extensions/pi-minimalist/index.ts"`). Adding a manifest risks changing
+how Pi discovers it, so `tsconfig.json` uses `module: esnext` +
+`moduleResolution: bundler` instead of `nodenext`.
+
 ## Validation
+
+### Automated tests
+
+```bash
+./run-tests.sh              # unit + core-bridge integration (57 tests)
+./run-tests.sh --unit       # unit only, skips anything needing Pi's install
+./run-tests.sh --typecheck  # tsc --noEmit, strict
+```
+
+`node --test` with native TypeScript type-stripping — no test framework, no new
+dependency. The script symlinks `pi-tui`, `pi-coding-agent`, and `@types/node`
+from Pi's install into a gitignored local `node_modules/` (Pi's own tree is never
+modified), and exports `PI_ROOT` for the integration test.
+
+The tests call the REAL exported renderers (`createToolRenderer()` etc.) and
+`component.render(width)`; they never re-implement row layout. Theme tokens are
+asserted through a fake theme that emits `<success>✓</success>`, so no assertion
+depends on the machine's palette or the active theme. Use `plainTheme()` for
+width assertions — `fakeTheme()` markup occupies real columns.
+
+`src/integration.test.ts` is the regression guard for the core patch: it loads
+this extension through Pi's real extension loader, builds a real
+`ToolExecutionComponent` around the real `createReadToolDefinition`, and asserts
+both the compact/guttered rendering AND that the extension registers zero tools
+(the pi-subagents ownership contract). It skips itself when `PI_ROOT` is unset.
+
+What automated tests still cannot cover: real terminal escape output, actual
+keybinding delivery (Ctrl+O / Ctrl+T), markdown code-block and blockquote
+patches, footer/powerline composition, and MCP adapter interplay. Those remain
+manual interactive checks below.
 
 Fast startup/syntax check:
 
@@ -277,8 +339,8 @@ Interactive checks after restart/reload:
 2. Read a very long path in a narrow terminal: expect one line ending in `…`, never wrapping.
 3. Run several tools consecutively: expect one-line rows, each preceded by a single blank line.
 4. Run an unrendered MCP/IDE tool: expect `✓ toolcall tool_name`.
-5. Run bash: while running, expect `• bash [⏱ Ns] <cmd>` with dark `toolPendingBg`
-   background; the elapsed counter updates on repaints but can freeze on silent commands.
+5. Run bash: while running, expect `• bash [⏱ Ns] <cmd>` with NO row background;
+   the elapsed counter advances once per second even for silent commands.
 6. Press `Ctrl+O` / `Cmd+O`: expect full original output.
 7. Trigger an error: expect red `✗`.
 8. Toggle thinking collapsed (`Ctrl+T`): expect `• think …` (highlighted) while
@@ -290,9 +352,14 @@ Interactive checks after restart/reload:
 
 ## Scope
 
-Keep implementation small. No config format, package.json, dependency,
-abstraction layer, or test framework unless a real requirement appears. This
-extension uses only Pi's installed packages and Node standard library.
+Keep implementation small. No config format, package.json, runtime dependency,
+or abstraction layer unless a real requirement appears. This extension uses only
+Pi's installed packages and the Node standard library — including for tests
+(`node --test`, no framework).
+
+When adding or changing a renderer, add or update its test in the same commit:
+the UI has repeatedly regressed silently, and these tests exist to name the
+broken behavior instead of showing a large snapshot diff.
 
 User's powerline-footer extension (npm:pi-powerline-footer) is SEPARATE and
 must keep working: this extension only taps statuses before they reach

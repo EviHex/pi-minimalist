@@ -1,2 +1,3 @@
 # Local state, not extension source
 hidden.json
+node_modules/

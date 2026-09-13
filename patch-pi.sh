@@ -174,6 +174,57 @@ else
 fi
 
 # -----------------------------------------------------------------------------
+# d) Code block borders - replace the ``` fence lines with real horizontal
+#    rules; the opening rule carries the language label: "\u2500 json \u2500\u2500\u2500...".
+#    Color still comes from the theme token mdCodeBlockBorder.
+# -----------------------------------------------------------------------------
+if ! grep -qF 'codeBlockBorder(label + "' "$MARKDOWN"; then
+  echo "Patching pi-tui markdown: code block border rules"
+  python3 - <<'PYIN'
+import pathlib
+md = pathlib.Path("$MARKDOWN")
+t = md.read_text()
+old_top = 'lines.push(this.theme.codeBlockBorder(`\\`\\`\\`${token.lang || ""}`));'
+new_top = ('{const label = token.lang ? `\\u2500 ${token.lang} ` : "\\u2500 ";\n'
+           '                lines.push(this.theme.codeBlockBorder(label + "\\u2500".repeat(Math.max(0, width - label.length))));}')
+assert old_top in t, "markdown.js top fence not found (pi upgraded?)"
+t = t.replace(old_top, new_top)
+old_bot = 'lines.push(this.theme.codeBlockBorder("```"));'
+new_bot = 'lines.push(this.theme.codeBlockBorder("\\─".repeat(Math.max(1, width))));'
+assert old_bot in t, "markdown.js bottom fence not found (pi upgraded?)"
+t = t.replace(old_bot, new_bot)
+md.write_text(t)
+print("markdown.js code borders patched")
+PYIN
+  patched=1
+else
+  echo "pi-tui markdown: code block borders already present, skipping"
+fi
+
+if ! grep -qF 'codeBlockBorder(label+"' "$BUNDLE"; then
+  echo "Patching bundle: code block border rules"
+  python3 - <<'PYIN'
+import pathlib
+b = pathlib.Path("$BUNDLE")
+t = b.read_text()
+old_top = 'lines.push(this.theme.codeBlockBorder(`\\`\\`\\`${token.lang||""}`))'
+new_top = ('lines.push((()=>{let label=token.lang?`\\u2500 ${token.lang} `:"\\u2500 ";'
+           'return this.theme.codeBlockBorder(label+"\\u2500".repeat(Math.max(0,width-label.length)))})())')
+assert old_top in t, "bundle top fence not found (pi upgraded?)"
+t = t.replace(old_top, new_top)
+old_bot = 'lines.push(this.theme.codeBlockBorder("```"))'
+new_bot = 'lines.push(this.theme.codeBlockBorder("\\─".repeat(Math.max(1,width))))'
+assert old_bot in t, "bundle bottom fence not found (pi upgraded?)"
+t = t.replace(old_bot, new_bot)
+b.write_text(t)
+print("bundle code borders patched")
+PYIN
+  patched=1
+else
+  echo "Bundle: code block borders already present, skipping"
+fi
+
+# -----------------------------------------------------------------------------
 # Verify: syntax-check all patched files so a bad regex never leaves Pi broken.
 # -----------------------------------------------------------------------------
 echo "Verifying syntax..."

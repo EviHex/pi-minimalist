@@ -157,30 +157,6 @@ export class EmptyComponent implements Component {
 }
 
 /**
- * Draws one horizontal rule above the wrapped component, in the heading
- * (orange) color. Used to mark the transition from thinking/tool rows back to
- * model prose: the border reads as "narrative text resumes here".
- */
-export class TopBorderComponent implements Component {
-  private inner: Component;
-  private theme: ThemeLike;
-
-  constructor(inner: Component, theme: ThemeLike) {
-    this.inner = inner;
-    this.theme = theme;
-  }
-
-  render(width: number): string[] {
-    const border = this.theme.fg("mdHeading", "─".repeat(Math.max(1, width)));
-    return [border, ...this.inner.render(width)];
-  }
-
-  invalidate(): void {
-    this.inner.invalidate?.();
-  }
-}
-
-/**
  * Wraps another component and prefixes EVERY line it renders with the output
  * gutter, so expanded output stays visually attached to the call row above it
  * instead of blending into model prose.

@@ -108,10 +108,9 @@ fi
 #   a) collapsed thinking preview — Pi shows a bare "Thinking..." label when a
 #      thinking block is hidden (Ctrl+T); the extension renders a compact
 #      one-line preview instead, via globalThis[Symbol.for("pi.thinkingPreview")].
-#   b) content wrapper — expanded thinking (native Markdown) gets the purple
-#      gutter via globalThis[Symbol.for("pi.contentWrap")](c, "thinking", theme);
-#      prose that follows a thinking block or tool call gets an orange top
-#      border via the same bridge with kind "text".
+#   b) expanded thinking gutter — the expanded thinking block (native Markdown)
+#      gets wrapped by globalThis[Symbol.for("pi.contentWrap")] so every line
+#      carries the purple thinking gutter, matching the collapsed preview.
 # -----------------------------------------------------------------------------
 ASSISTANT_MARKER='Symbol.for("pi.thinkingPreview")'
 if ! grep -qF "$ASSISTANT_MARKER" "$ASSISTANT"; then
@@ -126,7 +125,6 @@ GUTTER_WRAP_MARKER='Symbol.for("pi.contentWrap")'
 if ! grep -qF "$GUTTER_WRAP_MARKER" "$ASSISTANT"; then
   echo "Patching assistant-message: thinking gutter + prose top border bridges"
   perl -0pi -e 's/this\.contentContainer\.addChild\(new MouseRegion\(thinkingComponent, \(event\) => \{/const contentWrap = globalThis[Symbol.for("pi.contentWrap")];\n                this.contentContainer.addChild(new MouseRegion(hidden ? thinkingComponent : (contentWrap?.(thinkingComponent, "thinking", theme) ?? thinkingComponent), (event) => {/' "$ASSISTANT"
-  perl -0pi -e 's/this\.contentContainer\.addChild\(new Markdown\(content\.text\.trim\(\), this\.outputPad, 0, this\.markdownTheme, undefined, \{\n                    transform: createMarkdownTransform\("assistant", this\.isStreaming, this\.markdownTransformers\),\n                \}\)\);/const textComponent = new Markdown(content.text.trim(), this.outputPad, 0, this.markdownTheme, undefined, {\n                    transform: createMarkdownTransform("assistant", this.isStreaming, this.markdownTransformers),\n                });\n                const prevContent = message.content[i - 1];\n                const prevIsBlock = prevContent \&\& (prevContent.type === "thinking" || prevContent.type === "toolCall");\n                const contentWrap = globalThis[Symbol.for("pi.contentWrap")];\n                this.contentContainer.addChild(prevIsBlock \&\& contentWrap ? contentWrap(textComponent, "text", theme) : textComponent);/' "$ASSISTANT"
   patched=1
 else
   echo "Assistant: content wrap bridges already present, skipping"
@@ -136,7 +134,6 @@ fi
 if ! grep -qF "$GUTTER_WRAP_MARKER" "$BUNDLE"; then
   echo "Patching bundle: thinking gutter + prose top border bridges"
   perl -0pi -e 's/addChild\(new MouseRegion\(thinkingComponent,event=>\{/addChild(new MouseRegion(hidden?thinkingComponent:(()=>{let contentWrap=globalThis[Symbol.for("pi.contentWrap")];return contentWrap?.(thinkingComponent,"thinking",theme)??thinkingComponent})(),event=>{/' "$BUNDLE"
-  perl -0pi -e 's/if\(content\.type==="text"&&content\.text\.trim\(\)\)this\.contentContainer\.addChild\(new Markdown\(content\.text\.trim\(\),this\.outputPad,0,this\.markdownTheme,void 0,\{transform:createMarkdownTransform\("assistant",this\.isStreaming,this\.markdownTransformers\)\}\)\)/if(content.type==="text"\&\&content.text.trim()){let textComponent=new Markdown(content.text.trim(),this.outputPad,0,this.markdownTheme,void 0,{transform:createMarkdownTransform("assistant",this.isStreaming,this.markdownTransformers)});let prevContent=message.content[i-1],prevIsBlock=prevContent\&\&(prevContent.type==="thinking"||prevContent.type==="toolCall"),contentWrap=globalThis[Symbol.for("pi.contentWrap")];this.contentContainer.addChild(prevIsBlock\&\&contentWrap?contentWrap(textComponent,"text",theme):textComponent)}/' "$BUNDLE"
   patched=1
 else
   echo "Bundle: content wrap bridges already present, skipping"

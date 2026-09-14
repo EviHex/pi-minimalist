@@ -197,15 +197,37 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
     }
   });
 
-  it("renders code blocks with compact corners instead of raw fences", async () => {
+  it("renders markdown chrome through the theme, with pi-tui left unpatched", async () => {
+    // No core patch backs this: installMarkdownChrome rewrites the frame glyphs
+    // via Theme.fg, and settings markdown.codeBlockIndent supplies the edge.
     const { Markdown } = await import(`${PI_ROOT}/node_modules/@earendil-works/pi-tui/dist/components/markdown.js`);
     const { getMarkdownTheme, initTheme } = await import(`${PI_ROOT}/dist/modes/interactive/theme/theme.js`);
-    initTheme("dark", false);
+    const { installMarkdownChrome } = await import(`${EXTENSION_DIR}/src/markdown-chrome.ts`);
 
-    const render = (source: string) => new Markdown(source, 0, 0, getMarkdownTheme()).render(80)
+    initTheme("dark", false);
+    const live = (globalThis as any)[Symbol.for("@earendil-works/pi-coding-agent:theme")];
+    installMarkdownChrome(live);
+    // Mirrors interactive-mode's getMarkdownThemeWithSettings().
+    const mdTheme = { ...getMarkdownTheme(), codeBlockIndent: "│ " };
+
+    const render = (source: string) => new Markdown(source, 0, 0, mdTheme).render(80)
       .map(plain).map((line: string) => line.trimEnd());
     assert.deepEqual(render("```ts\nconst x = 1;\n```"), ["╭ ts", "│ const x = 1;", "╰"]);
+    // The bare-fence case: pi-tui emits "```" for both open and close.
     assert.deepEqual(render("```\nplain\n```"), ["╭ code", "│ plain", "╰"]);
+    assert.deepEqual(render("> quoted"), ["▌ quoted"]);
+  });
+
+  it("leaves pi-tui markdown.js unpatched", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(
+      `${PI_ROOT}/node_modules/@earendil-works/pi-tui/dist/components/markdown.js`,
+      "utf8",
+    );
+    // Pristine pi-tui markers must still be present: the chrome is theme-side.
+    assert.ok(source.includes('codeBlockIndent ?? "  "'), "codeBlockIndent must stay pristine");
+    assert.ok(source.includes('quoteBorder("│ ")'), "quoteBorder must stay pristine");
+    assert.ok(!source.includes("╭"), "markdown.js must not carry patched corners");
   });
 
   it("applies the unbundled thinking bridge in the installed Pi", () => {

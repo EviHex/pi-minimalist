@@ -131,9 +131,11 @@ the unbundled files are patched for consistency):
 ```text
 /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tool-execution.js
 /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/assistant-message.js
-/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/components/markdown.js
 /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-JVUZSMYM.js
 ```
+
+`pi-tui/components/markdown.js` is deliberately NOT patched — markdown chrome
+is done through the public theme surface (see below).
 
 The script patches exactly these bridges:
 
@@ -145,29 +147,45 @@ The script patches exactly these bridges:
    native renderer, else Pi native fallback.
 3. `createResultFallback()` — same generic fallback; returning `undefined`
    delegates to Pi native text output.
-4. `getRenderContext()` — expose `ui: this.ui` so the elapsed timer can repaint live.
-5. `ToolExecutionComponent` leading Spacer — consult `pi.minimalist.quietSpacer`
+4. `ToolExecutionComponent` leading Spacer — consult `pi.minimalist.quietSpacer`
    at render time, so `CompactLine` rows hidden by `/quiet` leave no blank line.
-6. `AssistantMessageComponent` leading Spacer — consult
+5. `AssistantMessageComponent` leading Spacer — consult
    `pi.minimalist.quietMessageSpacer`, so hidden quiet thinking leaves no blank line.
-7. `assistant-message.js` — collapsed thinking blocks call
+6. `assistant-message.js` — collapsed thinking blocks call
    `globalThis[Symbol.for("pi.thinkingPreview")]` (falls back to the native
    "Thinking..." label when unregistered).
-8. `assistant-message.js` — normally hidden thinking expands during message
+7. `assistant-message.js` — normally hidden thinking expands during message
    streaming, and `pi.thinkingMarkdownTheme` replaces expanded thinking token
    colors with purple. No outer thinking gutter is applied.
-9. `pi-tui/components/markdown.js` — replace the blockquote prefix `│` with
-   half-block `▌`; `signal.json` maps `mdQuoteBorder` to white `text`.
-10. `pi-tui/components/markdown.js` — replace raw code fences with `╭ <lang>`
-   (or `╭ code`), blue-gray `│ ` on every code line, and closing `╰`.
-   `signal.json` maps `mdCodeBlockBorder` to blue-gray `toolDetails`.
+
+### Markdown chrome without a patch
+
+`src/markdown-chrome.ts` gets `╭ <lang>` / `│` / `╰` code blocks and the `▌`
+blockquote gutter with **no core patch**:
+
+- `MarkdownTheme.codeBlockBorder` / `.quoteBorder` are `(text) => string` and
+  receive the *literal* frame text, so they can **rewrite** glyphs, not merely
+  recolor them. Both are built as `theme.fg(token, text)`, so intercepting
+  `Theme.fg` is enough.
+- The vertical edge is the public `codeBlockIndent` field, fed by settings
+  `markdown.codeBlockIndent` (`"│ "`).
+- pi-tui emits `` ``` `` for **both** a closing fence and a bare opening fence,
+  so `MarkdownChrome` tracks fence parity and exposes `reset()`.
+- The live theme object is wrapped **in place**. Passing an instance to
+  `ui.setTheme()` would set the theme name to `<in-memory>`, disabling `/theme`
+  and custom-theme file watching. Re-applied on `session_start`/`turn_start`
+  because `/theme` installs a fresh Theme; the install is idempotent per object.
+
+Known cosmetic gap vs the old patch: core builds `codeBlockIndent` straight from
+settings, so the edge cannot be themed and renders in the default foreground
+while the corners use `mdCodeBlockBorder`. Hardcoding an SGR escape in settings
+would color it but would not follow a theme switch, so it is left plain.
 
 ### Upgrade warning
 
 A Pi upgrade overwrites the patched core files. Symptom: built-ins and
-MCP/third-party tools return to verbose cards, thinking blocks
-show the bare "Thinking..." label, and markdown blockquotes return to a thin
-gutter.
+MCP/third-party tools return to verbose cards, and thinking blocks show the
+bare "Thinking..." label. Markdown chrome is unaffected — it needs no patch.
 
 Fix: re-run the idempotent patch script after every Pi update:
 
@@ -320,9 +338,12 @@ this extension through Pi's real extension loader, builds a real
 both the compact/guttered rendering AND that the extension registers zero tools
 (the pi-subagents ownership contract). It skips itself when `PI_ROOT` is unset.
 
+It also asserts that `pi-tui/components/markdown.js` stays **pristine** (markdown
+chrome is theme-side, not patched) while still rendering `╭`/`│`/`╰`/`▌`.
+
 What automated tests still cannot cover: real terminal escape output, actual
-keybinding delivery (Ctrl+O / Ctrl+T), markdown code-block and blockquote
-patches and MCP adapter interplay. Those remain manual interactive checks below.
+keybinding delivery (Ctrl+O / Ctrl+T), and MCP adapter interplay. Those remain
+manual interactive checks below.
 
 Fast startup/syntax check:
 

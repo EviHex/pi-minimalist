@@ -1,16 +1,19 @@
 /**
  * pi-minimalist
  *
- * Two independent UI features, installed through the core bridges maintained by
- * patch-pi.sh:
+ * UI features installed through the core bridges maintained by patch-pi.sh:
  *   1. compact one-line tool calls with native expanded output;
  *   2. compact collapsed thinking previews.
+ *
+ * Markdown chrome (code-block corners + blockquote gutter) needs NO patch: it
+ * goes through the public theme surface. See src/markdown-chrome.ts.
  *
  * This extension registers NO tools. Re-registering built-ins changes their
  * ownership and makes pi-subagents remove them from child tool allowlists.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { installMarkdownChrome } from "./src/markdown-chrome.ts";
 import { createThinkingPreview, type ThinkingPreview } from "./src/thinking-preview.ts";
 import { allPurpleThinkingTheme } from "./src/thinking-theme.ts";
 import { QuietMode } from "./src/quiet-mode.ts";
@@ -54,6 +57,20 @@ export default function (pi: ExtensionAPI) {
   globals[QUIET_PROSE] = (owner, contentIndex) => quiet.observeProse(owner, contentIndex);
   globals[QUIET_SPACER] = (toolCallId) => quiet.view(toolCallId) !== "hide";
   globals[QUIET_MESSAGE_SPACER] = (owner) => quiet.showMessageSpacer(owner);
+
+  // Markdown chrome: wrap the LIVE theme object in place. Passing an instance to
+  // ui.setTheme() would set the theme name to "<in-memory>", disabling /theme and
+  // custom-theme file watching. Re-applied on every turn because /theme installs
+  // a fresh Theme object; installMarkdownChrome is idempotent per object.
+  const applyChrome = () => {
+    const live = (globalThis as Record<symbol, unknown>)[
+      Symbol.for("@earendil-works/pi-coding-agent:theme")
+    ] as { fg(color: string, text: string): string } | undefined;
+    if (live) installMarkdownChrome(live);
+  };
+  applyChrome();
+  pi.on("session_start", applyChrome);
+  pi.on("turn_start", applyChrome);
 
   pi.registerCommand("quiet", {
     description: "Toggle folding for completed read/edit/write/grep/find/ls/bash/toolcall runs",

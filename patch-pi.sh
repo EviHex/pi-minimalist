@@ -13,10 +13,16 @@
 #   2. give EVERY tool (MCP / third-party, unknown names) a default renderer
 #   3. render/observe thinking blocks or assistant prose in the transcript
 #   4. suppress the parent Spacer(1) of a hidden tool/assistant row
-#   5. change Markdown blockquote and code-block frame characters
 #
 # NOTE: the elapsed timer needs NO bridge. `context.invalidate()` is public API
 # and already recomputes + repaints the row, so no `ui` handle is exposed.
+#
+# NOTE: Markdown chrome (code-block corners `╭ │ ╰` + blockquote `▌`) needs NO
+# bridge either. `MarkdownTheme.codeBlockBorder`/`.quoteBorder` receive the
+# literal frame text and may REWRITE it, not just recolor it, and the vertical
+# code edge is the public `codeBlockIndent` field (settings
+# `markdown.codeBlockIndent`). See src/markdown-chrome.ts. pi-tui's
+# markdown.js is therefore NOT patched.
 #
 # These edits live in Pi's compiled JS, so a Pi upgrade overwrites them.
 # Run this script once after any `npm i -g @earendil-works/pi-coding-agent`
@@ -250,83 +256,12 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Patch 4: thick markdown blockquote gutter (pi-tui markdown.js + bundle)
-# -----------------------------------------------------------------------------
-# Pi hard-codes the thin │ prefix for every rendered blockquote line. Replace
-# it with ▌ (same half-block as the tool-call gutter); signal.json maps
-# mdQuoteBorder to text (white).
-# -----------------------------------------------------------------------------
-MARKDOWN="$PI_ROOT/node_modules/@earendil-works/pi-tui/dist/components/markdown.js"
-
-if ! grep -qF 'quoteBorder("▌ ")' "$MARKDOWN"; then
-  echo "Patching pi-tui markdown: thick blockquote gutter"
-  perl -0pi -e 's/quoteBorder\("│ "\)|quoteBorder\("█ "\)/quoteBorder("▌ ")/' "$MARKDOWN"
-  patched=1
-else
-  echo "pi-tui markdown: thick blockquote gutter already present, skipping"
-fi
-
-if ! grep -qF 'quoteBorder("\u258c ")' "$BUNDLE"; then
-  echo "Patching bundle: thick blockquote gutter"
-  perl -0pi -e 's/quoteBorder\("\\u2502 "\)|quoteBorder\("\\u2588 "\)/quoteBorder("\\u258c ")/' "$BUNDLE"
-  patched=1
-else
-  echo "Bundle: thick blockquote gutter already present, skipping"
-fi
-
-# -----------------------------------------------------------------------------
-# Patch 5: compact code-block corners (pi-tui markdown.js + bundle)
-# -----------------------------------------------------------------------------
-# Raw ``` fences are Markdown source, not useful terminal chrome. A short
-# opening corner preserves the language and a closing corner marks the end,
-# without a tool-like gutter or horizontal rule.
-# -----------------------------------------------------------------------------
-CODE_BLOCK_MARKER='codeBlockBorder(`╭ ${token.lang || "code"}`)'
-if ! grep -qF "$CODE_BLOCK_MARKER" "$MARKDOWN"; then
-  echo "Patching pi-tui markdown: compact code-block corners"
-  perl -0pi -e 's/codeBlockBorder\(`\\`\\`\\`\$\{token\.lang \|\| ""\}`\)/codeBlockBorder(`╭ \${token.lang || "code"}`)/; s/codeBlockBorder\("```"\)/codeBlockBorder("╰")/' "$MARKDOWN"
-  patched=1
-else
-  echo "pi-tui markdown: compact code-block corners already present, skipping"
-fi
-
-BUNDLE_CODE_BLOCK_MARKER='codeBlockBorder(`╭ ${token.lang||"code"}`)'
-if ! grep -qF "$BUNDLE_CODE_BLOCK_MARKER" "$BUNDLE"; then
-  echo "Patching bundle: compact code-block corners"
-  perl -0pi -e 's/codeBlockBorder\(`\\`\\`\\`\$\{token\.lang\|\|""\}`\)/codeBlockBorder(`╭ \${token.lang||"code"}`)/; s/codeBlockBorder\("```"\)/codeBlockBorder("╰")/' "$BUNDLE"
-  patched=1
-else
-  echo "Bundle: compact code-block corners already present, skipping"
-fi
-
-# Connect the corners with a thin edge. It is part of the frame, not a tool
-# gutter: corners make the code block boundary unambiguous.
-CODE_BLOCK_EDGE_MARKER='const prefix = this.theme.codeBlockBorder("│ ");'
-if ! grep -qF "$CODE_BLOCK_EDGE_MARKER" "$MARKDOWN"; then
-  echo "Patching pi-tui markdown: code-block vertical edge"
-  perl -0pi -e 's/const indent = this\.theme\.codeBlockIndent \?\? "  ";\n                lines\.push\(this\.theme\.codeBlockBorder\(`╭ \$\{token\.lang \|\| "code"\}`\)\);/const prefix = this.theme.codeBlockBorder("│ ");\n                lines.push(this.theme.codeBlockBorder(`╭ \${token.lang || "code"}`));/; s/\$\{indent\}\$\{hlLine\}/\${prefix}\${hlLine}/g; s/\$\{indent\}\$\{this\.theme\.codeBlock\(codeLine\)\}/\${prefix}\${this.theme.codeBlock(codeLine)}/g;' "$MARKDOWN"
-  patched=1
-else
-  echo "pi-tui markdown: code-block vertical edge already present, skipping"
-fi
-
-BUNDLE_CODE_BLOCK_EDGE_MARKER='let prefix=this.theme.codeBlockBorder("│ ");'
-if ! grep -qF "$BUNDLE_CODE_BLOCK_EDGE_MARKER" "$BUNDLE"; then
-  echo "Patching bundle: code-block vertical edge"
-  perl -0pi -e 's/let indent=this\.theme\.codeBlockIndent\?\?"  ";if\(lines\.push\(this\.theme\.codeBlockBorder\(`╭ \$\{token\.lang\|\|"code"\}`\)\)/let prefix=this.theme.codeBlockBorder("│ ");if(lines.push(this.theme.codeBlockBorder(`╭ \${token.lang||"code"}`))/; s/\$\{indent\}\$\{hlLine\}/\${prefix}\${hlLine}/g; s/\$\{indent\}\$\{this\.theme\.codeBlock\(codeLine\)\}/\${prefix}\${this.theme.codeBlock(codeLine)}/g;' "$BUNDLE"
-  patched=1
-else
-  echo "Bundle: code-block vertical edge already present, skipping"
-fi
-
-# -----------------------------------------------------------------------------
 # Verify: syntax-check all patched files so a bad regex never leaves Pi broken.
 # -----------------------------------------------------------------------------
 echo "Verifying syntax..."
 node --check "$BUNDLE"
 node --check "$CORE"
 node --check "$ASSISTANT"
-node --check "$MARKDOWN"
 echo "Syntax OK."
 
 if [ "$patched" -eq 1 ]; then

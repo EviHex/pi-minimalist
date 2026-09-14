@@ -145,11 +145,11 @@ describe("colorAction / rowText", () => {
   it("renders failed quiet counts in red after successful counts", () => {
     assert.equal(
       quietSummaryText("read ×2", "bash ×1", theme),
-      "<success>✓</success> <success>read</success><toolTitle> ×2</toolTitle><toolTitle> · </toolTitle><error>✗</error> <error>bash</error><error> ×1</error>",
+      "<success>✓</success> <success>read</success><toolTitle> ×2</toolTitle><toolTitle> · </toolTitle><error>✗</error> <error>bash</error><toolTitle> ×1</toolTitle>",
     );
     assert.equal(
       quietSummaryText("", "bash ×2", theme),
-      "<error>✗</error> <error>bash</error><error> ×2</error>",
+      "<error>✗</error> <error>bash</error><toolTitle> ×2</toolTitle>",
     );
   });
 

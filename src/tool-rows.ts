@@ -173,7 +173,7 @@ export function colorQuietSummary(
 
 export function quietSummaryText(summary: string, failures: string | undefined, theme: ThemeLike): string {
   const parts = summary ? [`${theme.fg("success", "✓")} ${colorQuietSummary(summary, theme)}`] : [];
-  if (failures) parts.push(`${theme.fg("error", "✗")} ${colorQuietSummary(failures, theme, "error", "error")}`);
+  if (failures) parts.push(`${theme.fg("error", "✗")} ${colorQuietSummary(failures, theme, "error")}`);
   return parts.join(theme.fg("toolTitle", " · "));
 }
 

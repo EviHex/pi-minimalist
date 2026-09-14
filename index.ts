@@ -11,9 +11,8 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
-import { GutteredComponent } from "./src/components.ts";
 import { createThinkingPreview, type ThinkingPreview } from "./src/thinking-preview.ts";
+import { allPurpleThinkingTheme } from "./src/thinking-theme.ts";
 import { QuietMode } from "./src/quiet-mode.ts";
 import { loadQuietEnabled, saveQuietEnabled } from "./src/quiet-state.ts";
 import { createToolRenderer, type ToolRenderer } from "./src/tool-renderer.ts";
@@ -21,6 +20,7 @@ import { createToolRenderer, type ToolRenderer } from "./src/tool-renderer.ts";
 const DEFAULT_RENDERER = Symbol.for("pi.defaultToolRenderer");
 const THINKING_PREVIEW = Symbol.for("pi.thinkingPreview");
 const CONTENT_WRAP = Symbol.for("pi.contentWrap");
+const THINKING_MARKDOWN_THEME = Symbol.for("pi.thinkingMarkdownTheme");
 const QUIET_MODE = Symbol.for("pi.minimalist.quietMode");
 const QUIET_THINKING = Symbol.for("pi.minimalist.quietThinking");
 const QUIET_PROSE = Symbol.for("pi.minimalist.quietProse");
@@ -28,7 +28,8 @@ const QUIET_PROSE = Symbol.for("pi.minimalist.quietProse");
 type Bridges = {
   [DEFAULT_RENDERER]?: ToolRenderer;
   [THINKING_PREVIEW]?: ThinkingPreview;
-  [CONTENT_WRAP]?: (component: Component, kind: "thinking", theme: unknown) => Component;
+  [CONTENT_WRAP]?: unknown;
+  [THINKING_MARKDOWN_THEME]?: (base: Record<string, unknown>, theme: any) => Record<string, unknown>;
   [QUIET_MODE]?: QuietMode;
   [QUIET_THINKING]?: (owner: object, runIndex: number, streaming: boolean, hidden: boolean) => void;
   [QUIET_PROSE]?: (owner: object, contentIndex: number) => void;
@@ -45,6 +46,9 @@ export default function (pi: ExtensionAPI) {
   // erase the new bridges. Process exit clears globalThis naturally.
   globals[DEFAULT_RENDERER] = createToolRenderer({ quiet });
   globals[THINKING_PREVIEW] = createThinkingPreview(undefined, quiet);
+  // Remove old extension gutter after /reload; expanded thinking is purple text only.
+  delete globals[CONTENT_WRAP];
+  globals[THINKING_MARKDOWN_THEME] = allPurpleThinkingTheme;
   globals[QUIET_THINKING] = (owner, runIndex, streaming, hidden) =>
     quiet.observeThinking(owner, runIndex, !streaming, !hidden);
   globals[QUIET_PROSE] = (owner, contentIndex) => quiet.observeProse(owner, contentIndex);
@@ -66,9 +70,4 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // Expanded thinking blocks (Ctrl+T): core hands us the native Markdown
-  // component and we wrap it so every line carries the purple thinking gutter,
-  // matching the collapsed preview. theme is Pi's Theme at runtime.
-  globals[CONTENT_WRAP] = (component, _kind, theme: any) =>
-    new GutteredComponent(component, ` ${theme.fg("thinkingText", "▌")} `);
 }

@@ -55,8 +55,10 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
     assert.equal(bridge.handles("read"), true);
     assert.equal(bridge.handles("mcp"), false);
 
-    // The other bridge must be installed by the same load.
+    // Thinking gets its own all-purple Markdown theme; no outer gutter wrapper.
     assert.equal(typeof (globalThis as any)[Symbol.for("pi.thinkingPreview")], "function");
+    assert.equal(typeof (globalThis as any)[Symbol.for("pi.thinkingMarkdownTheme")], "function");
+    assert.equal((globalThis as any)[Symbol.for("pi.contentWrap")], undefined);
 
     const native = createReadToolDefinition("/tmp");
     assert.equal(native.name, "read", "the native definition must remain intact");
@@ -177,7 +179,9 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
         source.includes("const hidden = this.isStreaming ? false :") &&
         source.includes('Symbol.for("pi.minimalist.quietThinking")') &&
         source.includes('Symbol.for("pi.minimalist.quietProse")') &&
-        source.includes("this.isStreaming, this, runIndex"),
+        source.includes("this.isStreaming, this, runIndex") &&
+        source.includes('Symbol.for("pi.thinkingMarkdownTheme")') &&
+        source.includes("thinkingMarkdownTheme, {"),
       "assistant-message.js is missing the quiet thinking bridge — run ./patch-pi.sh and restart Pi",
     );
   });

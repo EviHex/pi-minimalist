@@ -46,8 +46,8 @@ to the new command handler. No core patch is involved.
 Normally hidden thinking blocks (`Ctrl+T`) show `✓ think <preview>` on one
 line (non-italic; `think` in success green, preview in `toolTitle`), instead
 of the bare "Thinking..." label. While the assistant message streams, Pi
-forces that thinking open with native italic Markdown and purple gutter; when
-streaming ends it returns to the saved visibility override/default collapsed
+forces that thinking open with native italic all-purple Markdown and no outer
+gutter; when streaming ends it returns to the saved visibility override/default collapsed
 preview. Pi exposes message-level streaming only: thought can remain open if
 that message streams text after thought. Explicit expansion after completion
 still persists. Expanded view keeps Pi's native italic markdown.
@@ -89,8 +89,8 @@ Bridge symbols registered by the extension:
 
 - `Symbol.for("pi.defaultToolRenderer")` → `{ renderShell: "self", renderCall, renderResult }`
 - `Symbol.for("pi.thinkingPreview")` → `(text, theme, pad, isStreaming) => Component`
-- `Symbol.for("pi.contentWrap")` → wraps expanded thinking with its purple gutter
-- `Symbol.for("pi.minimalist.quietMode")` → shared `/quiet` state, retained across `/reload`
+- `Symbol.for("pi.thinkingMarkdownTheme")` → all-purple theme for expanded thinking
+- `Symbol.for("pi.minimalist.quietMode") → shared `/quiet` state, retained across `/reload`
 - `pi.minimalist.quietThinking` / `pi.minimalist.quietProse` → core chronology hooks for unified quiet runs
 
 ### Renderer details
@@ -148,9 +148,9 @@ The script patches exactly these bridges:
    `globalThis[Symbol.for("pi.thinkingPreview")]` (falls back to the native
    "Thinking..." label when unregistered).
 6. `assistant-message.js` — normally hidden thinking expands during message
-   streaming, and expanded thinking Markdown goes through `pi.contentWrap`,
-   which supplies its purple gutter.
-7. `pi-tui/components/markdown.js` — replace the blockquote prefix `│` with
+   streaming, and `pi.thinkingMarkdownTheme` replaces expanded thinking token
+   colors with purple. No outer thinking gutter is applied.
+7. `pi-tui/components/markdown.js — replace the blockquote prefix `│` with
    half-block `▌`; `signal.json` maps `mdQuoteBorder` to white `text`.
 
 ### Upgrade warning

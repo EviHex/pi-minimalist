@@ -160,6 +160,16 @@ else
   echo "Assistant: quiet prose boundary bridge already present, skipping"
 fi
 
+THINKING_THEME_MARKER='Symbol.for("pi.thinkingMarkdownTheme")'
+if ! grep -qF "$THINKING_THEME_MARKER" "$ASSISTANT"; then
+  echo "Patching assistant-message: all-purple thinking Markdown bridge"
+  perl -0pi -e 's/(globalThis\[Symbol\.for\("pi\.minimalist\.quietThinking"\)\]\?\.\(this, runIndex, this\.isStreaming, hidden\);\n                )const thinkingComponent/${1}const thinkingMarkdownTheme = globalThis[Symbol.for("pi.thinkingMarkdownTheme")]?.(this.markdownTheme, theme) ?? this.markdownTheme;\n                const thinkingComponent/' "$ASSISTANT"
+  perl -0pi -e 's/(new Markdown\(thinkingBlocks\.join\("\\n\\n"\), this\.outputPad, 0, )this\.markdownTheme/$1thinkingMarkdownTheme/' "$ASSISTANT"
+  patched=1
+else
+  echo "Assistant: all-purple thinking Markdown bridge already present, skipping"
+fi
+
 GUTTER_WRAP_MARKER='Symbol.for("pi.contentWrap")'
 if ! grep -qF "$GUTTER_WRAP_MARKER" "$ASSISTANT"; then
   echo "Patching assistant-message: thinking gutter + prose top border bridges"
@@ -209,6 +219,15 @@ if ! grep -qF 'Symbol.for("pi.minimalist.quietThinking")' "$BUNDLE"; then
   patched=1
 else
   echo "Bundle: quiet thinking aggregation bridge already present, skipping"
+fi
+
+if ! grep -qF 'Symbol.for("pi.thinkingMarkdownTheme")' "$BUNDLE"; then
+  echo "Patching bundle: all-purple thinking Markdown bridge"
+  perl -0pi -e 's/(quietThinking=globalThis\[Symbol\.for\("pi\.minimalist\.quietThinking"\)\]\?\.\(this,runIndex,this\.isStreaming,hidden\),)thinkingComponent/${1}thinkingMarkdownTheme=globalThis[Symbol.for("pi.thinkingMarkdownTheme")]?.(this.markdownTheme,theme)??this.markdownTheme,thinkingComponent/' "$BUNDLE"
+  perl -0pi -e 's/(\),this\.outputPad,0,)this\.markdownTheme,\{color:text=>theme\.fg\("thinkingText",text\),italic:!0\}/$1thinkingMarkdownTheme,{color:text=>theme.fg("thinkingText",text),italic:!0}/' "$BUNDLE"
+  patched=1
+else
+  echo "Bundle: all-purple thinking Markdown bridge already present, skipping"
 fi
 
 if ! grep -qF 'Symbol.for("pi.minimalist.quietProse")' "$BUNDLE"; then

@@ -288,6 +288,26 @@ else
   echo "Bundle: compact code-block corners already present, skipping"
 fi
 
+# Connect the corners with a thin edge. It is part of the frame, not a tool
+# gutter: corners make the code block boundary unambiguous.
+CODE_BLOCK_EDGE_MARKER='const prefix = this.theme.codeBlockBorder("│ ");'
+if ! grep -qF "$CODE_BLOCK_EDGE_MARKER" "$MARKDOWN"; then
+  echo "Patching pi-tui markdown: code-block vertical edge"
+  perl -0pi -e 's/const indent = this\.theme\.codeBlockIndent \?\? "  ";\n                lines\.push\(this\.theme\.codeBlockBorder\(`╭ \$\{token\.lang \|\| "code"\}`\)\);/const prefix = this.theme.codeBlockBorder("│ ");\n                lines.push(this.theme.codeBlockBorder(`╭ \${token.lang || "code"}`));/; s/\$\{indent\}\$\{hlLine\}/\${prefix}\${hlLine}/g; s/\$\{indent\}\$\{this\.theme\.codeBlock\(codeLine\)\}/\${prefix}\${this.theme.codeBlock(codeLine)}/g;' "$MARKDOWN"
+  patched=1
+else
+  echo "pi-tui markdown: code-block vertical edge already present, skipping"
+fi
+
+BUNDLE_CODE_BLOCK_EDGE_MARKER='let prefix=this.theme.codeBlockBorder("│ ");'
+if ! grep -qF "$BUNDLE_CODE_BLOCK_EDGE_MARKER" "$BUNDLE"; then
+  echo "Patching bundle: code-block vertical edge"
+  perl -0pi -e 's/let indent=this\.theme\.codeBlockIndent\?\?"  ";if\(lines\.push\(this\.theme\.codeBlockBorder\(`╭ \$\{token\.lang\|\|"code"\}`\)\)/let prefix=this.theme.codeBlockBorder("│ ");if(lines.push(this.theme.codeBlockBorder(`╭ \${token.lang||"code"}`))/; s/\$\{indent\}\$\{hlLine\}/\${prefix}\${hlLine}/g; s/\$\{indent\}\$\{this\.theme\.codeBlock\(codeLine\)\}/\${prefix}\${this.theme.codeBlock(codeLine)}/g;' "$BUNDLE"
+  patched=1
+else
+  echo "Bundle: code-block vertical edge already present, skipping"
+fi
+
 # -----------------------------------------------------------------------------
 # Verify: syntax-check all patched files so a bad regex never leaves Pi broken.
 # -----------------------------------------------------------------------------

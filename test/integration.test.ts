@@ -171,8 +171,8 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
 
     const render = (source: string) => new Markdown(source, 0, 0, getMarkdownTheme()).render(80)
       .map(plain).map((line: string) => line.trimEnd());
-    assert.deepEqual(render("```ts\nconst x = 1;\n```"), ["╭ ts", "  const x = 1;", "╰"]);
-    assert.deepEqual(render("```\nplain\n```"), ["╭ code", "  plain", "╰"]);
+    assert.deepEqual(render("```ts\nconst x = 1;\n```"), ["╭ ts", "│ const x = 1;", "╰"]);
+    assert.deepEqual(render("```\nplain\n```"), ["╭ code", "│ plain", "╰"]);
   });
 
   it("applies the unbundled thinking bridge in the installed Pi", () => {

@@ -153,8 +153,8 @@ The script patches exactly these bridges:
 7. `pi-tui/components/markdown.js` — replace the blockquote prefix `│` with
    half-block `▌`; `signal.json` maps `mdQuoteBorder` to white `text`.
 8. `pi-tui/components/markdown.js` — replace raw code fences with `╭ <lang>`
-   (or `╭ code`) and closing `╰`; code remains two-space indented. `signal.json`
-   maps `mdCodeBlockBorder` to blue-gray `toolDetails`.
+   (or `╭ code`), blue-gray `│ ` on every code line, and closing `╰`.
+   `signal.json` maps `mdCodeBlockBorder` to blue-gray `toolDetails`.
 
 ### Upgrade warning
 

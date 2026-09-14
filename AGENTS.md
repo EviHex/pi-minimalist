@@ -125,38 +125,26 @@ finished row leaves an interval registered).
 
 ## Local Pi Core Bridges
 
-Patched into both installed runtime forms (the bundle is what `pi` executes;
-the unbundled files are patched for consistency):
+Only the self-contained CLI bundle is patched:
 
 ```text
-/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tool-execution.js
-/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/assistant-message.js
-/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-JVUZSMYM.js
+/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/<current chunk>.js
 ```
 
-`pi-tui/components/markdown.js` is deliberately NOT patched — markdown chrome
-is done through the public theme surface (see below).
+`patch-pi.sh` finds the current chunk by content; hashes change between Pi
+releases. It deliberately leaves SDK/unbundled components and pi-tui pristine.
+Those files are not loaded by the `pi` command, and mirroring every edit there
+previously doubled the upgrade surface while testing the wrong runtime.
 
-The script patches exactly these bridges:
+Three bridge groups remain:
 
-1. `getCallRenderer()` / `getResultRenderer()` / `getRenderShell()` — when
-   global `handles(name)` is true, override rendering only and pass the native
-   result renderer through for expanded output; built-in definitions remain
-   native (required by pi-subagents host-tool discovery).
-2. `createCallFallback()` — ask the global renderer first for tools with no
-   native renderer, else Pi native fallback.
-3. `createResultFallback()` — same generic fallback; returning `undefined`
-   delegates to Pi native text output.
-4. `ToolExecutionComponent` leading Spacer — consult `pi.minimalist.quietSpacer`
-   at render time, so `CompactLine` rows hidden by `/quiet` leave no blank line.
-5. `AssistantMessageComponent` leading Spacer — consult
-   `pi.minimalist.quietMessageSpacer`, so hidden quiet thinking leaves no blank line.
-6. `assistant-message.js` — collapsed thinking blocks call
-   `globalThis[Symbol.for("pi.thinkingPreview")]` (falls back to the native
-   "Thinking..." label when unregistered).
-7. `assistant-message.js` — normally hidden thinking expands during message
-   streaming, and `pi.thinkingMarkdownTheme` replaces expanded thinking token
-   colors with purple. No outer thinking gutter is applied.
+1. **Tool renderer** — route selected built-ins and rendererless third-party
+   tools through `pi.defaultToolRenderer`, without re-registering built-ins and
+   losing their native ownership.
+2. **Quiet spacer** — let a quiet-hidden tool row suppress its parent
+   `Spacer(1)`.
+3. **Thinking** — compact preview, streaming visibility, quiet ordering/spacer,
+   and the all-purple expanded Markdown theme.
 
 ### Markdown chrome without a patch
 
@@ -170,7 +158,7 @@ blockquote gutter with **no core patch**:
 - The vertical edge is the public `codeBlockIndent` field, fed by settings
   `markdown.codeBlockIndent` (`"│ "`).
 - pi-tui emits `` ``` `` for **both** a closing fence and a bare opening fence,
-  so `MarkdownChrome` tracks fence parity and exposes `reset()`.
+  so the wrapper tracks parity across each synchronous open/close pair.
 - The live theme object is wrapped **in place**. Passing an instance to
   `ui.setTheme()` would set the theme name to `<in-memory>`, disabling `/theme`
   and custom-theme file watching. Re-applied on `session_start`/`turn_start`
@@ -183,9 +171,9 @@ would color it but would not follow a theme switch, so it is left plain.
 
 ### Upgrade warning
 
-A Pi upgrade overwrites the patched core files. Symptom: built-ins and
-MCP/third-party tools return to verbose cards, and thinking blocks show the
-bare "Thinking..." label. Markdown chrome is unaffected — it needs no patch.
+A Pi upgrade overwrites the patched bundle. Symptom: built-ins and MCP tools
+return to verbose cards, and thinking blocks show the bare "Thinking..." label.
+Markdown chrome is unaffected — it needs no patch.
 
 Fix: re-run the idempotent patch script after every Pi update:
 
@@ -332,14 +320,13 @@ asserted through a fake theme that emits `<success>✓</success>`, so no asserti
 depends on the machine's palette or the active theme. Use `plainTheme()` for
 width assertions — `fakeTheme()` markup occupies real columns.
 
-`test/integration.test.ts` is the regression guard for the core patch: it loads
-this extension through Pi's real extension loader, builds a real
-`ToolExecutionComponent` around the real `createReadToolDefinition`, and asserts
-both the compact/guttered rendering AND that the extension registers zero tools
-(the pi-subagents ownership contract). It skips itself when `PI_ROOT` is unset.
+`test/integration.test.ts` loads the extension through Pi's real loader, checks
+that it registers zero tools (the pi-subagents ownership contract), and verifies
+all bridge markers in the **actual CLI bundle**. It deliberately does not import
+unbundled component copies. It skips itself when `PI_ROOT` is unset.
 
-It also asserts that `pi-tui/components/markdown.js` stays **pristine** (markdown
-chrome is theme-side, not patched) while still rendering `╭`/`│`/`╰`/`▌`.
+It also asserts that pi-tui stays pristine while the theme-side markdown chrome
+still renders `╭`/`│`/`╰`/`▌`.
 
 What automated tests still cannot cover: real terminal escape output, actual
 keybinding delivery (Ctrl+O / Ctrl+T), and MCP adapter interplay. Those remain
@@ -351,15 +338,7 @@ Fast startup/syntax check:
 pi --list-models >/dev/null
 ```
 
-Core bundle syntax checks:
-
-```bash
-node --check /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-JVUZSMYM.js
-node --check /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tool-execution.js
-node --check /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/assistant-message.js
-```
-
-Patch script self-check (idempotent, safe anytime):
+Patch script self-check (also syntax-checks the discovered bundle; idempotent):
 
 ```bash
 ~/.pi/agent/extensions/pi-minimalist/patch-pi.sh

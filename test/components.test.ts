@@ -38,8 +38,8 @@ describe("CompactLine", () => {
     assert.equal(plain(rendered[0]), " ▌ ✓ read a.ts");
   });
 
-  it("uses the borderAccent token for the call gutter and borderMuted for output", () => {
-    assert.equal(gutter(theme), " <borderAccent>▌</borderAccent> ");
+  it("uses the success token for the call gutter and borderMuted for output", () => {
+    assert.equal(gutter(theme), " <success>▌</success> ");
     assert.equal(outputGutter(theme), " <borderMuted>▌</borderMuted> ");
   });
 
@@ -74,7 +74,7 @@ describe("CompactLine", () => {
 
     assert.equal(
       line.render(80)[0],
-      " <borderAccent>▌</borderAccent> ✓ read ×1, think ×1",
+      " <success>▌</success> ✓ read ×1, think ×1",
     );
   });
 

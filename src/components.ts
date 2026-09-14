@@ -57,11 +57,10 @@ export const realTimers: Timers = {
  * as one indented block instead of same-weight lines mixed into text.
  *
  * Indented one column so the bar sits inside the text area instead of colliding
- * with the left border of user-message code blocks. `borderAccent` is a native
- * Pi theme token (custom color keys make theme.fg() throw at runtime); signal
- * .json maps it to pastel green.
+ * with the tool action text. `success` is a native Pi theme token (custom
+ * color keys make theme.fg() throw at runtime); signal.json maps it to green.
  */
-export function gutter(theme: ThemeLike, token: ThemeColor = "borderAccent"): string {
+export function gutter(theme: ThemeLike, token: ThemeColor = "success"): string {
   return ` ${theme.fg(token, "▌")} `;
 }
 

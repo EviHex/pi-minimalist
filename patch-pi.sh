@@ -264,6 +264,31 @@ else
 fi
 
 # -----------------------------------------------------------------------------
+# Patch 6: compact code-block corners (pi-tui markdown.js + bundle)
+# -----------------------------------------------------------------------------
+# Raw ``` fences are Markdown source, not useful terminal chrome. A short
+# opening corner preserves the language and a closing corner marks the end,
+# without a tool-like gutter or horizontal rule.
+# -----------------------------------------------------------------------------
+CODE_BLOCK_MARKER='codeBlockBorder(`╭ ${token.lang || "code"}`)'
+if ! grep -qF "$CODE_BLOCK_MARKER" "$MARKDOWN"; then
+  echo "Patching pi-tui markdown: compact code-block corners"
+  perl -0pi -e 's/codeBlockBorder\(`\\`\\`\\`\$\{token\.lang \|\| ""\}`\)/codeBlockBorder(`╭ \${token.lang || "code"}`)/; s/codeBlockBorder\("```"\)/codeBlockBorder("╰")/' "$MARKDOWN"
+  patched=1
+else
+  echo "pi-tui markdown: compact code-block corners already present, skipping"
+fi
+
+BUNDLE_CODE_BLOCK_MARKER='codeBlockBorder(`╭ ${token.lang||"code"}`)'
+if ! grep -qF "$BUNDLE_CODE_BLOCK_MARKER" "$BUNDLE"; then
+  echo "Patching bundle: compact code-block corners"
+  perl -0pi -e 's/codeBlockBorder\(`\\`\\`\\`\$\{token\.lang\|\|""\}`\)/codeBlockBorder(`╭ \${token.lang||"code"}`)/; s/codeBlockBorder\("```"\)/codeBlockBorder("╰")/' "$BUNDLE"
+  patched=1
+else
+  echo "Bundle: compact code-block corners already present, skipping"
+fi
+
+# -----------------------------------------------------------------------------
 # Verify: syntax-check all patched files so a bad regex never leaves Pi broken.
 # -----------------------------------------------------------------------------
 echo "Verifying syntax..."

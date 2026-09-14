@@ -164,6 +164,17 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
     }
   });
 
+  it("renders code blocks with compact corners instead of raw fences", async () => {
+    const { Markdown } = await import(`${PI_ROOT}/node_modules/@earendil-works/pi-tui/dist/components/markdown.js`);
+    const { getMarkdownTheme, initTheme } = await import(`${PI_ROOT}/dist/modes/interactive/theme/theme.js`);
+    initTheme("dark", false);
+
+    const render = (source: string) => new Markdown(source, 0, 0, getMarkdownTheme()).render(80)
+      .map(plain).map((line: string) => line.trimEnd());
+    assert.deepEqual(render("```ts\nconst x = 1;\n```"), ["╭ ts", "  const x = 1;", "╰"]);
+    assert.deepEqual(render("```\nplain\n```"), ["╭ code", "  plain", "╰"]);
+  });
+
   it("applies the unbundled thinking bridge in the installed Pi", () => {
     // patch-pi.sh edits compiled files that a Pi upgrade overwrites, and only
     // the renderer bridge is observable through the rendering test above. Check

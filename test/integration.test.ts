@@ -190,7 +190,7 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
       const first = new AssistantMessageComponent(message("first thought"), true);
       const last = new AssistantMessageComponent(message("second thought"), true);
 
-      assert.deepEqual(first.render(80).map(plain).filter(Boolean), []);
+      assert.deepEqual(first.render(80).map(plain), [], "hidden thinking must not retain its message Spacer");
       assert.ok(last.render(80).map(plain).some((line: string) => line.includes("✓ think ×2")));
     } finally {
       quiet.setEnabled(false);

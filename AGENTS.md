@@ -93,6 +93,7 @@ Bridge symbols registered by the extension:
 - `Symbol.for("pi.minimalist.quietMode") → shared `/quiet` state, retained across `/reload`
 - `pi.minimalist.quietThinking` / `pi.minimalist.quietProse` → core chronology hooks for unified quiet runs
 - `pi.minimalist.quietSpacer` → removes leading ToolExecution spacer from hidden quiet rows
+- `pi.minimalist.quietMessageSpacer` → removes leading assistant spacer from hidden quiet thinking rows
 
 ### Renderer details
 
@@ -147,15 +148,17 @@ The script patches exactly these bridges:
 4. `getRenderContext()` — expose `ui: this.ui` so the elapsed timer can repaint live.
 5. `ToolExecutionComponent` leading Spacer — consult `pi.minimalist.quietSpacer`
    at render time, so `CompactLine` rows hidden by `/quiet` leave no blank line.
-6. `assistant-message.js` — collapsed thinking blocks call
+6. `AssistantMessageComponent` leading Spacer — consult
+   `pi.minimalist.quietMessageSpacer`, so hidden quiet thinking leaves no blank line.
+7. `assistant-message.js` — collapsed thinking blocks call
    `globalThis[Symbol.for("pi.thinkingPreview")]` (falls back to the native
    "Thinking..." label when unregistered).
-7. `assistant-message.js` — normally hidden thinking expands during message
+8. `assistant-message.js` — normally hidden thinking expands during message
    streaming, and `pi.thinkingMarkdownTheme` replaces expanded thinking token
    colors with purple. No outer thinking gutter is applied.
-8. `pi-tui/components/markdown.js` — replace the blockquote prefix `│` with
+9. `pi-tui/components/markdown.js` — replace the blockquote prefix `│` with
    half-block `▌`; `signal.json` maps `mdQuoteBorder` to white `text`.
-9. `pi-tui/components/markdown.js` — replace raw code fences with `╭ <lang>`
+10. `pi-tui/components/markdown.js` — replace raw code fences with `╭ <lang>`
    (or `╭ code`), blue-gray `│ ` on every code line, and closing `╰`.
    `signal.json` maps `mdCodeBlockBorder` to blue-gray `toolDetails`.
 

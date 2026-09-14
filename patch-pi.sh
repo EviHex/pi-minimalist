@@ -184,6 +184,15 @@ else
   echo "Assistant: quiet prose boundary bridge already present, skipping"
 fi
 
+QUIET_MESSAGE_SPACER_MARKER='Symbol.for("pi.minimalist.quietMessageSpacer")'
+if ! grep -qF "$QUIET_MESSAGE_SPACER_MARKER" "$ASSISTANT"; then
+  echo "Patching assistant-message: suppress hidden quiet message spacers"
+  perl -0pi -e 's/(if \(hasVisibleContent\) \{\n            )this\.contentContainer\.addChild\(new Spacer\(1\)\);/${1}this.contentContainer.addChild({\n                render: () => globalThis[Symbol.for("pi.minimalist.quietMessageSpacer")]?.(this) === false ? [] : [""],\n                invalidate() { },\n            });/' "$ASSISTANT"
+  patched=1
+else
+  echo "Assistant: quiet message spacer bridge already present, skipping"
+fi
+
 THINKING_THEME_MARKER='Symbol.for("pi.thinkingMarkdownTheme")'
 if ! grep -qF "$THINKING_THEME_MARKER" "$ASSISTANT"; then
   echo "Patching assistant-message: all-purple thinking Markdown bridge"
@@ -243,6 +252,14 @@ if ! grep -qF 'Symbol.for("pi.minimalist.quietThinking")' "$BUNDLE"; then
   patched=1
 else
   echo "Bundle: quiet thinking aggregation bridge already present, skipping"
+fi
+
+if ! grep -qF 'Symbol.for("pi.minimalist.quietMessageSpacer")' "$BUNDLE"; then
+  echo "Patching bundle: suppress hidden quiet message spacers"
+  perl -0pi -e 's/&&this\.contentContainer\.addChild\(new Spacer\(1\)\);let thinkingRunIndex=0;/\&\&this.contentContainer.addChild({render:()=>globalThis[Symbol.for("pi.minimalist.quietMessageSpacer")]?.(this)===!1?[]:[""],invalidate(){}});let thinkingRunIndex=0;/' "$BUNDLE"
+  patched=1
+else
+  echo "Bundle: quiet message spacer bridge already present, skipping"
 fi
 
 if ! grep -qF 'Symbol.for("pi.thinkingMarkdownTheme")' "$BUNDLE"; then

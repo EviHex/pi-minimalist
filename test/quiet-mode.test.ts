@@ -70,6 +70,17 @@ describe("quiet mode", () => {
     assert.deepEqual(mode.view(mode.thinkingId(owner, 1)), { summary: "bash ×1, edit ×1, think ×2" });
   });
 
+  it("hides only a message spacer whose thinking row is quiet-hidden", () => {
+    const mode = new QuietMode(true);
+    const first = {};
+    const last = {};
+    mode.observeThinking(first, 0, true, false);
+    mode.observeThinking(last, 0, true, false);
+
+    assert.equal(mode.showMessageSpacer(first), false);
+    assert.equal(mode.showMessageSpacer(last), true);
+  });
+
   it("uses expanded thinking and prose as quiet-run boundaries", () => {
     const mode = new QuietMode(true);
     const owner = {};

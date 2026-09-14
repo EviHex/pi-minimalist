@@ -28,6 +28,7 @@ export class QuietMode {
   private entries: Entry[] = [];
   private byId = new Map<string, Entry>();
   private ownerIds = new WeakMap<object, number>();
+  private ownerEntries = new Map<number, Set<string>>();
   private nextOwnerId = 1;
 
   constructor(enabled = false) {
@@ -59,16 +60,26 @@ export class QuietMode {
 
   /** Observe a thinking block with its core component identity and local run index. */
   observeThinking(owner: object, runIndex: number, done: boolean, expanded: boolean): void {
-    this.observe(this.thinkingId(owner, runIndex), "think", done ? "success" : "pending", expanded);
+    const id = this.thinkingId(owner, runIndex);
+    this.rememberOwnerEntry(owner, id);
+    this.observe(id, "think", done ? "success" : "pending", expanded);
   }
 
   /** Assistant prose is a hard quiet-run boundary. */
   observeProse(owner: object, contentIndex: number): void {
-    this.observe(`prose:${this.ownerId(owner)}:${contentIndex}`, "prose", "pending", false);
+    const id = `prose:${this.ownerId(owner)}:${contentIndex}`;
+    this.rememberOwnerEntry(owner, id);
+    this.observe(id, "prose", "pending", false);
   }
 
   thinkingId(owner: object, runIndex: number): string {
     return `think:${this.ownerId(owner)}:${runIndex}`;
+  }
+
+  /** Hide a message's initial spacer only when every one of its rows is hidden. */
+  showMessageSpacer(owner: object): boolean {
+    const entries = this.ownerEntries.get(this.ownerId(owner));
+    return !entries || [...entries].some((id) => this.view(id) !== "hide");
   }
 
   view(id: string): QuietView {
@@ -92,6 +103,16 @@ export class QuietMode {
 
   private foldable(entry: Entry | undefined): boolean {
     return Boolean(entry && entry.outcome !== "pending" && !entry.expanded && QUIET_TOOLS.has(entry.name));
+  }
+
+  private rememberOwnerEntry(owner: object, entryId: string): void {
+    const id = this.ownerId(owner);
+    let entries = this.ownerEntries.get(id);
+    if (!entries) {
+      entries = new Set();
+      this.ownerEntries.set(id, entries);
+    }
+    entries.add(entryId);
   }
 
   private ownerId(owner: object): number {

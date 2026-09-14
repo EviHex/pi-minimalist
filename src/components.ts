@@ -87,6 +87,7 @@ export class CompactLine implements Component {
   private background: ((text: string) => string) | undefined;
   private ticker: unknown;
   private gutterText = "";
+  private quietText: (() => string | null | undefined) | undefined;
   private timers: Timers;
 
   constructor(timers: Timers = realTimers) {
@@ -101,6 +102,11 @@ export class CompactLine implements Component {
   /** Left gutter marker, pre-colored by the caller so it can differ from the row text. */
   setGutter(gutterText: string): void {
     this.gutterText = gutterText;
+  }
+
+  /** Return null to hide this line, a string for its quiet summary, or undefined for normal text. */
+  setQuietText(resolve: () => string | null | undefined): void {
+    this.quietText = resolve;
   }
 
   /**
@@ -126,12 +132,15 @@ export class CompactLine implements Component {
   }
 
   render(width: number): string[] {
+    const quietText = this.quietText?.();
+    if (quietText === null) return [];
+
     // TUI pads each line to terminal width, so no manual trailing padding is
     // needed. truncateToWidth understands ANSI codes and wide Unicode glyphs,
     // so colored text truncates at VISIBLE columns. The gutter is a fixed-width
     // prefix, so the content gets the remaining columns.
     const gutterWidth = this.gutterText ? GUTTER_WIDTH : 0;
-    const line = truncateToWidth(this.text, Math.max(1, width - gutterWidth), "…");
+    const line = truncateToWidth(quietText ?? this.text, Math.max(1, width - gutterWidth), "…");
     return this.background ? [this.gutterText + this.background(line)] : [this.gutterText + line];
   }
 

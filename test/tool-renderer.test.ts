@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { CompactLine, EmptyComponent, GutteredComponent } from "../src/components.ts";
 import { BUILT_INS } from "../src/tool-rows.ts";
+import { QuietMode } from "../src/quiet-mode.ts";
 import { createToolRenderer } from "../src/tool-renderer.ts";
 import { fakeClock, fakeTheme, fakeTimers, makeContext, plain, plainTheme } from "../test/test-support.ts";
 
@@ -11,10 +12,16 @@ const theme = fakeTheme();
 const widthTheme = plainTheme();
 
 /** The renderer as production builds it, but with a deterministic clock/timers. */
-function renderer(options: { clock?: ReturnType<typeof fakeClock>; timers?: ReturnType<typeof fakeTimers> } = {}) {
+function renderer(
+  options: {
+    clock?: ReturnType<typeof fakeClock>;
+    timers?: ReturnType<typeof fakeTimers>;
+    quiet?: QuietMode;
+  } = {},
+) {
   const clock = options.clock ?? fakeClock();
   const timers = options.timers ?? fakeTimers();
-  return { renderer: createToolRenderer({ now: clock.now, timers }), clock, timers };
+  return { renderer: createToolRenderer({ now: clock.now, timers, quiet: options.quiet }), clock, timers };
 }
 
 /** Native renderResult stand-in: multiline output, reuse-aware like the real ones. */
@@ -141,6 +148,34 @@ describe("renderCall", () => {
       const rendered = r.renderCall("edit", args, widthTheme, makeContext("completed")).render(width);
       assert.equal(rendered.length, 1, `width ${width}`);
       assert.ok(visibleWidth(rendered[0]) <= width, `width ${width}: ${visibleWidth(rendered[0])}`);
+    }
+  });
+
+  it("folds completed whitelisted runs only while quiet mode is enabled", () => {
+    const quiet = new QuietMode();
+    const { renderer: r } = renderer({ quiet });
+    const first = r.renderCall("read", { path: "a.ts" }, theme, makeContext("completed", { toolCallId: "1" }));
+    const second = r.renderCall("edit", { path: "a.ts" }, theme, makeContext("completed", { toolCallId: "2" }));
+    const third = r.renderCall("read", { path: "b.ts" }, theme, makeContext("completed", { toolCallId: "3" }));
+
+    assert.deepEqual(first.render(80).map(plain), [" ▌ ✓ read a.ts"], "quiet starts disabled");
+    quiet.toggle();
+    assert.deepEqual(first.render(80), []);
+    assert.deepEqual(second.render(80), []);
+    assert.deepEqual(third.render(80).map(plain), [" ▌ ✓ read ×2, edit ×1"]);
+  });
+
+  it("does not fold a run across bash or an expanded entry", () => {
+    const quiet = new QuietMode();
+    const { renderer: r } = renderer({ quiet });
+    const read = r.renderCall("read", { path: "a.ts" }, theme, makeContext("completed", { toolCallId: "1" }));
+    const bash = r.renderCall("bash", { command: "echo ok" }, theme, makeContext("completed", { toolCallId: "2" }));
+    const edit = r.renderCall("edit", { path: "a.ts" }, theme, makeContext("completed", { toolCallId: "3", expanded: true }));
+    const ls = r.renderCall("ls", {}, theme, makeContext("completed", { toolCallId: "4" }));
+    quiet.toggle();
+
+    for (const component of [read, bash, edit, ls]) {
+      assert.equal(component.render(80).length, 1, "cut runs keep individual rows");
     }
   });
 

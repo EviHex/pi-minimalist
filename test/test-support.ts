@@ -92,6 +92,7 @@ export type TestContext = {
   argsComplete: boolean;
   expanded: boolean;
   lastComponent?: unknown;
+  toolCallId?: string;
   invalidate: () => void;
   invalidateCount: () => number;
 };
@@ -106,11 +107,12 @@ export type TestContext = {
  */
 export function makeContext(
   state: UiState,
-  options: { expanded?: boolean; argsComplete?: boolean; lastComponent?: unknown } = {},
+  options: { expanded?: boolean; argsComplete?: boolean; lastComponent?: unknown; toolCallId?: string } = {},
 ): TestContext {
   const live = state === "running" || state === "partial" || state === "queued";
   let invalidations = 0;
   return {
+    toolCallId: options.toolCallId,
     state: {},
     isPartial: live,
     isError: state === "failed",

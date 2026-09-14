@@ -42,6 +42,7 @@ export type RenderState = {
 
 /** The render context fields this module reads. Pi's real context has more. */
 export type CallContext = {
+  toolCallId?: string;
   state: RenderState;
   isPartial?: boolean;
   isError?: boolean;

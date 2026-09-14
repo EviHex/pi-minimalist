@@ -1,7 +1,7 @@
 # pi-minimalist — Agent Notes
 
-One home for all Pi UI simplification. Two features, one folder, one patch
-script. Formerly the `compact-tool-renderer` extension (deleted after the merge —
+One home for all Pi UI simplification. Compact tools (including quiet mode),
+thinking preview, one folder, one patch script. Formerly the `compact-tool-renderer` extension (deleted after the merge —
 do not recreate it).
 
 ## Features
@@ -25,6 +25,13 @@ Pi actually enables and invokes.
 Collapsed view hides tool output. `Ctrl+O` / `Cmd+O` expands the original
 output. Each collapsed call is exactly one terminal line: long paths/commands
 truncate using the real viewport width instead of wrapping.
+
+`/quiet` toggles low-noise run folding. A consecutive completed run composed
+only of `read/edit/write/grep/find/ls` becomes one final summary line, e.g.
+`✓ read ×2, edit ×1`; every other row in that run renders zero lines. `bash`,
+MCP tools, queued/running/failed calls, and expanded calls break a run and stay
+visible. The state is process-global so `/reload` keeps existing rows connected
+to the new command handler. No core patch is involved.
 
 ### 2. Collapsed thinking preview
 
@@ -71,6 +78,8 @@ Bridge symbols registered by the extension:
 
 - `Symbol.for("pi.defaultToolRenderer")` → `{ renderShell: "self", renderCall, renderResult }`
 - `Symbol.for("pi.thinkingPreview")` → `(text, theme, pad, isStreaming) => Component`
+- `Symbol.for("pi.contentWrap")` → wraps expanded thinking with its purple gutter
+- `Symbol.for("pi.minimalist.quietMode")` → shared `/quiet` state, retained across `/reload`
 
 ### Renderer details
 
@@ -126,8 +135,10 @@ The script patches exactly these bridges:
 5. `assistant-message.js` — collapsed thinking blocks call
    `globalThis[Symbol.for("pi.thinkingPreview")]` (falls back to the native
    "Thinking..." label when unregistered).
-6. `pi-tui/components/markdown.js` — replace the thin blockquote prefix `│`
-   with full-block `█`; `signal.json` maps `mdQuoteBorder` to white `text`.
+6. `assistant-message.js` — expanded thinking Markdown goes through
+   `pi.contentWrap`, which supplies its purple gutter.
+7. `pi-tui/components/markdown.js` — replace the blockquote prefix `│` with
+   half-block `▌`; `signal.json` maps `mdQuoteBorder` to white `text`.
 
 ### Upgrade warning
 
@@ -245,6 +256,7 @@ runtime:
 | `src/components.ts` | `CompactLine`, `EmptyComponent`, `GutteredComponent`, gutters, `ThemeLike`, injectable `Timers` |
 | `src/tool-rows.ts` | pure row text: `callText`, `statusGlyph`, `colorAction`, `rowText`, `BUILT_INS` |
 | `src/tool-renderer.ts` | feature 1: `createToolRenderer()` factory |
+| `src/quiet-mode.ts` | `/quiet` state, whitelist, and low-noise run summaries |
 | `src/thinking-preview.ts` | feature 2: `createThinkingPreview()` factory |
 | `test/test-support.ts` | deterministic doubles (fake theme/clock/timers, context builder) |
 | `test/*.test.ts` | the tests |
@@ -263,7 +275,7 @@ how Pi discovers it, so `tsconfig.json` uses `module: esnext` +
 ### Automated tests
 
 ```bash
-./run-tests.sh              # unit + core-bridge integration (66 tests)
+./run-tests.sh              # unit + core-bridge integration
 ./run-tests.sh --unit       # unit only, skips anything needing Pi's install
 ./run-tests.sh --typecheck  # tsc --noEmit, strict
 ```

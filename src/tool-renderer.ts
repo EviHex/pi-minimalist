@@ -23,6 +23,7 @@ import {
   type Timers,
 } from "./components.ts";
 import { isBuiltIn, rowText, statusGlyph, type RenderState } from "./tool-rows.ts";
+import { QuietMode } from "./quiet-mode.ts";
 
 /** Original built-in result renderer, handed to us by the core bridge. */
 export type NativeResultRenderer = (
@@ -52,6 +53,8 @@ export type RendererDeps = {
   now?: () => number;
   /** Repaint scheduler for the ticker; injectable for fake-timer tests. */
   timers?: Timers;
+  /** Shared /quiet state; injected so existing rows update without a core patch. */
+  quiet?: QuietMode;
 };
 
 /**
@@ -61,6 +64,7 @@ export type RendererDeps = {
 export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
   const now = deps.now ?? Date.now;
   const timers = deps.timers ?? realTimers;
+  const quiet = deps.quiet ?? new QuietMode();
 
   return {
     // One custom line instead of Pi's padded Box shell.
@@ -98,6 +102,21 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
       // No background while executing — the animated timer already signals
       // activity, and a highlight flashing on each repaint was distracting.
       component.set(rowText(name, args, theme, status, context.expanded === true));
+
+      // All tool calls are recorded so a bash/MCP call cuts an otherwise quiet
+      // run. Only successful, collapsed entries in QuietMode's whitelist fold.
+      // Core always supplies toolCallId. Skip non-core/test-like callers rather
+      // than letting several missing IDs collapse into one accidental group.
+      if (context.toolCallId) {
+        const id = context.toolCallId;
+        quiet.observe(id, name, status.glyph === "✓", context.expanded === true);
+        component.setQuietText(() => {
+          const view = quiet.view(id);
+          if (view === "show") return undefined;
+          if (view === "hide") return null;
+          return `${theme.fg("success", "✓")} ${theme.fg("toolTitle", view.summary)}`;
+        });
+      }
       return component;
     },
 

@@ -109,7 +109,9 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
       // than letting several missing IDs collapse into one accidental group.
       if (context.toolCallId) {
         const id = context.toolCallId;
-        quiet.observe(id, name, status.glyph === "✓", context.expanded === true);
+        // Rendererless third-party names are intentionally one quiet category:
+        // their normal label is already "toolcall <name>".
+        quiet.observe(id, isBuiltIn(name) ? name : "toolcall", status.glyph === "✓", context.expanded === true);
         component.setQuietText(() => {
           const view = quiet.view(id);
           if (view === "show") return undefined;

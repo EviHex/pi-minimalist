@@ -42,7 +42,7 @@ export default function (pi: ExtensionAPI) {
   globals[THINKING_PREVIEW] = createThinkingPreview();
 
   pi.registerCommand("quiet", {
-    description: "Toggle folding for completed read/edit/write/grep/find/ls/bash runs",
+    description: "Toggle folding for completed read/edit/write/grep/find/ls/bash/toolcall runs",
     handler: async (_args, ctx) => {
       const enabled = quiet.toggle();
       // notify triggers a TUI repaint, so existing CompactLine components read

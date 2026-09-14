@@ -165,7 +165,7 @@ describe("renderCall", () => {
     assert.deepEqual(third.render(80).map(plain), [" ▌ ✓ read ×2, edit ×1"]);
   });
 
-  it("folds bash too, but not across third-party or expanded entries", () => {
+  it("folds bash and generic toolcalls, but not across an expanded entry", () => {
     const quiet = new QuietMode();
     const { renderer: r } = renderer({ quiet });
     const read = r.renderCall("read", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "1" }));
@@ -175,11 +175,9 @@ describe("renderCall", () => {
     const ls = r.renderCall("ls", {}, widthTheme, makeContext("completed", { toolCallId: "5" }));
     quiet.toggle();
 
-    assert.deepEqual(read.render(80), []);
-    assert.deepEqual(bash.render(80).map(plain), [" ▌ ✓ read ×1, bash ×1"]);
-    for (const component of [thirdParty, edit, ls]) {
-      assert.equal(component.render(80).length, 1, "cut runs keep individual rows");
-    }
+    for (const component of [read, bash]) assert.deepEqual(component.render(80), []);
+    assert.deepEqual(thirdParty.render(80).map(plain), [" ▌ ✓ read ×1, bash ×1, toolcall ×1"]);
+    for (const component of [edit, ls]) assert.equal(component.render(80).length, 1, "cut runs keep individual rows");
   });
 
   it("renders rendererless third-party tools with the generic label", () => {

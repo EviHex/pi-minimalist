@@ -9,7 +9,7 @@
  * CompactLine truncates at the real viewport width during render().
  */
 
-import { CompactLine, realTimers, type ThemeLike, type Timers } from "./components.ts";
+import { CompactLine, gutter, realTimers, type ThemeLike, type Timers } from "./components.ts";
 import { QuietMode } from "./quiet-mode.ts";
 import { quietSummaryText } from "./tool-rows.ts";
 
@@ -45,7 +45,7 @@ export function createThinkingPreview(timers: Timers = realTimers, quiet?: Quiet
         const view = quiet.view(id);
         if (view === "show") return undefined;
         if (view === "hide") return null;
-        return quietSummaryText(view.summary, view.failures, theme);
+        return { text: quietSummaryText(view.summary, view.failures, theme), gutter: gutter(theme) };
       });
     }
     return line;

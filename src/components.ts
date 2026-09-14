@@ -82,12 +82,14 @@ export function outputGutter(theme: ThemeLike): string {
  * TUI only supplies the real terminal width during render(), so truncating with
  * a fixed character count in the caller cannot solve this reliably.
  */
+export type QuietText = string | null | undefined | { text: string; gutter?: string };
+
 export class CompactLine implements Component {
   private text = "";
   private background: ((text: string) => string) | undefined;
   private ticker: unknown;
   private gutterText = "";
-  private quietText: (() => string | null | undefined) | undefined;
+  private quietText: (() => QuietText) | undefined;
   private timers: Timers;
 
   constructor(timers: Timers = realTimers) {
@@ -104,8 +106,8 @@ export class CompactLine implements Component {
     this.gutterText = gutterText;
   }
 
-  /** Return null to hide this line, a string for its quiet summary, or undefined for normal text. */
-  setQuietText(resolve: () => string | null | undefined): void {
+  /** Return null to hide, text for a summary, or summary text with its own gutter. */
+  setQuietText(resolve: () => QuietText): void {
     this.quietText = resolve;
   }
 
@@ -132,16 +134,18 @@ export class CompactLine implements Component {
   }
 
   render(width: number): string[] {
-    const quietText = this.quietText?.();
-    if (quietText === null) return [];
+    const quiet = this.quietText?.();
+    if (quiet === null) return [];
+    const quietText = typeof quiet === "object" ? quiet.text : quiet;
+    const gutterText = typeof quiet === "object" ? (quiet.gutter ?? this.gutterText) : this.gutterText;
 
     // TUI pads each line to terminal width, so no manual trailing padding is
     // needed. truncateToWidth understands ANSI codes and wide Unicode glyphs,
     // so colored text truncates at VISIBLE columns. The gutter is a fixed-width
     // prefix, so the content gets the remaining columns.
-    const gutterWidth = this.gutterText ? GUTTER_WIDTH : 0;
+    const gutterWidth = gutterText ? GUTTER_WIDTH : 0;
     const line = truncateToWidth(quietText ?? this.text, Math.max(1, width - gutterWidth), "…");
-    return this.background ? [this.gutterText + this.background(line)] : [this.gutterText + line];
+    return this.background ? [gutterText + this.background(line)] : [gutterText + line];
   }
 
   // Component contract allows cached components to be invalidated. This class

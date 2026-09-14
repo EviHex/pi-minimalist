@@ -35,7 +35,9 @@ Queued/running calls, expanded thinking/tools, and assistant prose break a run
 and stay visible. Failed completed calls remain in their run: successful counts
 stay green and failures become a trailing red group, e.g. `✓ read ×2 · ✗ bash ×1`.
 Summary tool names use normal `success` green; counts/separators use dim
-`toolTitle`. `/quiet` persists its state in `~/.pi/agent/pi-minimalist.json`;
+`toolTitle`. Aggregate rows always use tool-green `borderAccent` gutter, even
+when their visible tail was a `think` preview. `/quiet` persists its state in
+`~/.pi/agent/pi-minimalist.json`;
 that user preference is intentionally outside this nested jj repo. The state is process-global so `/reload` keeps existing rows connected
 to the new command handler. No core patch is involved.
 

@@ -66,6 +66,18 @@ describe("CompactLine", () => {
     assert.equal(plain(line.render(12)[0]), " ▌ read som…");
   });
 
+  it("allows a quiet summary to override its originating gutter", () => {
+    const line = new CompactLine(fakeTimers());
+    line.setGutter(` ${theme.fg("thinkingText", "▌")} `);
+    line.set("✓ think preview");
+    line.setQuietText(() => ({ text: "✓ read ×1, think ×1", gutter: gutter(theme) }));
+
+    assert.equal(
+      line.render(80)[0],
+      " <borderAccent>▌</borderAccent> ✓ read ×1, think ×1",
+    );
+  });
+
   it("applies the background wrapper only when one is provided", () => {
     const line = new CompactLine(fakeTimers());
     line.set("row");

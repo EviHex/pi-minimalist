@@ -159,8 +159,22 @@ export function colorAction(text: string, theme: ThemeLike, timer?: string): str
 }
 
 /** Color every action name in a quiet summary like a normal tool row. */
-export function colorQuietSummary(summary: string, theme: ThemeLike): string {
-  return summary.split(", ").map((item) => colorAction(item, theme)).join(theme.fg("toolTitle", ", "));
+export function colorQuietSummary(
+  summary: string,
+  theme: ThemeLike,
+  actionColor: ThemeColor = "success",
+  detailColor: ThemeColor = "toolTitle",
+): string {
+  return summary.split(", ").map((item) => {
+    const separator = item.indexOf(" ");
+    return theme.fg(actionColor, item.slice(0, separator)) + theme.fg(detailColor, item.slice(separator));
+  }).join(theme.fg(detailColor, ", "));
+}
+
+export function quietSummaryText(summary: string, failures: string | undefined, theme: ThemeLike): string {
+  const parts = summary ? [`${theme.fg("success", "✓")} ${colorQuietSummary(summary, theme)}`] : [];
+  if (failures) parts.push(`${theme.fg("error", "✗")} ${colorQuietSummary(failures, theme, "error", "error")}`);
+  return parts.join(theme.fg("toolTitle", " · "));
 }
 
 /** Assemble the full row text: glyph, colored action word, timer, details. */

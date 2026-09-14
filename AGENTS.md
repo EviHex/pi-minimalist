@@ -31,9 +31,11 @@ only of `read/edit/write/grep/find/ls/bash/toolcall/think` becomes one final sum
 line, e.g. `✓ read ×2, edit ×1`; every other row in that run renders zero lines.
 Rendererless MCP/third-party calls all use the `toolcall` category. Completed,
 collapsed thinking blocks share this run and summarize as `think ×N`.
-Queued/running/failed calls, expanded thinking/tools, and assistant prose break
-a run and stay visible. Summary tool names use normal `success` green;
-counts/separators use dim `toolTitle`. `/quiet` persists its state in `~/.pi/agent/pi-minimalist.json`;
+Queued/running calls, expanded thinking/tools, and assistant prose break a run
+and stay visible. Failed completed calls remain in their run: successful counts
+stay green and failures become a trailing red group, e.g. `✓ read ×2 · ✗ bash ×1`.
+Summary tool names use normal `success` green; counts/separators use dim
+`toolTitle`. `/quiet` persists its state in `~/.pi/agent/pi-minimalist.json`;
 that user preference is intentionally outside this nested jj repo. The state is process-global so `/reload` keeps existing rows connected
 to the new command handler. No core patch is involved.
 

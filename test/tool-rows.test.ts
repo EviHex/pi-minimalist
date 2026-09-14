@@ -4,6 +4,7 @@ import {
   callText,
   colorAction,
   colorQuietSummary,
+  quietSummaryText,
   compact,
   fallbackCallText,
   isBuiltIn,
@@ -138,6 +139,17 @@ describe("colorAction / rowText", () => {
     assert.equal(
       colorQuietSummary("read ×2, edit ×1", theme),
       "<success>read</success><toolTitle> ×2</toolTitle><toolTitle>, </toolTitle><success>edit</success><toolTitle> ×1</toolTitle>",
+    );
+  });
+
+  it("renders failed quiet counts in red after successful counts", () => {
+    assert.equal(
+      quietSummaryText("read ×2", "bash ×1", theme),
+      "<success>✓</success> <success>read</success><toolTitle> ×2</toolTitle><toolTitle> · </toolTitle><error>✗</error> <error>bash</error><error> ×1</error>",
+    );
+    assert.equal(
+      quietSummaryText("", "bash ×2", theme),
+      "<error>✗</error> <error>bash</error><error> ×2</error>",
     );
   });
 

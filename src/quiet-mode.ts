@@ -11,14 +11,16 @@
 /** Tools safe to summarize: routine file operations, bash, and generic toolcalls. */
 export const QUIET_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls", "bash", "toolcall", "think"]);
 
+export type QuietOutcome = "success" | "failure" | "pending";
+
 type Entry = {
   id: string;
   name: string;
-  done: boolean;
+  outcome: QuietOutcome;
   expanded: boolean;
 };
 
-export type QuietView = "show" | "hide" | { summary: string };
+export type QuietView = "show" | "hide" | { summary: string; failures?: string }; 
 
 /** Fold completed, adjacent low-noise tools while /quiet is enabled. */
 export class QuietMode {
@@ -42,27 +44,27 @@ export class QuietMode {
   }
 
   /** Record the current call state. Re-renders update one stable entry in place. */
-  observe(id: string, name: string, done: boolean, expanded: boolean): void {
+  observe(id: string, name: string, outcome: QuietOutcome, expanded: boolean): void {
     let entry = this.byId.get(id);
     if (!entry) {
-      entry = { id, name, done, expanded };
+      entry = { id, name, outcome, expanded };
       this.byId.set(id, entry);
       this.entries.push(entry);
       return;
     }
     entry.name = name;
-    entry.done = done;
+    entry.outcome = outcome;
     entry.expanded = expanded;
   }
 
   /** Observe a thinking block with its core component identity and local run index. */
   observeThinking(owner: object, runIndex: number, done: boolean, expanded: boolean): void {
-    this.observe(this.thinkingId(owner, runIndex), "think", done, expanded);
+    this.observe(this.thinkingId(owner, runIndex), "think", done ? "success" : "pending", expanded);
   }
 
   /** Assistant prose is a hard quiet-run boundary. */
   observeProse(owner: object, contentIndex: number): void {
-    this.observe(`prose:${this.ownerId(owner)}:${contentIndex}`, "prose", false, false);
+    this.observe(`prose:${this.ownerId(owner)}:${contentIndex}`, "prose", "pending", false);
   }
 
   thinkingId(owner: object, runIndex: number): string {
@@ -82,11 +84,14 @@ export class QuietMode {
 
     if (first === last) return "show";
     if (index !== last) return "hide";
-    return { summary: summarize(this.entries.slice(first, last + 1).map((entry) => entry.name)) };
+    const run = this.entries.slice(first, last + 1);
+    const summary = summarize(run.filter((entry) => entry.outcome === "success").map((entry) => entry.name));
+    const failures = summarize(run.filter((entry) => entry.outcome === "failure").map((entry) => entry.name));
+    return failures ? { summary, failures } : { summary }; 
   }
 
   private foldable(entry: Entry | undefined): boolean {
-    return Boolean(entry?.done && !entry.expanded && QUIET_TOOLS.has(entry.name));
+    return Boolean(entry && entry.outcome !== "pending" && !entry.expanded && QUIET_TOOLS.has(entry.name));
   }
 
   private ownerId(owner: object): number {

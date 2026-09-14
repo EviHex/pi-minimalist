@@ -22,7 +22,7 @@ import {
   type ThemeLike,
   type Timers,
 } from "./components.ts";
-import { colorQuietSummary, isBuiltIn, rowText, statusGlyph, type RenderState } from "./tool-rows.ts";
+import { isBuiltIn, quietSummaryText, rowText, statusGlyph, type RenderState } from "./tool-rows.ts";
 import { QuietMode } from "./quiet-mode.ts";
 
 /** Original built-in result renderer, handed to us by the core bridge. */
@@ -111,12 +111,17 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
         const id = context.toolCallId;
         // Rendererless third-party names are intentionally one quiet category:
         // their normal label is already "toolcall <name>".
-        quiet.observe(id, isBuiltIn(name) ? name : "toolcall", status.glyph === "✓", context.expanded === true);
+        quiet.observe(
+          id,
+          isBuiltIn(name) ? name : "toolcall",
+          status.glyph === "✓" ? "success" : status.glyph === "✗" ? "failure" : "pending",
+          context.expanded === true,
+        );
         component.setQuietText(() => {
           const view = quiet.view(id);
           if (view === "show") return undefined;
           if (view === "hide") return null;
-          return `${theme.fg("success", "✓")} ${colorQuietSummary(view.summary, theme)}`;
+          return quietSummaryText(view.summary, view.failures, theme);
         });
       }
       return component;

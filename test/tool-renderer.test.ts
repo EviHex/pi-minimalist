@@ -165,6 +165,19 @@ describe("renderCall", () => {
     assert.deepEqual(third.render(80).map(plain), [" ▌ ✓ read ×2, edit ×1"]);
   });
 
+  it("folds terminal failures into a trailing error summary", () => {
+    const quiet = new QuietMode();
+    const { renderer: r } = renderer({ quiet });
+    const read = r.renderCall("read", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "1" }));
+    const failed = r.renderCall("bash", { command: "false" }, widthTheme, makeContext("failed", { toolCallId: "2" }));
+    const edit = r.renderCall("edit", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "3" }));
+    quiet.toggle();
+
+    assert.deepEqual(read.render(80), []);
+    assert.deepEqual(failed.render(80), []);
+    assert.deepEqual(edit.render(80).map(plain), [" ▌ ✓ read ×1, edit ×1 · ✗ bash ×1"]);
+  });
+
   it("folds bash and generic toolcalls, but not across an expanded entry", () => {
     const quiet = new QuietMode();
     const { renderer: r } = renderer({ quiet });

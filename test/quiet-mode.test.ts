@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { QUIET_TOOLS, QuietMode, summarize } from "../src/quiet-mode.ts";
+import { QUIET_TOOLS, QuietMode, summarize, type QuietOutcome } from "../src/quiet-mode.ts";
 
-function observe(mode: QuietMode, id: string, name: string, done = true, expanded = false): void {
-  mode.observe(id, name, done, expanded);
+function observe(mode: QuietMode, id: string, name: string, outcome: QuietOutcome = "success", expanded = false): void {
+  mode.observe(id, name, outcome, expanded);
 }
 
 describe("quiet mode", () => {
@@ -35,24 +35,25 @@ describe("quiet mode", () => {
     assert.equal(mode.view("1"), "show");
   });
 
-  it("folds generic toolcalls, but cuts runs at failed, running, and expanded calls", () => {
+  it("folds failures, but cuts runs at pending and expanded calls", () => {
     const mode = new QuietMode();
     observe(mode, "read-1", "read");
     observe(mode, "generic", "toolcall");
     observe(mode, "edit-1", "edit");
-    observe(mode, "failed", "read", false);
+    observe(mode, "failed", "read", "failure");
     observe(mode, "edit-2", "edit");
-    observe(mode, "expanded", "read", true, true);
+    observe(mode, "pending", "bash", "pending");
     observe(mode, "find", "find");
     observe(mode, "ls", "ls");
+    observe(mode, "expanded", "read", "success", true);
     mode.toggle();
 
-    assert.equal(mode.view("read-1"), "hide");
-    assert.equal(mode.view("generic"), "hide");
-    assert.deepEqual(mode.view("edit-1"), { summary: "read ×1, toolcall ×1, edit ×1" });
-    for (const id of ["failed", "edit-2", "expanded"]) assert.equal(mode.view(id), "show", id);
+    for (const id of ["read-1", "generic", "edit-1", "failed"]) assert.equal(mode.view(id), "hide", id);
+    assert.deepEqual(mode.view("edit-2"), { summary: "read ×1, toolcall ×1, edit ×2", failures: "read ×1" });
+    assert.equal(mode.view("pending"), "show");
     assert.equal(mode.view("find"), "hide");
     assert.deepEqual(mode.view("ls"), { summary: "find ×1, ls ×1" });
+    assert.equal(mode.view("expanded"), "show");
   });
 
   it("unifies completed thinking and tool calls in transcript order", () => {

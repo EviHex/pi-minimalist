@@ -11,7 +11,7 @@
 
 import { CompactLine, realTimers, type ThemeLike, type Timers } from "./components.ts";
 import { QuietMode } from "./quiet-mode.ts";
-import { colorQuietSummary } from "./tool-rows.ts";
+import { quietSummaryText } from "./tool-rows.ts";
 
 /** Core calls this with the full hidden thinking text plus a streaming flag. */
 export type ThinkingPreview = (
@@ -45,7 +45,7 @@ export function createThinkingPreview(timers: Timers = realTimers, quiet?: Quiet
         const view = quiet.view(id);
         if (view === "show") return undefined;
         if (view === "hide") return null;
-        return `${theme.fg("success", "✓")} ${colorQuietSummary(view.summary, theme)}`;
+        return quietSummaryText(view.summary, view.failures, theme);
       });
     }
     return line;

@@ -33,10 +33,10 @@ export function createThinkingPreview(timers: Timers = realTimers, quiet?: Quiet
     const glyph = streaming ? "•" : "✓";
     // Purple gutter (thinkingText = #c4a7e7): matches the expanded thinking
     // text color, so collapsed and expanded thinking share one hue. Tool rows
-    // stay pastel green.
+    // use success green.
     line.setGutter(` ${theme.fg("thinkingText", "▌")} `);
     line.set(
-      `${theme.fg("success", glyph)} ${theme.fg("success", "think")} ${theme.fg("toolTitle", text.replace(/\s+/g, " ").trim())}`,
+      `${theme.fg("success", glyph)} ${theme.fg("thinkingText", "think")} ${theme.fg("toolTitle", text.replace(/\s+/g, " ").trim())}`,
       streaming ? (row) => theme.bg("toolPendingBg", row) : undefined,
     );
     if (quiet && owner && runIndex !== undefined) {

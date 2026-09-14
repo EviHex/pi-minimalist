@@ -142,6 +142,13 @@ describe("colorAction / rowText", () => {
     );
   });
 
+  it("keeps think purple inside a successful quiet summary", () => {
+    assert.equal(
+      colorQuietSummary("bash ×2, think ×2", theme),
+      "<success>bash</success><toolTitle> ×2</toolTitle><toolTitle>, </toolTitle><thinkingText>think</thinkingText><toolTitle> ×2</toolTitle>",
+    );
+  });
+
   it("renders failed quiet counts in red after successful counts", () => {
     assert.equal(
       quietSummaryText("read ×2", "bash ×1", theme),

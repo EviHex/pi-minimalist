@@ -44,7 +44,7 @@ to the new command handler. No core patch is involved.
 ### 2. Collapsed thinking preview
 
 Normally hidden thinking blocks (`Ctrl+T`) show `✓ think <preview>` on one
-line (non-italic; `think` in success green, preview in `toolTitle`), instead
+line (non-italic; `think` in `thinkingText` purple, preview in `toolTitle`), instead
 of the bare "Thinking..." label. While the assistant message streams, Pi
 forces that thinking open with native italic all-purple Markdown and no outer
 gutter; when streaming ends it returns to the saved visibility override/default collapsed

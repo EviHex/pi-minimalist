@@ -167,7 +167,10 @@ export function colorQuietSummary(
 ): string {
   return summary.split(", ").map((item) => {
     const separator = item.indexOf(" ");
-    return theme.fg(actionColor, item.slice(0, separator)) + theme.fg(detailColor, item.slice(separator));
+    const action = item.slice(0, separator);
+    // Thinking has its own purple language even inside a green quiet summary.
+    const token = action === "think" && actionColor === "success" ? "thinkingText" : actionColor;
+    return theme.fg(token, action) + theme.fg(detailColor, item.slice(separator));
   }).join(theme.fg(detailColor, ", "));
 }
 

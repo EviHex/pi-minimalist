@@ -1,24 +1,31 @@
 #!/usr/bin/env bash
 # =============================================================================
-# patch-pi.sh — Re-apply the compact-tool-renderer core bridge after a Pi update
+# patch-pi.sh — Re-apply the pi-minimalist core bridges after a Pi update
 # =============================================================================
 #
 # WHY THIS EXISTS
 # ---------------
-# The compact-tool-renderer extension is pure API (pi.registerTool()) and
-# survives Pi updates on its own. BUT two small "bridges" had to be written
-# directly into Pi's compiled output because the public API has no way to:
-#   1. give EVERY tool (MCP / third-party, unknown names) a default renderer
-#   2. expose the TUI `ui` handle so the elapsed timer can repaint live
+# Everything that Pi's public extension API can express lives in the extension
+# itself and survives Pi updates on its own. Only the gaps below need bridges
+# written directly into Pi's compiled output, because the public API cannot:
+#   1. replace rendering for a built-in tool while keeping its builtin identity
+#      (registerTool() would take ownership and break pi-subagents discovery)
+#   2. give EVERY tool (MCP / third-party, unknown names) a default renderer
+#   3. render/observe thinking blocks or assistant prose in the transcript
+#   4. suppress the parent Spacer(1) of a hidden tool/assistant row
+#   5. change Markdown blockquote and code-block frame characters
 #
-# Those two edits live in Pi's compiled JS, so a Pi upgrade overwrites them.
+# NOTE: the elapsed timer needs NO bridge. `context.invalidate()` is public API
+# and already recomputes + repaints the row, so no `ui` handle is exposed.
+#
+# These edits live in Pi's compiled JS, so a Pi upgrade overwrites them.
 # Run this script once after any `npm i -g @earendil-works/pi-coding-agent`
 # update to re-apply them. It is IDEMPOTENT: safe to run repeatedly, it only
 # patches files that are missing the marker (never double-inserts).
 #
 # USAGE
 # -----
-#   ~/.pi/agent/extensions/compact-tool-renderer/patch-pi.sh
+#   ~/.pi/agent/extensions/pi-minimalist/patch-pi.sh
 #
 # After patching, fully restart Pi (the running process still has the old
 # compiled modules cached in memory).
@@ -79,32 +86,12 @@ else
   echo "Core: named/default tool renderer bridge already present, skipping"
 fi
 
-# -----------------------------------------------------------------------------
-# Patch 2: expose TUI `ui` handle in the renderer context
-# -----------------------------------------------------------------------------
-# The elapsed timer needs to repaint every second while a tool runs. The
-# renderer context now carries `ui`, so the extension can call
-# ui.requestRender() to animate the timer without recursing into render().
-# -----------------------------------------------------------------------------
-if ! grep -q 'ui: this.ui' "$CORE"; then
-  echo "Patching core: expose ui in render context"
-  perl -0pi -e 's/(invalidate: \(\) => \{\n                this\.invalidate\(\);\n                this\.ui\.requestRender\(\);\n            \},)/$1\n            \/\/ Expose the TUI so renderers can schedule repaints (e.g. spinner\n            \/\/ animation) without recursing into render().\n            ui: this.ui,/' "$CORE"
-  patched=1
-else
-  echo "Core: ui exposure already present, skipping"
-fi
-
-# Bundle equivalent: same field added to the minified getRenderContext object.
-if ! grep -qF 'ui:this.ui' "$BUNDLE"; then
-  echo "Patching bundle: expose ui in render context"
-  perl -0pi -e 's/(invalidate:\(\)=>\{this\.invalidate\(\),this\.ui\.requestRender\(\)\},)/$1ui:this.ui,/' "$BUNDLE"
-  patched=1
-else
-  echo "Bundle: ui exposure already present, skipping"
-fi
+# NOTE: no `ui` bridge here on purpose. The elapsed timer uses the PUBLIC
+# `context.invalidate()` from ToolRenderContext, which re-runs updateDisplay and
+# repaints. Exposing `this.ui` was redundant, so that patch was removed.
 
 # -----------------------------------------------------------------------------
-# Patch 3: suppress parent spacer for hidden quiet tool rows
+# Patch 2: suppress parent spacer for hidden quiet tool rows
 # -----------------------------------------------------------------------------
 # ToolExecutionComponent adds a leading Spacer before its renderer. A hidden
 # CompactLine otherwise leaves that blank row in history, so ask quiet mode at
@@ -128,15 +115,16 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Patch 4: thinking bridges (assistant-message.js + bundle). Two bridges:
-#   a) collapsed thinking preview — Pi shows a bare "Thinking..." label when a
-#      thinking block is hidden (Ctrl+T); the extension renders a compact
-#      one-line preview instead, via globalThis[Symbol.for("pi.thinkingPreview")].
-#      A normally hidden block is forced open while its message streams, then
-#      returns to its existing override/default visibility after completion.
-#   b) expanded thinking gutter — the expanded thinking block (native Markdown)
-#      gets wrapped by globalThis[Symbol.for("pi.contentWrap")] so every line
-#      carries the purple thinking gutter, matching the collapsed preview.
+# Patch 3: thinking bridges (assistant-message.js + bundle)
+#   collapsed thinking preview — Pi shows a bare "Thinking..." label when a
+#   thinking block is hidden (Ctrl+T); the extension renders a compact one-line
+#   preview instead, via globalThis[Symbol.for("pi.thinkingPreview")].
+#   A normally hidden block is forced open while its message streams, then
+#   returns to its existing override/default visibility after completion.
+#
+# NOTE: there is no `pi.contentWrap` gutter bridge. Expanded thinking is purple
+# text with NO outer gutter, so that patch was removed instead of being left in
+# as a hook the extension deliberately deleted on load.
 # -----------------------------------------------------------------------------
 ASSISTANT_MARKER='Symbol.for("pi.thinkingPreview")'
 if ! grep -qF "$ASSISTANT_MARKER" "$ASSISTANT"; then
@@ -203,24 +191,6 @@ else
   echo "Assistant: all-purple thinking Markdown bridge already present, skipping"
 fi
 
-GUTTER_WRAP_MARKER='Symbol.for("pi.contentWrap")'
-if ! grep -qF "$GUTTER_WRAP_MARKER" "$ASSISTANT"; then
-  echo "Patching assistant-message: thinking gutter + prose top border bridges"
-  perl -0pi -e 's/this\.contentContainer\.addChild\(new MouseRegion\(thinkingComponent, \(event\) => \{/const contentWrap = globalThis[Symbol.for("pi.contentWrap")];\n                this.contentContainer.addChild(new MouseRegion(hidden ? thinkingComponent : (contentWrap?.(thinkingComponent, "thinking", theme) ?? thinkingComponent), (event) => {/' "$ASSISTANT"
-  patched=1
-else
-  echo "Assistant: content wrap bridges already present, skipping"
-fi
-
-# Bundle equivalent: same bridge added to the minified hidden-branch expression.
-if ! grep -qF "$GUTTER_WRAP_MARKER" "$BUNDLE"; then
-  echo "Patching bundle: thinking gutter + prose top border bridges"
-  perl -0pi -e 's/addChild\(new MouseRegion\(thinkingComponent,event=>\{/addChild(new MouseRegion(hidden?thinkingComponent:(()=>{let contentWrap=globalThis[Symbol.for("pi.contentWrap")];return contentWrap?.(thinkingComponent,"thinking",theme)??thinkingComponent})(),event=>{/' "$BUNDLE"
-  patched=1
-else
-  echo "Bundle: content wrap bridges already present, skipping"
-fi
-
 # Bundle preview bridge: same expression as the unbundled file, minified.
 if ! grep -qF "$ASSISTANT_MARKER" "$BUNDLE"; then
   echo "Patching bundle: thinking preview bridge"
@@ -280,7 +250,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Patch 5: thick markdown blockquote gutter (pi-tui markdown.js + bundle)
+# Patch 4: thick markdown blockquote gutter (pi-tui markdown.js + bundle)
 # -----------------------------------------------------------------------------
 # Pi hard-codes the thin │ prefix for every rendered blockquote line. Replace
 # it with ▌ (same half-block as the tool-call gutter); signal.json maps
@@ -305,7 +275,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Patch 6: compact code-block corners (pi-tui markdown.js + bundle)
+# Patch 5: compact code-block corners (pi-tui markdown.js + bundle)
 # -----------------------------------------------------------------------------
 # Raw ``` fences are Markdown source, not useful terminal chrome. A short
 # opening corner preserves the language and a closing corner marks the end,

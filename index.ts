@@ -19,7 +19,6 @@ import { createToolRenderer, type ToolRenderer } from "./src/tool-renderer.ts";
 
 const DEFAULT_RENDERER = Symbol.for("pi.defaultToolRenderer");
 const THINKING_PREVIEW = Symbol.for("pi.thinkingPreview");
-const CONTENT_WRAP = Symbol.for("pi.contentWrap");
 const THINKING_MARKDOWN_THEME = Symbol.for("pi.thinkingMarkdownTheme");
 const QUIET_MODE = Symbol.for("pi.minimalist.quietMode");
 const QUIET_THINKING = Symbol.for("pi.minimalist.quietThinking");
@@ -30,7 +29,6 @@ const QUIET_MESSAGE_SPACER = Symbol.for("pi.minimalist.quietMessageSpacer");
 type Bridges = {
   [DEFAULT_RENDERER]?: ToolRenderer;
   [THINKING_PREVIEW]?: ThinkingPreview;
-  [CONTENT_WRAP]?: unknown;
   [THINKING_MARKDOWN_THEME]?: (base: Record<string, unknown>, theme: any) => Record<string, unknown>;
   [QUIET_MODE]?: QuietMode;
   [QUIET_THINKING]?: (owner: object, runIndex: number, streaming: boolean, hidden: boolean) => void;
@@ -50,8 +48,6 @@ export default function (pi: ExtensionAPI) {
   // erase the new bridges. Process exit clears globalThis naturally.
   globals[DEFAULT_RENDERER] = createToolRenderer({ quiet });
   globals[THINKING_PREVIEW] = createThinkingPreview(undefined, quiet);
-  // Remove old extension gutter after /reload; expanded thinking is purple text only.
-  delete globals[CONTENT_WRAP];
   globals[THINKING_MARKDOWN_THEME] = allPurpleThinkingTheme;
   globals[QUIET_THINKING] = (owner, runIndex, streaming, hidden) =>
     quiet.observeThinking(owner, runIndex, !streaming, !hidden);

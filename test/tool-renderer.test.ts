@@ -154,9 +154,9 @@ describe("renderCall", () => {
   it("folds completed whitelisted runs only while quiet mode is enabled", () => {
     const quiet = new QuietMode();
     const { renderer: r } = renderer({ quiet });
-    const first = r.renderCall("read", { path: "a.ts" }, theme, makeContext("completed", { toolCallId: "1" }));
-    const second = r.renderCall("edit", { path: "a.ts" }, theme, makeContext("completed", { toolCallId: "2" }));
-    const third = r.renderCall("read", { path: "b.ts" }, theme, makeContext("completed", { toolCallId: "3" }));
+    const first = r.renderCall("read", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "1" }));
+    const second = r.renderCall("edit", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "2" }));
+    const third = r.renderCall("read", { path: "b.ts" }, widthTheme, makeContext("completed", { toolCallId: "3" }));
 
     assert.deepEqual(first.render(80).map(plain), [" ▌ ✓ read a.ts"], "quiet starts disabled");
     quiet.toggle();
@@ -165,16 +165,19 @@ describe("renderCall", () => {
     assert.deepEqual(third.render(80).map(plain), [" ▌ ✓ read ×2, edit ×1"]);
   });
 
-  it("does not fold a run across bash or an expanded entry", () => {
+  it("folds bash too, but not across third-party or expanded entries", () => {
     const quiet = new QuietMode();
     const { renderer: r } = renderer({ quiet });
-    const read = r.renderCall("read", { path: "a.ts" }, theme, makeContext("completed", { toolCallId: "1" }));
-    const bash = r.renderCall("bash", { command: "echo ok" }, theme, makeContext("completed", { toolCallId: "2" }));
-    const edit = r.renderCall("edit", { path: "a.ts" }, theme, makeContext("completed", { toolCallId: "3", expanded: true }));
-    const ls = r.renderCall("ls", {}, theme, makeContext("completed", { toolCallId: "4" }));
+    const read = r.renderCall("read", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "1" }));
+    const bash = r.renderCall("bash", { command: "echo ok" }, widthTheme, makeContext("completed", { toolCallId: "2" }));
+    const thirdParty = r.renderCall("mcp", {}, widthTheme, makeContext("completed", { toolCallId: "3" }));
+    const edit = r.renderCall("edit", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "4", expanded: true }));
+    const ls = r.renderCall("ls", {}, widthTheme, makeContext("completed", { toolCallId: "5" }));
     quiet.toggle();
 
-    for (const component of [read, bash, edit, ls]) {
+    assert.deepEqual(read.render(80), []);
+    assert.deepEqual(bash.render(80).map(plain), [" ▌ ✓ read ×1, bash ×1"]);
+    for (const component of [thirdParty, edit, ls]) {
       assert.equal(component.render(80).length, 1, "cut runs keep individual rows");
     }
   });

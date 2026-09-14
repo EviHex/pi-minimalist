@@ -8,8 +8,8 @@ function observe(mode: QuietMode, id: string, name: string, done = true, expande
 
 describe("quiet mode", () => {
   it("whitelists only routine file operations", () => {
-    assert.deepEqual([...QUIET_TOOLS], ["read", "edit", "write", "grep", "find", "ls"]);
-    assert.equal(QUIET_TOOLS.has("bash"), false);
+    assert.deepEqual([...QUIET_TOOLS], ["read", "edit", "write", "grep", "find", "ls", "bash"]);
+    assert.equal(QUIET_TOOLS.has("bash"), true);
   });
 
   it("folds an alternating completed low-noise run into its final line", () => {
@@ -34,10 +34,10 @@ describe("quiet mode", () => {
     assert.equal(mode.view("1"), "show");
   });
 
-  it("cuts runs at bash, failed, running, and expanded calls", () => {
+  it("cuts runs at third-party, failed, running, and expanded calls", () => {
     const mode = new QuietMode();
     observe(mode, "read-1", "read");
-    observe(mode, "bash", "bash");
+    observe(mode, "third-party", "mcp");
     observe(mode, "edit-1", "edit");
     observe(mode, "failed", "read", false);
     observe(mode, "edit-2", "edit");
@@ -46,7 +46,7 @@ describe("quiet mode", () => {
     observe(mode, "ls", "ls");
     mode.toggle();
 
-    for (const id of ["read-1", "bash", "edit-1", "failed", "edit-2", "expanded"]) {
+    for (const id of ["read-1", "third-party", "edit-1", "failed", "edit-2", "expanded"]) {
       assert.equal(mode.view(id), "show", id);
     }
     assert.equal(mode.view("find"), "hide");

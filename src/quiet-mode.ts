@@ -8,8 +8,8 @@
  * history too: no core rebuild or core patch is needed.
  */
 
-/** Tools safe to summarize: routine file operations with no command semantics. */
-export const QUIET_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls"]);
+/** Tools safe to summarize: routine file operations plus bash, per user preference. */
+export const QUIET_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls", "bash"]);
 
 type Entry = {
   id: string;

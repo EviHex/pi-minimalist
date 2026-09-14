@@ -158,6 +158,11 @@ export function colorAction(text: string, theme: ThemeLike, timer?: string): str
   return theme.fg("success", action) + timerPart + theme.fg("toolTitle", details);
 }
 
+/** Color every action name in a quiet summary like a normal tool row. */
+export function colorQuietSummary(summary: string, theme: ThemeLike): string {
+  return summary.split(", ").map((item) => colorAction(item, theme)).join(theme.fg("toolTitle", ", "));
+}
+
 /** Assemble the full row text: glyph, colored action word, timer, details. */
 export function rowText(
   name: string,

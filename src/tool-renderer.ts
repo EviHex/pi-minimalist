@@ -22,7 +22,7 @@ import {
   type ThemeLike,
   type Timers,
 } from "./components.ts";
-import { isBuiltIn, rowText, statusGlyph, type RenderState } from "./tool-rows.ts";
+import { colorQuietSummary, isBuiltIn, rowText, statusGlyph, type RenderState } from "./tool-rows.ts";
 import { QuietMode } from "./quiet-mode.ts";
 
 /** Original built-in result renderer, handed to us by the core bridge. */
@@ -114,7 +114,7 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
           const view = quiet.view(id);
           if (view === "show") return undefined;
           if (view === "hide") return null;
-          return `${theme.fg("success", "✓")} ${theme.fg("toolTitle", view.summary)}`;
+          return `${theme.fg("success", "✓")} ${colorQuietSummary(view.summary, theme)}`;
         });
       }
       return component;

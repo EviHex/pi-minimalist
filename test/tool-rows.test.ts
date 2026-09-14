@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   callText,
   colorAction,
+  colorQuietSummary,
   compact,
   fallbackCallText,
   isBuiltIn,
@@ -130,6 +131,13 @@ describe("colorAction / rowText", () => {
     assert.equal(
       colorAction("read a.ts", theme),
       "<success>read</success><toolTitle> a.ts</toolTitle>",
+    );
+  });
+
+  it("keeps tool names green but counts dim in quiet summaries", () => {
+    assert.equal(
+      colorQuietSummary("read ×2, edit ×1", theme),
+      "<success>read</success><toolTitle> ×2</toolTitle><toolTitle>, </toolTitle><success>edit</success><toolTitle> ×1</toolTitle>",
     );
   });
 

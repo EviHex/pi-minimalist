@@ -27,10 +27,11 @@ output. Each collapsed call is exactly one terminal line: long paths/commands
 truncate using the real viewport width instead of wrapping.
 
 `/quiet` toggles low-noise run folding. A consecutive completed run composed
-only of `read/edit/write/grep/find/ls` becomes one final summary line, e.g.
-`✓ read ×2, edit ×1`; every other row in that run renders zero lines. `bash`,
-MCP tools, queued/running/failed calls, and expanded calls break a run and stay
-visible. The state is process-global so `/reload` keeps existing rows connected
+only of `read/edit/write/grep/find/ls/bash` becomes one final summary line,
+e.g. `✓ read ×2, edit ×1`; every other row in that run renders zero lines. MCP
+tools, queued/running/failed calls, and expanded calls break a run and stay
+visible. Summary tool names use normal `success` green; counts/separators use
+dim `toolTitle`. The state is process-global so `/reload` keeps existing rows connected
 to the new command handler. No core patch is involved.
 
 ### 2. Collapsed thinking preview

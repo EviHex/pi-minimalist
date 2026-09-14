@@ -36,11 +36,14 @@ to the new command handler. No core patch is involved.
 
 ### 2. Collapsed thinking preview
 
-Hidden thinking blocks (`Ctrl+T`) show `✓ think <preview>` on one line
-(non-italic; `think` in success green, preview in `toolTitle`), instead of the
-bare "Thinking..." label. While the model streams thinking it shows
-`• think …` with a `toolPendingBg` row highlight, flipping to `✓` on
-completion. Expanded view keeps Pi's native italic markdown.
+Normally hidden thinking blocks (`Ctrl+T`) show `✓ think <preview>` on one
+line (non-italic; `think` in success green, preview in `toolTitle`), instead
+of the bare "Thinking..." label. While the assistant message streams, Pi
+forces that thinking open with native italic Markdown and purple gutter; when
+streaming ends it returns to the saved visibility override/default collapsed
+preview. Pi exposes message-level streaming only: thought can remain open if
+that message streams text after thought. Explicit expansion after completion
+still persists. Expanded view keeps Pi's native italic markdown.
 
 ## Files
 
@@ -136,8 +139,9 @@ The script patches exactly these bridges:
 5. `assistant-message.js` — collapsed thinking blocks call
    `globalThis[Symbol.for("pi.thinkingPreview")]` (falls back to the native
    "Thinking..." label when unregistered).
-6. `assistant-message.js` — expanded thinking Markdown goes through
-   `pi.contentWrap`, which supplies its purple gutter.
+6. `assistant-message.js` — normally hidden thinking expands during message
+   streaming, and expanded thinking Markdown goes through `pi.contentWrap`,
+   which supplies its purple gutter.
 7. `pi-tui/components/markdown.js` — replace the blockquote prefix `│` with
    half-block `▌`; `signal.json` maps `mdQuoteBorder` to white `text`.
 

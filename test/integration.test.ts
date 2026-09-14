@@ -112,6 +112,29 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
     }
   });
 
+  it("expands streaming thinking, then restores collapsed thinking", async () => {
+    const { loadExtensions } = await import(`${PI_ROOT}/dist/core/extensions/loader.js`);
+    const { AssistantMessageComponent } = await import(
+      `${PI_ROOT}/dist/modes/interactive/components/assistant-message.js`
+    );
+    const { initTheme } = await import(`${PI_ROOT}/dist/modes/interactive/theme/theme.js`);
+
+    initTheme("dark", false);
+    const loaded = await loadExtensions([EXTENSION], EXTENSION_DIR);
+    assert.deepEqual(loaded.errors, []);
+
+    const message = { role: "assistant", content: [{ type: "thinking", thinking: "live thought text" }] };
+    const component = new AssistantMessageComponent(undefined, true);
+    component.updateContent(message, true);
+    const streaming = component.render(80).map(plain);
+    assert.ok(streaming.some((line: string) => line.includes("live thought text")));
+    assert.ok(!streaming.some((line: string) => line.includes("✓ think")));
+
+    component.updateContent(message, false);
+    const finished = component.render(80).map(plain);
+    assert.ok(finished.some((line: string) => line.includes("✓ think live thought text")));
+  });
+
   it("applies the unbundled thinking bridge in the installed Pi", () => {
     // patch-pi.sh edits compiled files that a Pi upgrade overwrites, and only
     // the renderer bridge is observable through the rendering test above. Check
@@ -123,8 +146,9 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
       "utf-8",
     );
     assert.ok(
-      source.includes('Symbol.for("pi.thinkingPreview")'),
-      "assistant-message.js is missing the thinking bridge — run ./patch-pi.sh and restart Pi",
+      source.includes('Symbol.for("pi.thinkingPreview")') &&
+        source.includes("const hidden = this.isStreaming ? false :"),
+      "assistant-message.js is missing the streaming thinking bridge — run ./patch-pi.sh and restart Pi",
     );
   });
 });

@@ -108,6 +108,8 @@ fi
 #   a) collapsed thinking preview — Pi shows a bare "Thinking..." label when a
 #      thinking block is hidden (Ctrl+T); the extension renders a compact
 #      one-line preview instead, via globalThis[Symbol.for("pi.thinkingPreview")].
+#      A normally hidden block is forced open while its message streams, then
+#      returns to its existing override/default visibility after completion.
 #   b) expanded thinking gutter — the expanded thinking block (native Markdown)
 #      gets wrapped by globalThis[Symbol.for("pi.contentWrap")] so every line
 #      carries the purple thinking gutter, matching the collapsed preview.
@@ -119,6 +121,17 @@ if ! grep -qF "$ASSISTANT_MARKER" "$ASSISTANT"; then
   patched=1
 else
   echo "Assistant: thinking preview bridge already present, skipping"
+fi
+
+# Pi only exposes streaming state for the whole assistant message. Respect a
+# user's per-block visibility choice once complete, but force open live thought.
+STREAMING_THINKING_MARKER='const hidden = this.isStreaming ? false :'
+if ! grep -qF "$STREAMING_THINKING_MARKER" "$ASSISTANT"; then
+  echo "Patching assistant-message: expand streaming thinking"
+  perl -0pi -e 's/const hidden = this\.thinkingVisibilityOverrides\.get\(runIndex\) \?\? this\.hideThinkingBlock;/const hidden = this.isStreaming ? false : (this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock);/' "$ASSISTANT"
+  patched=1
+else
+  echo "Assistant: streaming thinking behavior already present, skipping"
 fi
 
 GUTTER_WRAP_MARKER='Symbol.for("pi.contentWrap")'
@@ -146,6 +159,14 @@ if ! grep -qF "$ASSISTANT_MARKER" "$BUNDLE"; then
   patched=1
 else
   echo "Bundle: thinking preview bridge already present, skipping"
+fi
+
+if ! grep -qF 'hidden=this.isStreaming?false:' "$BUNDLE"; then
+  echo "Patching bundle: expand streaming thinking"
+  perl -0pi -e 's/hidden=this\.thinkingVisibilityOverrides\.get\(runIndex\)\?\?this\.hideThinkingBlock,/hidden=this.isStreaming?false:(this.thinkingVisibilityOverrides.get(runIndex)??this.hideThinkingBlock),/' "$BUNDLE"
+  patched=1
+else
+  echo "Bundle: streaming thinking behavior already present, skipping"
 fi
 
 # -----------------------------------------------------------------------------

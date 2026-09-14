@@ -24,7 +24,7 @@ const EXTENSION_DIR = new URL("..", import.meta.url).pathname;
 /** Strip ANSI so assertions read the visible text, not the machine's palette. */
 function plain(line: string): string {
   // eslint-disable-next-line no-control-regex
-  return line.replace(/\x1b\[[0-9;]*m/g, "");
+  return line.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
 }
 
 describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" }, () => {
@@ -135,6 +135,33 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
     assert.ok(finished.some((line: string) => line.includes("✓ think live thought text")));
   });
 
+  it("folds completed collapsed thinking previews through the real core bridge", async () => {
+    const { loadExtensions } = await import(`${PI_ROOT}/dist/core/extensions/loader.js`);
+    const { AssistantMessageComponent } = await import(
+      `${PI_ROOT}/dist/modes/interactive/components/assistant-message.js`
+    );
+    const { initTheme } = await import(`${PI_ROOT}/dist/modes/interactive/theme/theme.js`);
+
+    initTheme("dark", false);
+    const loaded = await loadExtensions([EXTENSION], EXTENSION_DIR);
+    assert.deepEqual(loaded.errors, []);
+    const quiet = (globalThis as any)[Symbol.for("pi.minimalist.quietMode")];
+    quiet.setEnabled(true);
+    try {
+      // This shared process-global registry may contain earlier integration
+      // entries. Add a real boundary so this assertion isolates its own run.
+      quiet.observeProse({}, 0);
+      const message = (thinking: string) => ({ role: "assistant", content: [{ type: "thinking", thinking }] });
+      const first = new AssistantMessageComponent(message("first thought"), true);
+      const last = new AssistantMessageComponent(message("second thought"), true);
+
+      assert.deepEqual(first.render(80).map(plain).filter(Boolean), []);
+      assert.ok(last.render(80).map(plain).some((line: string) => line.includes("✓ think ×2")));
+    } finally {
+      quiet.setEnabled(false);
+    }
+  });
+
   it("applies the unbundled thinking bridge in the installed Pi", () => {
     // patch-pi.sh edits compiled files that a Pi upgrade overwrites, and only
     // the renderer bridge is observable through the rendering test above. Check
@@ -147,8 +174,11 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
     );
     assert.ok(
       source.includes('Symbol.for("pi.thinkingPreview")') &&
-        source.includes("const hidden = this.isStreaming ? false :"),
-      "assistant-message.js is missing the streaming thinking bridge — run ./patch-pi.sh and restart Pi",
+        source.includes("const hidden = this.isStreaming ? false :") &&
+        source.includes('Symbol.for("pi.minimalist.quietThinking")') &&
+        source.includes('Symbol.for("pi.minimalist.quietProse")') &&
+        source.includes("this.isStreaming, this, runIndex"),
+      "assistant-message.js is missing the quiet thinking bridge — run ./patch-pi.sh and restart Pi",
     );
   });
 });

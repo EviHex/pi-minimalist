@@ -8,7 +8,7 @@ function observe(mode: QuietMode, id: string, name: string, done = true, expande
 
 describe("quiet mode", () => {
   it("whitelists only routine file operations", () => {
-    assert.deepEqual([...QUIET_TOOLS], ["read", "edit", "write", "grep", "find", "ls", "bash", "toolcall"]);
+    assert.deepEqual([...QUIET_TOOLS], ["read", "edit", "write", "grep", "find", "ls", "bash", "toolcall", "think"]);
     assert.equal(QUIET_TOOLS.has("bash"), true);
     assert.equal(QUIET_TOOLS.has("toolcall"), true);
   });
@@ -53,6 +53,32 @@ describe("quiet mode", () => {
     for (const id of ["failed", "edit-2", "expanded"]) assert.equal(mode.view(id), "show", id);
     assert.equal(mode.view("find"), "hide");
     assert.deepEqual(mode.view("ls"), { summary: "find ×1, ls ×1" });
+  });
+
+  it("unifies completed thinking and tool calls in transcript order", () => {
+    const mode = new QuietMode(true);
+    const owner = {};
+    observe(mode, "bash", "bash");
+    observe(mode, "edit", "edit");
+    mode.observeThinking(owner, 0, true, false);
+    mode.observeThinking(owner, 1, true, false);
+
+    assert.equal(mode.view("bash"), "hide");
+    assert.equal(mode.view("edit"), "hide");
+    assert.equal(mode.view(mode.thinkingId(owner, 0)), "hide");
+    assert.deepEqual(mode.view(mode.thinkingId(owner, 1)), { summary: "bash ×1, edit ×1, think ×2" });
+  });
+
+  it("uses expanded thinking and prose as quiet-run boundaries", () => {
+    const mode = new QuietMode(true);
+    const owner = {};
+    observe(mode, "read", "read");
+    mode.observeThinking(owner, 0, true, true);
+    observe(mode, "edit", "edit");
+    mode.observeProse(owner, 1);
+    observe(mode, "write", "write");
+
+    for (const id of ["read", mode.thinkingId(owner, 0), "edit", "write"]) assert.equal(mode.view(id), "show", id);
   });
 
   it("restores individual rows when toggled back off", () => {

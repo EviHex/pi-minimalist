@@ -117,10 +117,18 @@ fi
 ASSISTANT_MARKER='Symbol.for("pi.thinkingPreview")'
 if ! grep -qF "$ASSISTANT_MARKER" "$ASSISTANT"; then
   echo "Patching assistant-message: thinking preview bridge"
-  perl -0pi -e 's/(const hidden = this\.thinkingVisibilityOverrides\.get\(runIndex\) \?\? this\.hideThinkingBlock;\n                const thinkingComponent = hidden\n                    \? )new Text\(theme\.italic\(theme\.fg\("thinkingText", this\.hiddenThinkingLabel\)\), this\.outputPad, 0\)/$1(globalThis[Symbol.for("pi.thinkingPreview")] ? globalThis[Symbol.for("pi.thinkingPreview")](thinkingBlocks.join("\\n"), theme, this.outputPad, this.isStreaming) : new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0))/' "$ASSISTANT"
+  perl -0pi -e 's/(const hidden = this\.thinkingVisibilityOverrides\.get\(runIndex\) \?\? this\.hideThinkingBlock;\n                const thinkingComponent = hidden\n                    \? )new Text\(theme\.italic\(theme\.fg\("thinkingText", this\.hiddenThinkingLabel\)\), this\.outputPad, 0\)/$1(globalThis[Symbol.for("pi.thinkingPreview")] ? globalThis[Symbol.for("pi.thinkingPreview")](thinkingBlocks.join("\\n"), theme, this.outputPad, this.isStreaming, this, runIndex) : new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0))/' "$ASSISTANT"
   patched=1
 else
   echo "Assistant: thinking preview bridge already present, skipping"
+fi
+
+if ! grep -qF 'this.isStreaming, this, runIndex' "$ASSISTANT"; then
+  echo "Patching assistant-message: stable thinking preview identity"
+  perl -0pi -e 's/this\.outputPad, this\.isStreaming\) : new Text/this.outputPad, this.isStreaming, this, runIndex) : new Text/' "$ASSISTANT"
+  patched=1
+else
+  echo "Assistant: stable thinking preview identity already present, skipping"
 fi
 
 # Pi only exposes streaming state for the whole assistant message. Respect a
@@ -132,6 +140,24 @@ if ! grep -qF "$STREAMING_THINKING_MARKER" "$ASSISTANT"; then
   patched=1
 else
   echo "Assistant: streaming thinking behavior already present, skipping"
+fi
+
+QUIET_THINKING_MARKER='Symbol.for("pi.minimalist.quietThinking")'
+if ! grep -qF "$QUIET_THINKING_MARKER" "$ASSISTANT"; then
+  echo "Patching assistant-message: quiet thinking aggregation bridge"
+  perl -0pi -e 's/(const hidden = this\.isStreaming \? false : \(this\.thinkingVisibilityOverrides\.get\(runIndex\) \?\? this\.hideThinkingBlock\);\n                )const thinkingComponent/${1}globalThis[Symbol.for("pi.minimalist.quietThinking")]?.(this, runIndex, this.isStreaming, hidden);\n                const thinkingComponent/' "$ASSISTANT"
+  patched=1
+else
+  echo "Assistant: quiet thinking aggregation bridge already present, skipping"
+fi
+
+QUIET_PROSE_MARKER='Symbol.for("pi.minimalist.quietProse")'
+if ! grep -qF "$QUIET_PROSE_MARKER" "$ASSISTANT"; then
+  echo "Patching assistant-message: quiet prose boundary bridge"
+  perl -0pi -e 's/(if \(content\.type === "text" && content\.text\.trim\(\) \{\n                )\/\/ Assistant text/${1}globalThis[Symbol.for("pi.minimalist.quietProse")]?.(this, i);\n                \/\/ Assistant text/' "$ASSISTANT"
+  patched=1
+else
+  echo "Assistant: quiet prose boundary bridge already present, skipping"
 fi
 
 GUTTER_WRAP_MARKER='Symbol.for("pi.contentWrap")'
@@ -155,10 +181,18 @@ fi
 # Bundle preview bridge: same expression as the unbundled file, minified.
 if ! grep -qF "$ASSISTANT_MARKER" "$BUNDLE"; then
   echo "Patching bundle: thinking preview bridge"
-  perl -0pi -e 's/thinkingComponent=hidden\?new Text\(theme\.italic\(theme\.fg\("thinkingText",this\.hiddenThinkingLabel\)\),this\.outputPad,0\)/thinkingComponent=hidden?(globalThis[Symbol.for("pi.thinkingPreview")]?globalThis[Symbol.for("pi.thinkingPreview")](thinkingBlocks.join(`\n`),theme,this.outputPad,this.isStreaming):new Text(theme.italic(theme.fg("thinkingText",this.hiddenThinkingLabel)),this.outputPad,0))/' "$BUNDLE"
+  perl -0pi -e 's/thinkingComponent=hidden\?new Text\(theme\.italic\(theme\.fg\("thinkingText",this\.hiddenThinkingLabel\)\),this\.outputPad,0\)/thinkingComponent=hidden?(globalThis[Symbol.for("pi.thinkingPreview")]?globalThis[Symbol.for("pi.thinkingPreview")](thinkingBlocks.join(`\n`),theme,this.outputPad,this.isStreaming,this,runIndex):new Text(theme.italic(theme.fg("thinkingText",this.hiddenThinkingLabel)),this.outputPad,0))/' "$BUNDLE"
   patched=1
 else
   echo "Bundle: thinking preview bridge already present, skipping"
+fi
+
+if ! grep -qF 'this.isStreaming,this,runIndex' "$BUNDLE"; then
+  echo "Patching bundle: stable thinking preview identity"
+  perl -0pi -e 's/this\.outputPad,this\.isStreaming\):new Text/this.outputPad,this.isStreaming,this,runIndex):new Text/' "$BUNDLE"
+  patched=1
+else
+  echo "Bundle: stable thinking preview identity already present, skipping"
 fi
 
 if ! grep -qF 'hidden=this.isStreaming?false:' "$BUNDLE"; then
@@ -167,6 +201,22 @@ if ! grep -qF 'hidden=this.isStreaming?false:' "$BUNDLE"; then
   patched=1
 else
   echo "Bundle: streaming thinking behavior already present, skipping"
+fi
+
+if ! grep -qF 'Symbol.for("pi.minimalist.quietThinking")' "$BUNDLE"; then
+  echo "Patching bundle: quiet thinking aggregation bridge"
+  perl -0pi -e 's/(hidden=this\.isStreaming\?false:\(this\.thinkingVisibilityOverrides\.get\(runIndex\)\?\?this\.hideThinkingBlock\),)thinkingComponent/${1}quietThinking=globalThis[Symbol.for("pi.minimalist.quietThinking")]?.(this,runIndex,this.isStreaming,hidden),thinkingComponent/' "$BUNDLE"
+  patched=1
+else
+  echo "Bundle: quiet thinking aggregation bridge already present, skipping"
+fi
+
+if ! grep -qF 'Symbol.for("pi.minimalist.quietProse")' "$BUNDLE"; then
+  echo "Patching bundle: quiet prose boundary bridge"
+  perl -0pi -e 's/(if\(content\.type==="text"&&content\.text\.trim\(\))this\.contentContainer/${1}globalThis[Symbol.for("pi.minimalist.quietProse")]?.(this,i),this.contentContainer/' "$BUNDLE"
+  patched=1
+else
+  echo "Bundle: quiet prose boundary bridge already present, skipping"
 fi
 
 # -----------------------------------------------------------------------------

@@ -9,7 +9,7 @@
  */
 
 /** Tools safe to summarize: routine file operations, bash, and generic toolcalls. */
-export const QUIET_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls", "bash", "toolcall"]);
+export const QUIET_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls", "bash", "toolcall", "think"]);
 
 type Entry = {
   id: string;
@@ -25,6 +25,8 @@ export class QuietMode {
   private enabled: boolean;
   private entries: Entry[] = [];
   private byId = new Map<string, Entry>();
+  private ownerIds = new WeakMap<object, number>();
+  private nextOwnerId = 1;
 
   constructor(enabled = false) {
     this.enabled = enabled;
@@ -53,6 +55,20 @@ export class QuietMode {
     entry.expanded = expanded;
   }
 
+  /** Observe a thinking block with its core component identity and local run index. */
+  observeThinking(owner: object, runIndex: number, done: boolean, expanded: boolean): void {
+    this.observe(this.thinkingId(owner, runIndex), "think", done, expanded);
+  }
+
+  /** Assistant prose is a hard quiet-run boundary. */
+  observeProse(owner: object, contentIndex: number): void {
+    this.observe(`prose:${this.ownerId(owner)}:${contentIndex}`, "prose", false, false);
+  }
+
+  thinkingId(owner: object, runIndex: number): string {
+    return `think:${this.ownerId(owner)}:${runIndex}`;
+  }
+
   view(id: string): QuietView {
     if (!this.enabled) return "show";
 
@@ -71,6 +87,15 @@ export class QuietMode {
 
   private foldable(entry: Entry | undefined): boolean {
     return Boolean(entry?.done && !entry.expanded && QUIET_TOOLS.has(entry.name));
+  }
+
+  private ownerId(owner: object): number {
+    let id = this.ownerIds.get(owner);
+    if (id === undefined) {
+      id = this.nextOwnerId++;
+      this.ownerIds.set(owner, id);
+    }
+    return id;
   }
 }
 

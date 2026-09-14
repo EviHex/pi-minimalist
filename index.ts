@@ -22,12 +22,16 @@ const DEFAULT_RENDERER = Symbol.for("pi.defaultToolRenderer");
 const THINKING_PREVIEW = Symbol.for("pi.thinkingPreview");
 const CONTENT_WRAP = Symbol.for("pi.contentWrap");
 const QUIET_MODE = Symbol.for("pi.minimalist.quietMode");
+const QUIET_THINKING = Symbol.for("pi.minimalist.quietThinking");
+const QUIET_PROSE = Symbol.for("pi.minimalist.quietProse");
 
 type Bridges = {
   [DEFAULT_RENDERER]?: ToolRenderer;
   [THINKING_PREVIEW]?: ThinkingPreview;
   [CONTENT_WRAP]?: (component: Component, kind: "thinking", theme: unknown) => Component;
   [QUIET_MODE]?: QuietMode;
+  [QUIET_THINKING]?: (owner: object, runIndex: number, streaming: boolean, hidden: boolean) => void;
+  [QUIET_PROSE]?: (owner: object, contentIndex: number) => void;
 };
 
 export default function (pi: ExtensionAPI) {
@@ -40,7 +44,10 @@ export default function (pi: ExtensionAPI) {
   // session_shutdown: an old extension shutdown may run after the new load and
   // erase the new bridges. Process exit clears globalThis naturally.
   globals[DEFAULT_RENDERER] = createToolRenderer({ quiet });
-  globals[THINKING_PREVIEW] = createThinkingPreview();
+  globals[THINKING_PREVIEW] = createThinkingPreview(undefined, quiet);
+  globals[QUIET_THINKING] = (owner, runIndex, streaming, hidden) =>
+    quiet.observeThinking(owner, runIndex, !streaming, !hidden);
+  globals[QUIET_PROSE] = (owner, contentIndex) => quiet.observeProse(owner, contentIndex);
 
   pi.registerCommand("quiet", {
     description: "Toggle folding for completed read/edit/write/grep/find/ls/bash/toolcall runs",

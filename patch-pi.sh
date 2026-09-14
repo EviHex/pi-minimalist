@@ -104,7 +104,31 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Patch 3: thinking bridges (assistant-message.js + bundle). Two bridges:
+# Patch 3: suppress parent spacer for hidden quiet tool rows
+# -----------------------------------------------------------------------------
+# ToolExecutionComponent adds a leading Spacer before its renderer. A hidden
+# CompactLine otherwise leaves that blank row in history, so ask quiet mode at
+# render time whether this tool's spacer belongs in the transcript.
+# -----------------------------------------------------------------------------
+QUIET_SPACER_MARKER='Symbol.for("pi.minimalist.quietSpacer")'
+if ! grep -qF "$QUIET_SPACER_MARKER" "$CORE"; then
+  echo "Patching core: suppress hidden quiet tool spacers"
+  perl -0pi -e 's/this\.addChild\(new Spacer\(1\)\);/this.addChild({\n            render: () => globalThis[Symbol.for("pi.minimalist.quietSpacer")]?.(this.toolCallId) === false ? [] : [""],\n            invalidate() { },\n        });/' "$CORE"
+  patched=1
+else
+  echo "Core: quiet spacer bridge already present, skipping"
+fi
+
+if ! grep -qF "$QUIET_SPACER_MARKER" "$BUNDLE"; then
+  echo "Patching bundle: suppress hidden quiet tool spacers"
+  perl -0pi -e 's/this\.addChild\(new Spacer\(1\)\),this\.contentBox=/this.addChild({render:()=>globalThis[Symbol.for("pi.minimalist.quietSpacer")]?.(this.toolCallId)===!1?[]:[""],invalidate(){}}),this.contentBox=/' "$BUNDLE"
+  patched=1
+else
+  echo "Bundle: quiet spacer bridge already present, skipping"
+fi
+
+# -----------------------------------------------------------------------------
+# Patch 4: thinking bridges (assistant-message.js + bundle). Two bridges:
 #   a) collapsed thinking preview — Pi shows a bare "Thinking..." label when a
 #      thinking block is hidden (Ctrl+T); the extension renders a compact
 #      one-line preview instead, via globalThis[Symbol.for("pi.thinkingPreview")].

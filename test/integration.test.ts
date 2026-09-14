@@ -99,6 +99,39 @@ describe("core bridge integration", { skip: PI_ROOT ? false : "PI_ROOT not set" 
     );
   });
 
+  it("removes leading spacers from hidden quiet tool rows", async () => {
+    const { loadExtensions } = await import(`${PI_ROOT}/dist/core/extensions/loader.js`);
+    const { createReadToolDefinition } = await import(`${PI_ROOT}/dist/core/tools/read.js`);
+    const { ToolExecutionComponent } = await import(
+      `${PI_ROOT}/dist/modes/interactive/components/tool-execution.js`
+    );
+    const { initTheme } = await import(`${PI_ROOT}/dist/modes/interactive/theme/theme.js`);
+    initTheme("dark", false);
+    const loaded = await loadExtensions([EXTENSION], EXTENSION_DIR);
+    assert.deepEqual(loaded.errors, []);
+
+    const quiet = (globalThis as any)[Symbol.for("pi.minimalist.quietMode")];
+    quiet.setEnabled(true);
+    quiet.observeProse({}, 0); // isolate this run from earlier integration entries
+    try {
+      const native = createReadToolDefinition("/tmp");
+      const complete = (name: string, id: string) => {
+        const component = new ToolExecutionComponent(name, id, { path: "/tmp/a.ts" }, undefined, native, { requestRender() {} }, "/tmp");
+        component.markExecutionStarted();
+        component.setArgsComplete();
+        component.updateResult({ content: [{ type: "text", text: "ok" }], isError: false }, false);
+        return component;
+      };
+      const hidden = complete("read", "quiet-hidden");
+      const tail = complete("edit", "quiet-tail");
+
+      assert.deepEqual(hidden.render(80), [], "hidden row must not retain its parent Spacer");
+      assert.ok(tail.render(80).map(plain).some((line: string) => line.includes("read ×1, edit ×1")));
+    } finally {
+      quiet.setEnabled(false);
+    }
+  });
+
   it("still finds every BUILT_INS name among Pi's own built-in tools", async () => {
     // If Pi renames or drops a built-in, that tool silently reverts to the
     // verbose card. Cross-check our list against core's tool factories.

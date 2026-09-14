@@ -24,6 +24,7 @@ const THINKING_MARKDOWN_THEME = Symbol.for("pi.thinkingMarkdownTheme");
 const QUIET_MODE = Symbol.for("pi.minimalist.quietMode");
 const QUIET_THINKING = Symbol.for("pi.minimalist.quietThinking");
 const QUIET_PROSE = Symbol.for("pi.minimalist.quietProse");
+const QUIET_SPACER = Symbol.for("pi.minimalist.quietSpacer");
 
 type Bridges = {
   [DEFAULT_RENDERER]?: ToolRenderer;
@@ -33,6 +34,7 @@ type Bridges = {
   [QUIET_MODE]?: QuietMode;
   [QUIET_THINKING]?: (owner: object, runIndex: number, streaming: boolean, hidden: boolean) => void;
   [QUIET_PROSE]?: (owner: object, contentIndex: number) => void;
+  [QUIET_SPACER]?: (toolCallId: string) => boolean;
 };
 
 export default function (pi: ExtensionAPI) {
@@ -52,6 +54,7 @@ export default function (pi: ExtensionAPI) {
   globals[QUIET_THINKING] = (owner, runIndex, streaming, hidden) =>
     quiet.observeThinking(owner, runIndex, !streaming, !hidden);
   globals[QUIET_PROSE] = (owner, contentIndex) => quiet.observeProse(owner, contentIndex);
+  globals[QUIET_SPACER] = (toolCallId) => quiet.view(toolCallId) !== "hide";
 
   pi.registerCommand("quiet", {
     description: "Toggle folding for completed read/edit/write/grep/find/ls/bash/toolcall runs",

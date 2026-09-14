@@ -15,6 +15,7 @@ import type { Component } from "@earendil-works/pi-tui";
 import { GutteredComponent } from "./src/components.ts";
 import { createThinkingPreview, type ThinkingPreview } from "./src/thinking-preview.ts";
 import { QuietMode } from "./src/quiet-mode.ts";
+import { loadQuietEnabled, saveQuietEnabled } from "./src/quiet-state.ts";
 import { createToolRenderer, type ToolRenderer } from "./src/tool-renderer.ts";
 
 const DEFAULT_RENDERER = Symbol.for("pi.defaultToolRenderer");
@@ -32,7 +33,7 @@ type Bridges = {
 export default function (pi: ExtensionAPI) {
   const globals = globalThis as typeof globalThis & Bridges;
   // Keep this instance across /reload: existing transcript rows close over it.
-  const quiet = globals[QUIET_MODE] ?? new QuietMode();
+  const quiet = globals[QUIET_MODE] ?? new QuietMode(loadQuietEnabled());
   globals[QUIET_MODE] = quiet;
 
   // Reload overwrites these slots with fresh instances. Do not clear them from
@@ -45,6 +46,13 @@ export default function (pi: ExtensionAPI) {
     description: "Toggle folding for completed read/edit/write/grep/find/ls/bash/toolcall runs",
     handler: async (_args, ctx) => {
       const enabled = quiet.toggle();
+      try {
+        saveQuietEnabled(enabled);
+      } catch (error) {
+        quiet.setEnabled(!enabled);
+        ctx.ui.notify(`Quiet mode was not saved: ${error instanceof Error ? error.message : error}`, "error");
+        return;
+      }
       // notify triggers a TUI repaint, so existing CompactLine components read
       // the shared QuietMode state immediately; no core patch or rebuild needed.
       ctx.ui.notify(enabled ? "Quiet mode enabled" : "Quiet mode disabled", "info");

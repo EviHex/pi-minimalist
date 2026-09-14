@@ -22,13 +22,21 @@ export type QuietView = "show" | "hide" | { summary: string };
 
 /** Fold completed, adjacent low-noise tools while /quiet is enabled. */
 export class QuietMode {
-  private enabled = false;
+  private enabled: boolean;
   private entries: Entry[] = [];
   private byId = new Map<string, Entry>();
+
+  constructor(enabled = false) {
+    this.enabled = enabled;
+  }
 
   toggle(): boolean {
     this.enabled = !this.enabled;
     return this.enabled;
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
   }
 
   /** Record the current call state. Re-renders update one stable entry in place. */

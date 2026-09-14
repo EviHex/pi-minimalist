@@ -31,7 +31,8 @@ only of `read/edit/write/grep/find/ls/bash/toolcall` becomes one final summary
 line, e.g. `✓ read ×2, edit ×1`; every other row in that run renders zero lines.
 Rendererless MCP/third-party calls all use the `toolcall` category. Queued,
 running, failed calls, and expanded calls break a run and stay visible. Summary tool names use normal `success` green; counts/separators use
-dim `toolTitle`. The state is process-global so `/reload` keeps existing rows connected
+dim `toolTitle`. `/quiet` persists its state in `~/.pi/agent/pi-minimalist.json`;
+that user preference is intentionally outside this nested jj repo. The state is process-global so `/reload` keeps existing rows connected
 to the new command handler. No core patch is involved.
 
 ### 2. Collapsed thinking preview
@@ -262,6 +263,7 @@ runtime:
 | `src/tool-rows.ts` | pure row text: `callText`, `statusGlyph`, `colorAction`, `rowText`, `BUILT_INS` |
 | `src/tool-renderer.ts` | feature 1: `createToolRenderer()` factory |
 | `src/quiet-mode.ts` | `/quiet` state, whitelist, and low-noise run summaries |
+| `src/quiet-state.ts` | reads/writes persistent `~/.pi/agent/pi-minimalist.json` preference |
 | `src/thinking-preview.ts` | feature 2: `createThinkingPreview()` factory |
 | `test/test-support.ts` | deterministic doubles (fake theme/clock/timers, context builder) |
 | `test/*.test.ts` | the tests |

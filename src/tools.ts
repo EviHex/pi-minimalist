@@ -21,11 +21,13 @@ export function isBuiltIn(name: string): name is ToolName {
 }
 
 /** MCP adapter tools with native renderers that we deliberately replace. */
-export const MCP_TOOLS: readonly string[] = ["mcp", "mcpScript"];
+export function isMcpTool(name: string): boolean {
+  return name === "mcp" || name === "mcpScript" || name.startsWith("mcp__");
+}
 
 /** Native tools plus MCP tools; rendererless tools reach us through fallback. */
 export function isCompactTool(name: string): boolean {
-  return isBuiltIn(name) || MCP_TOOLS.includes(name);
+  return isBuiltIn(name) || isMcpTool(name);
 }
 
 /** Generic quiet category for MCP and other third-party tools. */
@@ -45,6 +47,11 @@ export function compact(value: unknown, max = 100): string {
 export function describeTool(name: string, args: any, expanded = false): { label: string; details: string } {
   if (name === "mcp") return { label: "mcp", details: mcpDetails(args ?? {}) };
   if (name === "mcpScript") return { label: "mcpScript", details: compact(args?.code) };
+  if (name.startsWith("mcp__")) {
+    const server = name.slice("mcp__".length);
+    const tool = compact(args?.tool);
+    return { label: "mcp", details: tool ? `${tool} @ ${server}` : `@ ${server}` };
+  }
   if (!isBuiltIn(name)) return { label: FALLBACK_LABEL, details: name };
   return { label: name, details: toolDetails(name, args ?? {}, expanded) };
 }

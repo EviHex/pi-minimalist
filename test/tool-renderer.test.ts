@@ -38,7 +38,7 @@ describe("tool renderer bridge contract", () => {
   it("declares self shell and handles built-ins plus MCP adapter tools", () => {
     const { renderer: r } = renderer();
     assert.equal(r.renderShell, "self");
-    for (const name of ["read", "bash", "write", "mcp", "mcpScript"]) {
+    for (const name of ["read", "bash", "write", "mcp", "mcpScript", "mcp__atlassian"]) {
       assert.equal(r.handles(name), true, name);
     }
     assert.equal(r.handles("subagent"), false);
@@ -183,7 +183,7 @@ describe("renderCall", () => {
     const { renderer: r } = renderer({ quiet });
     const read = r.renderCall("read", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "1" }));
     const bash = r.renderCall("bash", { command: "echo ok" }, widthTheme, makeContext("completed", { toolCallId: "2" }));
-    const mcp = r.renderCall("mcp", { tool: "atlassian_search" }, widthTheme, makeContext("completed", { toolCallId: "3" }));
+    const mcp = r.renderCall("mcp__atlassian", { tool: "atlassian_search" }, widthTheme, makeContext("completed", { toolCallId: "3" }));
     const mcpScript = r.renderCall("mcpScript", { code: "emit(1)" }, widthTheme, makeContext("completed", { toolCallId: "4" }));
     const edit = r.renderCall("edit", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "5", expanded: true }));
     const ls = r.renderCall("ls", {}, widthTheme, makeContext("completed", { toolCallId: "6" }));
@@ -197,7 +197,7 @@ describe("renderCall", () => {
   it("renders MCP calls with their target operation", () => {
     const { renderer: r } = renderer();
     const call = r.renderCall(
-      "mcp",
+      "mcp__atlassian",
       { tool: "atlassian_getConfluencePage" },
       widthTheme,
       makeContext("completed"),
@@ -209,7 +209,7 @@ describe("renderCall", () => {
       makeContext("completed"),
     );
 
-    assert.deepEqual(call.render(80).map(plain), [" ▌ ✓ mcp atlassian_getConfluencePage"]);
+    assert.deepEqual(call.render(80).map(plain), [" ▌ ✓ mcp atlassian_getConfluencePage @ atlassian"]);
     assert.deepEqual(script.render(80).map(plain), [" ▌ ✓ mcpScript await tools.search({ query: 'logs' })"]);
   });
 
@@ -315,7 +315,7 @@ describe("renderResult", () => {
     const { renderer: r } = renderer();
     const native = nativeRenderer(["MCP result"]);
     const component = r.renderResult(
-      "mcp",
+      "mcp__atlassian",
       {},
       { expanded: true },
       theme,

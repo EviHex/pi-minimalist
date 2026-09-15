@@ -18,7 +18,7 @@ Pi actually enables and invokes.
 ```text
 ✓ read src/a.ts
 ✓ bash go test ./...
-✓ mcp atlassian_search
+✓ mcp atlassian_search @ atlassian
 ✓ mcpScript await tools.search(...)
 ✓ toolcall goland__execute_tool
 ```
@@ -30,8 +30,9 @@ truncate using the real viewport width instead of wrapping.
 `/quiet` toggles low-noise run folding. A consecutive completed run composed
 only of `read/edit/write/grep/find/ls/bash/toolcall/think` becomes one final summary
 line, e.g. `✓ read ×2, edit ×1`; every other row in that run renders zero lines.
-The MCP adapter's `mcp` and `mcpScript` tools are compacted even though they
-ship native renderers; expansion still delegates to those native renderers.
+The MCP adapter's `mcp`, `mcpScript`, and namespace proxy (`mcp__<server>`)
+tools are compacted even though they ship native renderers; expansion still
+delegates to those native renderers.
 Rendererless third-party calls use the same `toolcall` quiet category. Completed,
 collapsed thinking blocks share this run and summarize as `think ×N`.
 Queued/running calls, expanded thinking/tools, and assistant prose break a run
@@ -105,7 +106,7 @@ test run instead of silently disabling a feature.
 ### Renderer details
 
 The bridge gives the compact renderer priority for native built-ins plus the
-MCP adapter's `mcp`/`mcpScript` tools. Expanded output delegates to each tool's
+MCP adapter's `mcp`, `mcpScript`, and `mcp__<server>` tools. Expanded output delegates to each tool's
 original renderer. Tools without any renderer reach the same compact code
 through core's fallback and use the `toolcall` label.
 
@@ -405,8 +406,9 @@ Interactive checks after restart/reload:
    (Ctrl+O) the call line shows the full command (viewport width still applies).
 2. Read a very long path in a narrow terminal: expect one line ending in `…`, never wrapping.
 3. Run several tools consecutively: expect one-line rows, each preceded by a single blank line.
-4. Run `mcp` and `mcpScript`: expect compact `✓ mcp <operation>` rows; enable
-   `/quiet` and expect consecutive calls to fold into `toolcall ×N`.
+4. Run `mcp`, `mcpScript`, and an `mcp__<server>` namespace proxy: expect
+   compact `✓ mcp <operation> @ <server>` rows; enable `/quiet` and expect
+   consecutive calls to fold into `toolcall ×N`.
 5. Run an unrendered IDE tool: expect `✓ toolcall tool_name`.
 5. Run bash: while running, expect `• bash [⏱ Ns] <cmd>` with NO row background;
    the elapsed counter advances once per second even for silent commands.

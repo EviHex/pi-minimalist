@@ -34,6 +34,7 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
     assert.equal(typeof renderer, "object");
     assert.equal(renderer.handles("mcp"), true);
     assert.equal(renderer.handles("mcpScript"), true);
+    assert.equal(renderer.handles("mcp__atlassian"), true);
     assert.equal(typeof (globalThis as any)[Symbol.for("pi.thinkingPreview")], "function");
   });
 

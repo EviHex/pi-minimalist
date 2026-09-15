@@ -13,7 +13,9 @@ describe("isBuiltIn", () => {
 
 describe("isCompactTool", () => {
   it("adds MCP tools without treating them as Pi built-ins", () => {
-    for (const name of [...BUILT_INS, "mcp", "mcpScript"]) assert.equal(isCompactTool(name), true, name);
+    for (const name of [...BUILT_INS, "mcp", "mcpScript", "mcp__atlassian"]) {
+      assert.equal(isCompactTool(name), true, name);
+    }
     for (const name of ["subagent", "TaskCreate", "web_search"]) assert.equal(isCompactTool(name), false, name);
   });
 });
@@ -43,6 +45,10 @@ describe("describeTool", () => {
     assert.deepEqual(describeTool("mcpScript", { code: "await tools.search({ query: 'logs' })" }), {
       label: "mcpScript",
       details: "await tools.search({ query: 'logs' })",
+    });
+    assert.deepEqual(describeTool("mcp__atlassian", { tool: "atlassian_search" }), {
+      label: "mcp",
+      details: "atlassian_search @ atlassian",
     });
   });
 

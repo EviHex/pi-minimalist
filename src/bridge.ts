@@ -2,11 +2,12 @@
  * The core-bridge boundary: every process-global symbol this extension installs,
  * and the one function that installs them.
  *
- * SINGLE SOURCE OF TRUTH for the symbol names. patch-pi.sh writes the matching
- * reads into Pi's bundle (a shell script cannot import this), and
- * test/integration.test.ts asserts the bundle contains every name listed here —
- * so a typo or a forgotten patch fails the test run instead of silently
- * disabling a feature.
+ * Nothing on disk is patched. src/core-patch.ts wraps Pi's real component
+ * prototypes at load time and READS these slots at call time, so `/reload`
+ * swaps behavior without re-wrapping anything.
+ *
+ * SINGLE SOURCE OF TRUTH for the symbol names, shared by the wrappers and the
+ * tests.
  */
 
 import { createToolRenderer } from "./tool-renderer.ts";
@@ -25,8 +26,16 @@ export const BRIDGE_SYMBOLS = {
   /** Chronology hooks that keep thinking and prose in transcript order. */
   quietThinking: "pi.minimalist.quietThinking",
   quietProse: "pi.minimalist.quietProse",
-  /** Spacer suppression for fully hidden rows. */
-  quietSpacer: "pi.minimalist.quietSpacer",
+  /**
+   * Spacer suppression for a fully hidden assistant message.
+   *
+   * There is deliberately NO tool-row equivalent: a compact tool row uses
+   * `renderShell: "self"`, and core's self-shell branch emits its separator
+   * inline and returns ZERO lines when the row renders nothing — spacer
+   * included. The old `quietSpacer` bridge was compensating for a problem core
+   * already handles (see test/core-patch.test.ts, "renders zero lines for a
+   * quiet-hidden row, spacer included").
+   */
   quietMessageSpacer: "pi.minimalist.quietMessageSpacer",
 } as const;
 
@@ -47,6 +56,9 @@ export function sharedQuietMode(): QuietMode | undefined {
  * instances; do NOT clear them from session_shutdown, because reload ordering
  * can let an old shutdown hook erase the newly installed bridges. Process exit
  * clears globalThis naturally.
+ *
+ * The prototype wrappers in core-patch.ts read these slots on every call, so an
+ * unloaded extension degrades to Pi's own native rendering.
  */
 export function installBridges(quiet: QuietMode, timers?: Parameters<typeof createThinkingPreview>[0]): void {
   const globals = globalThis as Globals;
@@ -58,6 +70,5 @@ export function installBridges(quiet: QuietMode, timers?: Parameters<typeof crea
   globals[slot("quietThinking")] = (owner: object, runIndex: number, streaming: boolean, hidden: boolean) =>
     quiet.observeThinking(owner, runIndex, !streaming, !hidden);
   globals[slot("quietProse")] = (owner: object, contentIndex: number) => quiet.observeProse(owner, contentIndex);
-  globals[slot("quietSpacer")] = (toolCallId: string) => quiet.view(toolCallId) !== "hide";
   globals[slot("quietMessageSpacer")] = (owner: object) => quiet.showMessageSpacer(owner);
 }

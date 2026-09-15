@@ -1,5 +1,6 @@
 /**
- * Reusable TUI components and the gutter vocabulary shared by every feature.
+ * TUI components. Purely presentational: they render painted rows (see row.ts)
+ * and know nothing about themes, tools, or quiet mode.
  *
  * Kept free of Pi extension API imports so unit tests can exercise the real
  * production components without loading an extension runtime.
@@ -7,30 +8,7 @@
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
-// Type-only imports: erased at runtime, so this stays free of Pi runtime deps
-// while a mistyped token ("succes") becomes a compile error instead of a
-// runtime theme.fg() throw that core silently turns into verbose fallback output.
-import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-
-// ThemeBg is not exported publicly, so recover it from Theme.bg's own signature
-// rather than importing a deep dist path (which is not a package export).
-type ThemeBg = Parameters<Theme["bg"]>[0];
-
-/** Visible columns consumed by every gutter variant (space + block + space). */
-export const GUTTER_WIDTH = 3;
-
-/**
- * Minimal theme surface these components need. Pi's real Theme satisfies it;
- * tests pass a deterministic fake that renders `<token>text</token>` so
- * assertions check the token, never a machine-specific RGB escape sequence.
- */
-// Method shorthand (not property-with-function-type) on purpose: methods are
-// bivariant, so Pi's Theme stays assignable under strictFunctionTypes while
-// tests can pass a small fake.
-export type ThemeLike = {
-  fg(token: ThemeColor, text: string): string;
-  bg(token: ThemeBg, text: string): string;
-};
+import { GUTTER_WIDTH, type Row } from "./row.ts";
 
 /**
  * Injectable timer pair. Production passes Node's globals; tests pass fakes so
@@ -52,68 +30,38 @@ export const realTimers: Timers = {
 };
 
 /**
- * Dim vertical bar drawn at the left of every compact row (tool calls and the
- * thinking preview). Model prose stays flush left, so a run of tool rows reads
- * as one indented block instead of same-weight lines mixed into text.
- *
- * Indented one column so the bar sits inside the text area instead of colliding
- * with the tool action text. `success` is a native Pi theme token (custom
- * color keys make theme.fg() throw at runtime); signal.json maps it to green.
+ * Resolve what to draw, at render time. `null` means draw NOTHING (zero lines),
+ * which is how quiet mode hides a row. Resolved on every render, so a `/quiet`
+ * toggle repaints existing transcript rows with no core rebuild.
  */
-export function gutter(theme: ThemeLike, token: ThemeColor = "success"): string {
-  return ` ${theme.fg(token, "▌")} `;
-}
-
-/**
- * Gutter for expanded OUTPUT lines: same glyph and column as the call row, but
- * dimmed, so the call row still reads as the block header while the bar
- * visually binds the output to it.
- */
-export function outputGutter(theme: ThemeLike): string {
-  return ` ${theme.fg("borderMuted", "▌")} `;
-}
+export type ResolveRow = () => Row | null;
 
 /**
  * One physical terminal line with width-aware truncation and full-width color.
  *
  * Pi's Text component wraps long strings. That is correct for prose but made a
- * long path spill onto a second line in our supposedly single-line renderer.
- * TUI only supplies the real terminal width during render(), so truncating with
- * a fixed character count in the caller cannot solve this reliably.
+ * long path spill onto a second line in a supposedly single-line renderer. TUI
+ * only supplies the real terminal width during render(), so truncating with a
+ * fixed character count in the caller cannot solve this reliably.
  */
-export type QuietText = string | null | undefined | { text: string; gutter?: string };
-
 export class CompactLine implements Component {
-  private text = "";
-  private background: ((text: string) => string) | undefined;
+  private resolve: ResolveRow = () => null;
   private ticker: unknown;
-  private gutterText = "";
-  private quietText: (() => QuietText) | undefined;
   private timers: Timers;
 
   constructor(timers: Timers = realTimers) {
     this.timers = timers;
   }
 
-  set(text: string, background?: (text: string) => string): void {
-    this.text = text;
-    this.background = background;
-  }
-
-  /** Left gutter marker, pre-colored by the caller so it can differ from the row text. */
-  setGutter(gutterText: string): void {
-    this.gutterText = gutterText;
-  }
-
-  /** Return null to hide, text for a summary, or summary text with its own gutter. */
-  setQuietText(resolve: () => QuietText): void {
-    this.quietText = resolve;
+  /** Install the row resolver. Called on every updateDisplay with fresh state. */
+  setRow(resolve: ResolveRow): void {
+    this.resolve = resolve;
   }
 
   /**
    * Repaint once per second while a tool runs, so the elapsed timer ticks even
    * for silent commands that produce no streaming output (the only other
-   * repaint trigger). stopTicker() clears it when the row reaches a final state.
+   * repaint trigger). stopTicker() clears it at a final state.
    */
   startTicker(requestRender: () => void): void {
     if (this.ticker !== undefined) return; // already ticking
@@ -133,18 +81,16 @@ export class CompactLine implements Component {
   }
 
   render(width: number): string[] {
-    const quiet = this.quietText?.();
-    if (quiet === null) return [];
-    const quietText = typeof quiet === "object" ? quiet.text : quiet;
-    const gutterText = typeof quiet === "object" ? (quiet.gutter ?? this.gutterText) : this.gutterText;
+    const row = this.resolve();
+    if (row === null) return [];
 
     // TUI pads each line to terminal width, so no manual trailing padding is
     // needed. truncateToWidth understands ANSI codes and wide Unicode glyphs,
     // so colored text truncates at VISIBLE columns. The gutter is a fixed-width
     // prefix, so the content gets the remaining columns.
-    const gutterWidth = gutterText ? GUTTER_WIDTH : 0;
-    const line = truncateToWidth(quietText ?? this.text, Math.max(1, width - gutterWidth), "…");
-    return this.background ? [gutterText + this.background(line)] : [gutterText + line];
+    const gutterWidth = row.gutter ? GUTTER_WIDTH : 0;
+    const line = truncateToWidth(row.text, Math.max(1, width - gutterWidth), "…");
+    return [row.gutter + (row.highlight ? row.highlight(line) : line)];
   }
 
   // Component contract allows cached components to be invalidated. This class
@@ -169,9 +115,9 @@ export class EmptyComponent implements Component {
 }
 
 /**
- * Wraps another component and prefixes EVERY line it renders with the output
- * gutter, so expanded output stays visually attached to the call row above it
- * instead of blending into model prose.
+ * Wraps another component and prefixes EVERY line it renders with a gutter, so
+ * expanded output stays visually attached to the call row above it instead of
+ * blending into model prose.
  *
  * The inner component renders at a reduced width (the gutter occupies real
  * columns), otherwise its own wrapping/truncation would overflow the row.

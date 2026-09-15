@@ -85,7 +85,11 @@ therefore use the same two-layer pattern:
    process-global symbols; ALL styling/behavior lives in this folder so
    `/reload` refreshes it without touching core.
 
-Bridge symbols registered by the extension:
+Bridge symbols registered by the extension. `src/bridge.ts` is their SINGLE
+SOURCE OF TRUTH (`BRIDGE_SYMBOLS`): `patch-pi.sh` writes the matching reads into
+Pi's bundle, and `test/integration.test.ts` iterates `BRIDGE_SYMBOLS` to assert
+the bundle contains every one of them, so a typo or a forgotten patch fails the
+test run instead of silently disabling a feature.
 
 - `Symbol.for("pi.defaultToolRenderer")` → `{ renderShell: "self", renderCall, renderResult }`
 - `Symbol.for("pi.thinkingPreview")` → `(text, theme, pad, isStreaming) => Component`
@@ -101,10 +105,9 @@ Renderer priority: tool's explicit renderer → global compact fallback →
 Pi native fallback. MCP tools with no renderer get one compact borderless
 line prefixed with `toolcall`.
 
-Every action label uses `success` green via `actionColor()` (mutating tools were
-once warning orange; orange already means "highlighted prose", and the action
-word is a label, not a warning). Paths, commands, and concrete tool names use
-`toolTitle`. Status glyphs are all `success` green except failures: queued caret
+Every action label uses `success` green (mutating tools were once warning orange;
+orange already means "highlighted prose", and the action word is a label, not a
+warning). Paths, commands, and concrete tool names use `toolTitle`. Status glyphs are all `success` green except failures: queued caret
 `›`, running dot `•`, completed `✓`, failed `✗` = `error`. "Finished" keys off
 `!context.isPartial`, not `executionStarted`: session replay (restart with
 history) never calls `markExecutionStarted()`, so keying off it made every
@@ -279,16 +282,54 @@ pi-minimalist's core bridge wins the visible rendering.
 behavior lives in `src/`, so it can be unit tested without an extension
 runtime:
 
+The dependency direction is strictly one way, so no module needs to know about a
+layer above it:
+
+```text
+index.ts            wiring: shared QuietMode, bridges, /quiet command
+  └─ bridge.ts      symbol table + installation
+       ├─ tool-renderer.ts   feature 1  ─┐
+       └─ thinking.ts        feature 2  ─┬─ quiet-mode.ts ─┐
+                                        └─ tools.ts       │
+                                                          │
+            row.ts   (data model + the ONLY painter) ─────┘
+            components.ts   (renders painted rows; theme-agnostic)
+```
+
 | File | Contents |
 | --- | --- |
-| `src/components.ts` | `CompactLine`, `EmptyComponent`, `GutteredComponent`, gutters, `ThemeLike`, injectable `Timers` |
-| `src/tool-rows.ts` | pure row text: `callText`, `statusGlyph`, `colorAction`, `rowText`, `BUILT_INS` |
-| `src/tool-renderer.ts` | feature 1: `createToolRenderer()` factory |
-| `src/quiet-mode.ts` | `/quiet` state, whitelist, and low-noise run summaries |
+| `src/bridge.ts` | `BRIDGE_SYMBOLS` (single source of truth) + `installBridges()` |
+| `src/row.ts` | `Row` data model, `ThemeLike`, gutters, and the ONLY painter: `labeledRow`, `summaryRow` |
+| `src/components.ts` | `CompactLine`, `EmptyComponent`, `GutteredComponent`, injectable `Timers`. Theme-agnostic |
+| `src/tools.ts` | tool vocabulary: `BUILT_INS`, `isBuiltIn`, `compact`, `describeTool` |
+| `src/tool-renderer.ts` | feature 1: `createToolRenderer()`, plus everything derived from a render context (`statusGlyph`, `timerBadge`, `RenderState`) |
+| `src/thinking.ts` | feature 2: `createThinkingPreview()` + `allPurpleThinkingTheme()` |
+| `src/quiet-mode.ts` | `/quiet` state, whitelist, run folding, and `rowFor()` |
 | `src/quiet-state.ts` | reads/writes persistent `~/.pi/agent/pi-minimalist.json` preference |
-| `src/thinking-preview.ts` | feature 2: `createThinkingPreview()` factory |
+| `src/markdown-chrome.ts` | code-block/blockquote glyphs via `Theme.fg`; no core patch |
 | `test/test-support.ts` | deterministic doubles (fake theme/clock/timers, context builder) |
 | `test/*.test.ts` | the tests |
+
+### Three rules that keep this structure honest
+
+**1. Describe rows as data; paint them exactly once.** `describeTool()` returns
+`{ label, details }` SEPARATELY and `summarize()` returns `Count[]`, never joined
+strings. `row.ts` is the only module that calls `theme.fg`/`theme.bg` for a row.
+An earlier version built `"read src/a.ts"` and then split it on the first space to
+recolor the action word (same for `"read ×2, edit ×1"`, split back apart on `", "`),
+which silently assumed no label ever contains a space. Do not reintroduce
+build-then-reparse.
+
+**2. One encoding for "what should this row draw".** `CompactLine.setRow()` takes
+a single `() => Row | null` resolver; `null` means zero lines. Quiet mode's
+tri-state translation lives ONLY in `QuietMode.rowFor()`, which both features
+call. There were once two encodings (`QuietView` and a separate `QuietText`) with
+the conversion written out in each feature, so every change to quiet semantics
+had to be made twice.
+
+**3. Resolve at render time, not at construction.** The resolver runs on every
+`render()`, which is why `/quiet` re-folds existing transcript history with no
+core rebuild: `notify()` triggers a repaint and every row re-reads shared state.
 
 Why factories instead of module-level singletons: tests drive the exact
 production renderer with an injected clock and interval, so the elapsed timer is
@@ -319,6 +360,15 @@ The tests call the REAL exported renderers (`createToolRenderer()` etc.) and
 asserted through a fake theme that emits `<success>✓</success>`, so no assertion
 depends on the machine's palette or the active theme. Use `plainTheme()` for
 width assertions — `fakeTheme()` markup occupies real columns.
+
+`test/row-shape.test.ts` guards the invariants of the row/paint split with a
+cell-accurate terminal model (one `(glyph, activeColor)` pair per visible
+column): separator spaces stay uncolored, segments do not bleed into each other,
+an absent segment emits no empty color span, and no built-in row can become
+multiline. That model is what verified the refactor to the current structure —
+compared against the previous renderer over 1284 rendered outputs (every tool ×
+UI state × expanded × width, quiet folds, thinking, real Pi theme), it found zero
+differences in painted cells.
 
 `test/integration.test.ts` loads the extension through Pi's real loader, checks
 that it registers zero tools (the pi-subagents ownership contract), and verifies

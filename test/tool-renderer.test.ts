@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { CompactLine, EmptyComponent, GutteredComponent } from "../src/components.ts";
-import { BUILT_INS } from "../src/tool-rows.ts";
+import { BUILT_INS } from "../src/tools.ts";
 import { QuietMode } from "../src/quiet-mode.ts";
-import { createToolRenderer } from "../src/tool-renderer.ts";
+import { createToolRenderer, statusGlyph, timerBadge } from "../src/tool-renderer.ts";
 import { fakeClock, fakeTheme, fakeTimers, makeContext, plain, plainTheme } from "../test/test-support.ts";
 
 const theme = fakeTheme();
@@ -306,5 +306,45 @@ describe("renderResult", () => {
     const { renderer: r } = renderer();
     const component = r.renderResult("ls", {}, { expanded: true }, theme, makeContext("completed", { expanded: true }), undefined);
     assert.deepEqual(component!.render(80), []);
+  });
+});
+
+describe("statusGlyph", () => {
+  it("maps every UI state to its glyph, color, and quiet outcome", () => {
+    assert.deepEqual(statusGlyph(makeContext("queued")), { glyph: "›", color: "success", outcome: "pending" });
+    assert.deepEqual(statusGlyph(makeContext("completed")), { glyph: "✓", color: "success", outcome: "success" });
+    assert.deepEqual(statusGlyph(makeContext("failed")), { glyph: "✗", color: "error", outcome: "failure" });
+
+    const running = statusGlyph(makeContext("running"));
+    assert.equal(running.glyph, "•");
+    assert.equal(running.color, "success");
+    assert.equal(running.outcome, "pending");
+    assert.equal(running.elapsed, 0);
+  });
+
+  it("shows ✓ for replayed history where executionStarted is false", () => {
+    // Session replay never calls markExecutionStarted(); keying off
+    // executionStarted would show the queued caret for every historical call.
+    const replayed = { state: {}, isPartial: false, isError: false, executionStarted: false };
+    assert.equal(statusGlyph(replayed).glyph, "✓");
+  });
+
+  it("advances elapsed seconds with the injected clock", () => {
+    const clock = fakeClock();
+    const context = makeContext("running");
+
+    assert.equal(statusGlyph(context, clock.now).elapsed, 0);
+    clock.advance(2_400);
+    assert.equal(statusGlyph(context, clock.now).elapsed, 2);
+    clock.advance(600);
+    assert.equal(statusGlyph(context, clock.now).elapsed, 3);
+  });
+
+  it("stops reporting elapsed once the result is final", () => {
+    assert.equal(statusGlyph(makeContext("completed")).elapsed, undefined);
+    assert.equal(timerBadge(undefined), "");
+    assert.equal(timerBadge(0), "", "no badge under one second (avoids 0s flicker)");
+    assert.equal(timerBadge(1), "[⏱ 1s]");
+    assert.equal(timerBadge(7), "[⏱ 7s]");
   });
 });

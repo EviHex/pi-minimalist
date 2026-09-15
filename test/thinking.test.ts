@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { createThinkingPreview } from "../src/thinking-preview.ts";
+import { allPurpleThinkingTheme, createThinkingPreview } from "../src/thinking.ts";
 import { fakeTheme, fakeTimers, plain, plainTheme } from "../test/test-support.ts";
 
 // Token assertions use the naming theme; layout/width assertions use the
@@ -58,5 +58,20 @@ describe("thinking preview", () => {
     line.render(40);
     assert.equal(line.isTicking(), false);
     assert.equal(timers.pending(), 0);
+  });
+});
+
+describe("allPurpleThinkingTheme", () => {
+  it("overrides every color-bearing Markdown token and syntax highlighting", () => {
+    const themed = allPurpleThinkingTheme({ bold: (text: string) => `*${text}*` }, fakeTheme()) as Record<string, any>;
+
+    for (const key of ["heading", "link", "linkUrl", "code", "codeBlock", "codeBlockBorder", "quote", "quoteBorder", "hr", "listBullet"]) {
+      assert.equal(themed[key](key), `<thinkingText>${key}</thinkingText>`, key);
+    }
+    assert.deepEqual(themed.highlightCode("const x = 1;\nreturn x", "ts"), [
+      "<thinkingText>const x = 1;</thinkingText>",
+      "<thinkingText>return x</thinkingText>",
+    ]);
+    assert.equal(themed.bold("bold"), "*bold*", "non-color style stays native");
   });
 });

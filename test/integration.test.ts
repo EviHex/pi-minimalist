@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, it } from "node:test";
-import { BUILT_INS } from "../src/tool-rows.ts";
+import { BRIDGE_SYMBOLS } from "../src/bridge.ts";
+import { BUILT_INS } from "../src/tools.ts";
 
 const PI_ROOT = process.env.PI_ROOT;
 const EXTENSION = new URL("../index.ts", import.meta.url).pathname;
@@ -47,17 +48,15 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
     }
   });
 
-  it("contains all three bridges in the actual CLI bundle", () => {
+  it("contains every declared bridge in the actual CLI bundle", () => {
+    // Driven by BRIDGE_SYMBOLS itself, so adding a bridge without patching the
+    // bundle (or misspelling either side) fails here instead of silently
+    // disabling the feature.
     const source = bundleSource();
-    for (const marker of [
-      "pi.defaultToolRenderer",
-      "pi.minimalist.quietSpacer",
-      "pi.thinkingPreview",
-      "pi.minimalist.quietThinking",
-      "pi.minimalist.quietMessageSpacer",
-      "pi.thinkingMarkdownTheme",
-      "pi.minimalist.quietProse",
-    ]) {
+    for (const [name, marker] of Object.entries(BRIDGE_SYMBOLS)) {
+      // quietMode is extension-internal state shared across /reload; core never
+      // reads it, so it is deliberately absent from the bundle.
+      if (name === "quietMode") continue;
       assert.ok(source.includes(marker), `bundle is missing ${marker}; run ./patch-pi.sh`);
     }
   });

@@ -1,6 +1,7 @@
 /** Markdown frame glyphs via Theme.fg; pi-tui itself stays unpatched. */
 
 const INSTALLED = Symbol.for("pi.minimalist.markdownChrome");
+const LIVE_THEME = Symbol.for("@earendil-works/pi-coding-agent:theme");
 const CODE_BORDER = "mdCodeBlockBorder";
 const QUOTE_BORDER = "mdQuoteBorder";
 const FENCE = "```";
@@ -36,4 +37,17 @@ export function installMarkdownChrome(theme: Theme): void {
     return color(token, text);
   };
   theme[INSTALLED] = true;
+}
+
+/**
+ * Wrap Pi's LIVE theme object in place.
+ *
+ * Passing a new instance to ui.setTheme() would set the theme name to
+ * "<in-memory>", disabling /theme and custom-theme file watching. Safe and cheap
+ * to call repeatedly (idempotent per object), which is required because /theme
+ * installs a fresh Theme that must be re-wrapped.
+ */
+export function installLiveThemeChrome(): void {
+  const live = (globalThis as Record<symbol, unknown>)[LIVE_THEME] as Theme | undefined;
+  if (live) installMarkdownChrome(live);
 }

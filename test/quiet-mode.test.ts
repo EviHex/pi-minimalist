@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { QUIET_TOOLS, QuietMode, summarize, type QuietOutcome } from "../src/quiet-mode.ts";
+import { plain, plainTheme } from "./test-support.ts";
 
 function observe(mode: QuietMode, id: string, name: string, outcome: QuietOutcome = "success", expanded = false): void {
   mode.observe(id, name, outcome, expanded);
@@ -8,7 +9,7 @@ function observe(mode: QuietMode, id: string, name: string, outcome: QuietOutcom
 
 describe("quiet mode", () => {
   it("whitelists only routine file operations", () => {
-    assert.deepEqual([...QUIET_TOOLS], ["read", "edit", "write", "grep", "find", "ls", "bash", "toolcall", "think"]);
+    assert.deepEqual([...QUIET_TOOLS], ["read", "bash", "edit", "write", "grep", "find", "ls", "toolcall", "think"]);
     assert.equal(QUIET_TOOLS.has("bash"), true);
     assert.equal(QUIET_TOOLS.has("toolcall"), true);
   });
@@ -25,7 +26,10 @@ describe("quiet mode", () => {
     assert.equal(mode.view("1"), "hide");
     assert.equal(mode.view("2"), "hide");
     assert.equal(mode.view("3"), "hide");
-    assert.deepEqual(mode.view("4"), { summary: "read ×2, edit ×2" });
+    assert.deepEqual(mode.view("4"), {
+      done: [{ name: "read", count: 2 }, { name: "edit", count: 2 }],
+      failed: [],
+    });
   });
 
   it("keeps a single low-noise action visible", () => {
@@ -49,10 +53,16 @@ describe("quiet mode", () => {
     mode.toggle();
 
     for (const id of ["read-1", "generic", "edit-1", "failed"]) assert.equal(mode.view(id), "hide", id);
-    assert.deepEqual(mode.view("edit-2"), { summary: "read ×1, toolcall ×1, edit ×2", failures: "read ×1" });
+    assert.deepEqual(mode.view("edit-2"), {
+      done: [{ name: "read", count: 1 }, { name: "toolcall", count: 1 }, { name: "edit", count: 2 }],
+      failed: [{ name: "read", count: 1 }],
+    });
     assert.equal(mode.view("pending"), "show");
     assert.equal(mode.view("find"), "hide");
-    assert.deepEqual(mode.view("ls"), { summary: "find ×1, ls ×1" });
+    assert.deepEqual(mode.view("ls"), {
+      done: [{ name: "find", count: 1 }, { name: "ls", count: 1 }],
+      failed: [],
+    });
     assert.equal(mode.view("expanded"), "show");
   });
 
@@ -67,7 +77,10 @@ describe("quiet mode", () => {
     assert.equal(mode.view("bash"), "hide");
     assert.equal(mode.view("edit"), "hide");
     assert.equal(mode.view(mode.thinkingId(owner, 0)), "hide");
-    assert.deepEqual(mode.view(mode.thinkingId(owner, 1)), { summary: "bash ×1, edit ×1, think ×2" });
+    assert.deepEqual(mode.view(mode.thinkingId(owner, 1)), {
+      done: [{ name: "bash", count: 1 }, { name: "edit", count: 1 }, { name: "think", count: 2 }],
+      failed: [],
+    });
   });
 
   it("hides only a message spacer whose thinking row is quiet-hidden", () => {
@@ -107,6 +120,40 @@ describe("quiet mode", () => {
 
 describe("summarize", () => {
   it("counts names in first-seen order", () => {
-    assert.equal(summarize(["read", "edit", "read", "ls", "edit"]), "read ×2, edit ×2, ls ×1");
+    assert.deepEqual(summarize(["read", "edit", "read", "ls", "edit"]), [
+      { name: "read", count: 2 },
+      { name: "edit", count: 2 },
+      { name: "ls", count: 1 },
+    ]);
+  });
+});
+
+describe("rowFor", () => {
+  const theme = plainTheme();
+  const base = () => ({ gutter: "|", text: "BASE" });
+
+  it("is the ONE place quiet state becomes a drawable row", () => {
+    const mode = new QuietMode();
+    observe(mode, "1", "read");
+    observe(mode, "2", "edit");
+
+    // Disabled: every row draws itself.
+    assert.deepEqual(mode.rowFor("1", theme, base), { gutter: "|", text: "BASE" });
+
+    mode.toggle();
+    assert.equal(mode.rowFor("1", theme, base), null, "folded members draw nothing");
+    assert.equal(plain(mode.rowFor("2", theme, base)!.text), "✓ read ×1, edit ×1", "the tail carries the summary");
+  });
+
+  it("does not call the base row builder for a hidden row", () => {
+    const mode = new QuietMode(true);
+    observe(mode, "1", "read");
+    observe(mode, "2", "edit");
+    let built = 0;
+    mode.rowFor("1", theme, () => {
+      built++;
+      return base();
+    });
+    assert.equal(built, 0);
   });
 });

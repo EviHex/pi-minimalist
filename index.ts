@@ -1,5 +1,5 @@
 /**
- * pi-minimalist
+ * pi-minimalist — WIRING ONLY. All behavior lives in src/.
  *
  * UI features installed through the core bridges maintained by patch-pi.sh:
  *   1. compact one-line tool calls with native expanded output;
@@ -13,64 +13,21 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { installMarkdownChrome } from "./src/markdown-chrome.ts";
-import { createThinkingPreview, type ThinkingPreview } from "./src/thinking-preview.ts";
-import { allPurpleThinkingTheme } from "./src/thinking-theme.ts";
+import { installBridges, sharedQuietMode } from "./src/bridge.ts";
+import { installLiveThemeChrome } from "./src/markdown-chrome.ts";
 import { QuietMode } from "./src/quiet-mode.ts";
 import { loadQuietEnabled, saveQuietEnabled } from "./src/quiet-state.ts";
-import { createToolRenderer, type ToolRenderer } from "./src/tool-renderer.ts";
-
-const DEFAULT_RENDERER = Symbol.for("pi.defaultToolRenderer");
-const THINKING_PREVIEW = Symbol.for("pi.thinkingPreview");
-const THINKING_MARKDOWN_THEME = Symbol.for("pi.thinkingMarkdownTheme");
-const QUIET_MODE = Symbol.for("pi.minimalist.quietMode");
-const QUIET_THINKING = Symbol.for("pi.minimalist.quietThinking");
-const QUIET_PROSE = Symbol.for("pi.minimalist.quietProse");
-const QUIET_SPACER = Symbol.for("pi.minimalist.quietSpacer");
-const QUIET_MESSAGE_SPACER = Symbol.for("pi.minimalist.quietMessageSpacer");
-
-type Bridges = {
-  [DEFAULT_RENDERER]?: ToolRenderer;
-  [THINKING_PREVIEW]?: ThinkingPreview;
-  [THINKING_MARKDOWN_THEME]?: (base: Record<string, unknown>, theme: any) => Record<string, unknown>;
-  [QUIET_MODE]?: QuietMode;
-  [QUIET_THINKING]?: (owner: object, runIndex: number, streaming: boolean, hidden: boolean) => void;
-  [QUIET_PROSE]?: (owner: object, contentIndex: number) => void;
-  [QUIET_SPACER]?: (toolCallId: string) => boolean;
-  [QUIET_MESSAGE_SPACER]?: (owner: object) => boolean;
-};
 
 export default function (pi: ExtensionAPI) {
-  const globals = globalThis as typeof globalThis & Bridges;
-  // Keep this instance across /reload: existing transcript rows close over it.
-  const quiet = globals[QUIET_MODE] ?? new QuietMode(loadQuietEnabled());
-  globals[QUIET_MODE] = quiet;
+  // Keep the QuietMode instance across /reload: existing transcript rows close
+  // over it, so replacing it would strand their fold state.
+  const quiet = sharedQuietMode() ?? new QuietMode(loadQuietEnabled());
+  installBridges(quiet);
 
-  // Reload overwrites these slots with fresh instances. Do not clear them from
-  // session_shutdown: an old extension shutdown may run after the new load and
-  // erase the new bridges. Process exit clears globalThis naturally.
-  globals[DEFAULT_RENDERER] = createToolRenderer({ quiet });
-  globals[THINKING_PREVIEW] = createThinkingPreview(undefined, quiet);
-  globals[THINKING_MARKDOWN_THEME] = allPurpleThinkingTheme;
-  globals[QUIET_THINKING] = (owner, runIndex, streaming, hidden) =>
-    quiet.observeThinking(owner, runIndex, !streaming, !hidden);
-  globals[QUIET_PROSE] = (owner, contentIndex) => quiet.observeProse(owner, contentIndex);
-  globals[QUIET_SPACER] = (toolCallId) => quiet.view(toolCallId) !== "hide";
-  globals[QUIET_MESSAGE_SPACER] = (owner) => quiet.showMessageSpacer(owner);
-
-  // Markdown chrome: wrap the LIVE theme object in place. Passing an instance to
-  // ui.setTheme() would set the theme name to "<in-memory>", disabling /theme and
-  // custom-theme file watching. Re-applied on every turn because /theme installs
-  // a fresh Theme object; installMarkdownChrome is idempotent per object.
-  const applyChrome = () => {
-    const live = (globalThis as Record<symbol, unknown>)[
-      Symbol.for("@earendil-works/pi-coding-agent:theme")
-    ] as { fg(color: string, text: string): string } | undefined;
-    if (live) installMarkdownChrome(live);
-  };
-  applyChrome();
-  pi.on("session_start", applyChrome);
-  pi.on("turn_start", applyChrome);
+  // /theme installs a fresh Theme object, so re-wrap it every turn.
+  installLiveThemeChrome();
+  pi.on("session_start", installLiveThemeChrome);
+  pi.on("turn_start", installLiveThemeChrome);
 
   pi.registerCommand("quiet", {
     description: "Toggle folding for completed read/edit/write/grep/find/ls/bash/toolcall runs",
@@ -85,8 +42,8 @@ export default function (pi: ExtensionAPI) {
       }
       // notify triggers a TUI repaint, so existing CompactLine components read
       // the shared QuietMode state immediately; no core patch or rebuild needed.
+      // NOTE: notify() has no "success" level — only info | warning | error.
       ctx.ui.notify(enabled ? "Quiet mode enabled" : "Quiet mode disabled", "info");
     },
   });
-
 }

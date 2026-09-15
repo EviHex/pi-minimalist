@@ -3,13 +3,20 @@
  *
  * ToolExecutionComponent instances are independent transcript entries, but their
  * call renderers are constructed in transcript order. Keep that order here so
- * each CompactLine can decide at render time whether it is hidden, unchanged,
- * or the visible tail of a compact summary. This makes /quiet affect existing
- * history too: no core rebuild or core patch is needed.
+ * each row can decide AT RENDER TIME whether it is hidden, unchanged, or the
+ * visible tail of a folded run. That is what makes /quiet affect existing
+ * history with no core rebuild and no core patch.
  */
 
-/** Tools safe to summarize: routine file operations, bash, and generic toolcalls. */
-export const QUIET_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls", "bash", "toolcall", "think"]);
+import { summaryRow, type Count, type Row, type ThemeLike } from "./row.ts";
+import { BUILT_INS, FALLBACK_LABEL } from "./tools.ts";
+
+/**
+ * Names safe to fold: every built-in, generic third-party calls, and thinking.
+ * Derived from BUILT_INS so a new built-in cannot be whitelisted in one place
+ * and forgotten in the other.
+ */
+export const QUIET_TOOLS: ReadonlySet<string> = new Set<string>([...BUILT_INS, FALLBACK_LABEL, "think"]);
 
 export type QuietOutcome = "success" | "failure" | "pending";
 
@@ -20,7 +27,8 @@ type Entry = {
   expanded: boolean;
 };
 
-export type QuietView = "show" | "hide" | { summary: string; failures?: string }; 
+/** "show" keeps the row as-is, "hide" draws nothing, counts fold a whole run. */
+export type QuietView = "show" | "hide" | { done: Count[]; failed: Count[] };
 
 /** Fold completed, adjacent low-noise tools while /quiet is enabled. */
 export class QuietMode {
@@ -46,11 +54,11 @@ export class QuietMode {
 
   /** Record the current call state. Re-renders update one stable entry in place. */
   observe(id: string, name: string, outcome: QuietOutcome, expanded: boolean): void {
-    let entry = this.byId.get(id);
+    const entry = this.byId.get(id);
     if (!entry) {
-      entry = { id, name, outcome, expanded };
-      this.byId.set(id, entry);
-      this.entries.push(entry);
+      const created = { id, name, outcome, expanded };
+      this.byId.set(id, created);
+      this.entries.push(created);
       return;
     }
     entry.name = name;
@@ -82,9 +90,23 @@ export class QuietMode {
     return !entries || [...entries].some((id) => this.view(id) !== "hide");
   }
 
+  /**
+   * The single translation from quiet state to something drawable: the row's own
+   * appearance, nothing, or the folded run summary. Both features route through
+   * here, so quiet semantics live in exactly one place.
+   */
+  rowFor(id: string, theme: ThemeLike, base: () => Row): Row | null {
+    const view = this.view(id);
+    if (view === "show") return base();
+    if (view === "hide") return null;
+    return summaryRow(theme, view.done, view.failed);
+  }
+
   view(id: string): QuietView {
     if (!this.enabled) return "show";
 
+    // ponytail: linear scan per row per frame — O(n²) over one transcript.
+    // Fine at a few hundred entries; index runs by id if long sessions lag.
     const index = this.entries.findIndex((entry) => entry.id === id);
     if (index === -1 || !this.foldable(this.entries[index])) return "show";
 
@@ -93,12 +115,14 @@ export class QuietMode {
     let last = index;
     while (last + 1 < this.entries.length && this.foldable(this.entries[last + 1])) last++;
 
+    // A lone foldable call is left alone: folding it would save no lines.
     if (first === last) return "show";
     if (index !== last) return "hide";
     const run = this.entries.slice(first, last + 1);
-    const summary = summarize(run.filter((entry) => entry.outcome === "success").map((entry) => entry.name));
-    const failures = summarize(run.filter((entry) => entry.outcome === "failure").map((entry) => entry.name));
-    return failures ? { summary, failures } : { summary }; 
+    return {
+      done: summarize(run.filter((entry) => entry.outcome === "success").map((entry) => entry.name)),
+      failed: summarize(run.filter((entry) => entry.outcome === "failure").map((entry) => entry.name)),
+    };
   }
 
   private foldable(entry: Entry | undefined): boolean {
@@ -125,9 +149,9 @@ export class QuietMode {
   }
 }
 
-/** Preserve first-seen order: read, edit, read becomes "read ×2, edit ×1". */
-export function summarize(names: string[]): string {
+/** Count names in first-seen order: read, edit, read → read ×2, edit ×1. */
+export function summarize(names: string[]): Count[] {
   const counts = new Map<string, number>();
   for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
-  return [...counts].map(([name, count]) => `${name} ×${count}`).join(", ");
+  return [...counts].map(([name, count]) => ({ name, count }));
 }

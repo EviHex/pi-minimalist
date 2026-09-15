@@ -17,6 +17,7 @@ import { installBridges, sharedQuietMode } from "./src/bridge.ts";
 import { installLiveThemeChrome } from "./src/markdown-chrome.ts";
 import { QuietMode } from "./src/quiet-mode.ts";
 import { loadQuietEnabled, saveQuietEnabled } from "./src/quiet-state.ts";
+import { refreshMcpTools } from "./src/tools.ts";
 
 export default function (pi: ExtensionAPI) {
   // Keep the QuietMode instance across /reload: existing transcript rows close
@@ -24,10 +25,15 @@ export default function (pi: ExtensionAPI) {
   const quiet = sharedQuietMode() ?? new QuietMode(loadQuietEnabled());
   installBridges(quiet);
 
-  // /theme installs a fresh Theme object, so re-wrap it every turn.
+  // MCP direct tool names depend on adapter configuration. Discover them from
+  // public source metadata instead of maintaining a server/tool whitelist.
+  const refresh = () => {
+    installLiveThemeChrome();
+    refreshMcpTools(pi.getAllTools());
+  };
   installLiveThemeChrome();
-  pi.on("session_start", installLiveThemeChrome);
-  pi.on("turn_start", installLiveThemeChrome);
+  pi.on("session_start", refresh);
+  pi.on("turn_start", refresh);
 
   pi.registerCommand("quiet", {
     description: "Toggle folding for completed read/edit/write/grep/find/ls/bash/toolcall runs",

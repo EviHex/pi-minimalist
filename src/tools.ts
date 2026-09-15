@@ -20,9 +20,19 @@ export function isBuiltIn(name: string): name is ToolName {
   return BUILT_INS.includes(name as ToolName);
 }
 
-/** MCP adapter tools with native renderers that we deliberately replace. */
+/** MCP tools discovered from their registering extension's source metadata. */
+const mcpTools = new Set<string>();
+
+/** Refresh after MCP adapter registration; direct tool names are configuration-dependent. */
+export function refreshMcpTools(tools: { name: string; sourceInfo: { path: string } }[]): void {
+  mcpTools.clear();
+  for (const tool of tools) {
+    if (tool.sourceInfo.path.includes("pi-mcp-adapter")) mcpTools.add(tool.name);
+  }
+}
+
 export function isMcpTool(name: string): boolean {
-  return name === "mcp" || name === "mcpScript" || name.startsWith("mcp__");
+  return name === "mcp" || name === "mcpScript" || name.startsWith("mcp__") || mcpTools.has(name);
 }
 
 /** Native tools plus MCP tools; rendererless tools reach us through fallback. */
@@ -52,6 +62,7 @@ export function describeTool(name: string, args: any, expanded = false): { label
     const tool = compact(args?.tool);
     return { label: "mcp", details: tool ? `${tool} @ ${server}` : `@ ${server}` };
   }
+  if (isMcpTool(name)) return { label: "mcp", details: name };
   if (!isBuiltIn(name)) return { label: FALLBACK_LABEL, details: name };
   return { label: name, details: toolDetails(name, args ?? {}, expanded) };
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { BUILT_INS, compact, describeTool, isBuiltIn, isCompactTool } from "../src/tools.ts";
+import { BUILT_INS, compact, describeTool, isBuiltIn, isCompactTool, refreshMcpTools } from "../src/tools.ts";
 
 describe("isBuiltIn", () => {
   it("covers exactly Pi's native tool names", () => {
@@ -17,6 +17,18 @@ describe("isCompactTool", () => {
       assert.equal(isCompactTool(name), true, name);
     }
     for (const name of ["subagent", "TaskCreate", "web_search"]) assert.equal(isCompactTool(name), false, name);
+  });
+
+  it("discovers direct tools registered by pi-mcp-adapter", () => {
+    refreshMcpTools([
+      { name: "slack_search", sourceInfo: { path: "/packages/pi-mcp-adapter/index.ts" } },
+      { name: "other_tool", sourceInfo: { path: "/extensions/other/index.ts" } },
+    ]);
+
+    assert.equal(isCompactTool("slack_search"), true);
+    assert.equal(isCompactTool("other_tool"), false);
+    assert.deepEqual(describeTool("slack_search", {}), { label: "mcp", details: "slack_search" });
+    refreshMcpTools([]);
   });
 });
 

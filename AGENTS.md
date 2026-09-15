@@ -30,9 +30,12 @@ truncate using the real viewport width instead of wrapping.
 `/quiet` toggles low-noise run folding. A consecutive completed run composed
 only of `read/edit/write/grep/find/ls/bash/toolcall/think` becomes one final summary
 line, e.g. `✓ read ×2, edit ×1`; every other row in that run renders zero lines.
-The MCP adapter's `mcp`, `mcpScript`, and namespace proxy (`mcp__<server>`)
-tools are compacted even though they ship native renderers; expansion still
-delegates to those native renderers.
+Every tool registered by `pi-mcp-adapter` is discovered from public
+`getAllTools().sourceInfo` metadata and compacted even when it ships a native
+renderer; expansion still delegates to that renderer. Stable gateway names and
+`mcp__<server>` namespace proxies are recognized immediately, while configured
+direct-tool names refresh on `session_start` and `turn_start`. No server/tool
+whitelist is maintained.
 Rendererless third-party calls use the same `toolcall` quiet category. Completed,
 collapsed thinking blocks share this run and summarize as `think ×N`.
 Queued/running calls, expanded thinking/tools, and assistant prose break a run
@@ -105,8 +108,8 @@ test run instead of silently disabling a feature.
 
 ### Renderer details
 
-The bridge gives the compact renderer priority for native built-ins plus the
-MCP adapter's `mcp`, `mcpScript`, and `mcp__<server>` tools. Expanded output delegates to each tool's
+The bridge gives the compact renderer priority for native built-ins plus every
+tool whose source metadata identifies `pi-mcp-adapter`. Expanded output delegates to each tool's
 original renderer. Tools without any renderer reach the same compact code
 through core's fallback and use the `toolcall` label.
 

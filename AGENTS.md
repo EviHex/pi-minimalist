@@ -152,8 +152,9 @@ previously doubled the upgrade surface while testing the wrong runtime.
 Three bridge groups remain:
 
 1. **Tool renderer** — route selected built-ins and rendererless third-party
-   tools through `pi.defaultToolRenderer`, without re-registering built-ins and
-   losing their native ownership.
+   tools through `pi.defaultToolRenderer`, including late-registered tools whose
+   definition is missing from Pi's UI lookup, without re-registering built-ins
+   and losing their native ownership.
 2. **Quiet spacer** — let a quiet-hidden tool row suppress its parent
    `Spacer(1)`.
 3. **Thinking** — compact preview, streaming visibility, quiet ordering/spacer,
@@ -257,7 +258,10 @@ output returns `EmptyComponent`.
 
 `createCallFallback()` / `createResultFallback()` call
 `getRenderContext(undefined)`, so `context.lastComponent` is ALWAYS undefined for
-rendererless MCP/third-party tools. Caching the row only on `lastComponent` made
+rendererless MCP/third-party tools. Late-registered tools can also arrive with
+`toolDefinition === undefined` even though execution succeeds; the core bridge
+makes its global fallback count as a renderer definition so those calls do not
+bypass both methods and leak Pi's verbose `formatToolExecution()` card. Caching the row only on `lastComponent` made
 every repaint allocate a new `CompactLine` and start another 1s ticker while
 clearing none — an exponential interval leak that froze the UI on long-running
 MCP calls, and left a permanent 1Hz repaint per finished call. The row is

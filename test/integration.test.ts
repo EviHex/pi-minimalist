@@ -57,6 +57,10 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
       if (name === "quietMode") continue;
       assert.ok(source.includes(marker), `bundle is missing ${marker}; run ./patch-pi.sh`);
     }
+    assert.ok(
+      source.includes('this.toolDefinition!==void 0||globalThis[Symbol.for("pi.defaultToolRenderer")]?.renderCall!==void 0'),
+      "late-registered tools must reach the compact fallback",
+    );
   });
 
   it("renders markdown chrome while pi-tui stays pristine", async () => {

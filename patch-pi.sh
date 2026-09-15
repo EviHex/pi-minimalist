@@ -81,13 +81,23 @@ if ! grep -qF "$BUNDLE_MARKER" "$BUNDLE"; then
   echo "Patching bundle: named/default tool renderer bridge"
   # Replace the renderer-selection methods as one bounded block. This matches
   # both clean Pi and the older fallback-only bridge from previous releases.
-  perl -0pi -e 's/getCallRenderer\(\)\{.*?\}getRenderContext/getCallRenderer(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")];return renderer?.handles?.(this.toolName)\&\&renderer.renderCall?(args,renderTheme,context)=>renderer.renderCall(this.toolName,args,renderTheme,context):this.toolDefinition?.renderCall}getResultRenderer(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")];if(renderer?.handles?.(this.toolName)\&\&renderer.renderResult){let nativeRenderer=this.toolDefinition?.renderResult;return(result,options,renderTheme,context)=>renderer.renderResult(this.toolName,result,options,renderTheme,context,nativeRenderer)}return this.toolDefinition?.renderResult}hasRendererDefinition(){return this.toolDefinition!==void 0}getRenderShell(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")],handlesTool=renderer?.handles?.(this.toolName)===!0,rendererlessTool=!this.toolDefinition?.renderCall\&\&!this.toolDefinition?.renderResult;return(handlesTool||rendererlessTool)\&\&renderer?.renderShell?renderer.renderShell:this.toolDefinition?.renderShell??"default"}getRenderContext/s' "$BUNDLE"
+  perl -0pi -e 's/getCallRenderer\(\)\{.*?\}getRenderContext/getCallRenderer(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")];return renderer?.handles?.(this.toolName)\&\&renderer.renderCall?(args,renderTheme,context)=>renderer.renderCall(this.toolName,args,renderTheme,context):this.toolDefinition?.renderCall}getResultRenderer(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")];if(renderer?.handles?.(this.toolName)\&\&renderer.renderResult){let nativeRenderer=this.toolDefinition?.renderResult;return(result,options,renderTheme,context)=>renderer.renderResult(this.toolName,result,options,renderTheme,context,nativeRenderer)}return this.toolDefinition?.renderResult}hasRendererDefinition(){return this.toolDefinition!==void 0||globalThis[Symbol.for("pi.defaultToolRenderer")]?.renderCall!==void 0}getRenderShell(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")],handlesTool=renderer?.handles?.(this.toolName)===!0,rendererlessTool=!this.toolDefinition?.renderCall\&\&!this.toolDefinition?.renderResult;return(handlesTool||rendererlessTool)\&\&renderer?.renderShell?renderer.renderShell:this.toolDefinition?.renderShell??"default"}getRenderContext/s' "$BUNDLE"
   # Generic fallback paths for rendererless tools.
   perl -0pi -e 's/createCallFallback\(\)\{return new Text\(theme\.fg\("toolTitle",theme\.bold\(this\.toolName\)\),0,0\)\}/createCallFallback(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")]?.renderCall,component=renderer?.(this.toolName,this.args,theme,this.getRenderContext(void 0));return component??new Text(theme.fg("toolTitle",theme.bold(this.toolName)),0,0)}/' "$BUNDLE"
   perl -0pi -e 's/createResultFallback\(\)\{let output=this\.getTextOutput\(\);/createResultFallback(){let renderer=globalThis[Symbol.for("pi.defaultToolRenderer")]?.renderResult,component=renderer?.(this.toolName,this.result,{expanded:this.expanded,isPartial:this.isPartial},theme,this.getRenderContext(void 0));if(component!==void 0)return component;let output=this.getTextOutput();/' "$BUNDLE"
   patched=1
 else
   echo "Bundle: named/default tool renderer bridge already present, skipping"
+fi
+
+# Older bridge versions still sent late-registered tools with no UI definition
+# through Pi's verbose formatToolExecution() branch. Treat the global fallback
+# renderer as a definition so those calls reach createCall/ResultFallback too.
+LATE_TOOL_MARKER='hasRendererDefinition(){return this.toolDefinition!==void 0||globalThis[Symbol.for("pi.defaultToolRenderer")]?.renderCall!==void 0}'
+if ! grep -qF "$LATE_TOOL_MARKER" "$BUNDLE"; then
+  echo "Patching bundle: compact late-registered tools"
+  perl -0pi -e 's/hasRendererDefinition\(\)\{return this\.toolDefinition!==void 0\}/hasRendererDefinition(){return this.toolDefinition!==void 0||globalThis[Symbol.for("pi.defaultToolRenderer")]?.renderCall!==void 0}/' "$BUNDLE"
+  patched=1
 fi
 
 # NOTE: no `ui` bridge here on purpose. The elapsed timer uses the PUBLIC
@@ -180,6 +190,7 @@ fi
 echo "Verifying bridges and syntax..."
 for marker in \
   "$BUNDLE_MARKER" \
+  "$LATE_TOOL_MARKER" \
   "$QUIET_SPACER_MARKER" \
   "$ASSISTANT_MARKER" \
   'this.isStreaming,this,runIndex' \

@@ -63,11 +63,15 @@ describe("thinking preview", () => {
 
 describe("allPurpleThinkingTheme", () => {
   it("overrides every color-bearing Markdown token and syntax highlighting", () => {
-    const themed = allPurpleThinkingTheme({ bold: (text: string) => `*${text}*` }, fakeTheme()) as Record<string, any>;
+    const themed = allPurpleThinkingTheme(
+      { bold: (text: string) => `*${text}*`, codeBlockIndent: "\x1b[38;2;128;128;128m│ \x1b[39m" },
+      fakeTheme(),
+    ) as Record<string, any>;
 
     for (const key of ["heading", "link", "linkUrl", "code", "codeBlock", "codeBlockBorder", "quote", "quoteBorder", "hr", "listBullet"]) {
       assert.equal(themed[key](key), `<thinkingText>${key}</thinkingText>`, key);
     }
+    assert.equal(themed.codeBlockIndent, "<thinkingText>│ </thinkingText>");
     assert.deepEqual(themed.highlightCode("const x = 1;\nreturn x", "ts"), [
       "<thinkingText>const x = 1;</thinkingText>",
       "<thinkingText>return x</thinkingText>",

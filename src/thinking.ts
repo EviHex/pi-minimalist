@@ -69,6 +69,10 @@ export function allPurpleThinkingTheme(base: MarkdownTheme, theme: ThemeLike): M
     quoteBorder: purple,
     hr: purple,
     listBullet: purple,
+    codeBlockIndent:
+      typeof base.codeBlockIndent === "string"
+        ? purple(base.codeBlockIndent.replace(/\x1b\[[0-9;]*m/g, ""))
+        : base.codeBlockIndent,
     // cli-highlight injects its own token colors, so bypass it entirely.
     highlightCode: (code: string) => code.split("\n").map(purple),
   };

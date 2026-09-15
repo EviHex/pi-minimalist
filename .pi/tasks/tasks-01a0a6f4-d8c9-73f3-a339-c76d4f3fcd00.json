@@ -1,0 +1,77 @@
+{
+  "nextId": 7,
+  "tasks": [
+    {
+      "id": "1",
+      "subject": "Add config module reading settings.json",
+      "description": "Create src/config.ts: schema + defaults + merge of global ~/.pi/agent/settings.json (via getAgentDir()) and project <cwd>/.pi/settings.json under a \"minimalist\" key. Must tolerate malformed JSON (log + defaults, never crash). Include migration from the old pi-minimalist.json quiet state. Writes must only touch the \"minimalist\" key and must refuse if the file contains comments.",
+      "status": "in_progress",
+      "activeForm": "Adding config module",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1789512794563,
+      "updatedAt": 1789512991146
+    },
+    {
+      "id": "2",
+      "subject": "Switch tool claiming from whitelist to blacklist",
+      "description": "Default to compacting ALL tools; exclude only names in the configurable blacklist. Replace isCompactTool's whitelist. Add a generic details extractor for unknown tools so they show more than a bare name. Keep renderResult delegating to native renderers so Ctrl+O still shows the third-party card.",
+      "status": "pending",
+      "activeForm": "Switching to blacklist",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1789512794564,
+      "updatedAt": 1789512794564
+    },
+    {
+      "id": "3",
+      "subject": "Make truncation width dynamic",
+      "description": "Remove the fixed 100-char single-field cap for bash so CompactLine's real viewport-width truncation governs. Keep per-field budgets for COMPOSED details (grep/find pattern vs path) but derive them from available width instead of hardcoding 50. Retain a large sanity cap to avoid colorizing pathological megabyte strings.",
+      "status": "pending",
+      "activeForm": "Making truncation dynamic",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1789512794566,
+      "updatedAt": 1789512794566
+    },
+    {
+      "id": "4",
+      "subject": "Add gutter, timer, thinking-as-tool, compact-rows toggles",
+      "description": "Wire four new config options through row.ts/tool-renderer.ts/thinking.ts: gutter on/off, timer on/off (default on), thinking-as-tool-call (green label + participates in runs like any tool), compact tool rows master switch (off = native rendering).",
+      "status": "pending",
+      "activeForm": "Adding toggles",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1789512794567,
+      "updatedAt": 1789512794567
+    },
+    {
+      "id": "5",
+      "subject": "Build /minimalist config with SettingsList",
+      "description": "Replace /quiet with /minimalist. Use pi-tui's SettingsList via ctx.ui.custom() — same component /settings uses, so arrow keys, hover descriptions and value cycling come for free. Include only: group tool runs, compact tool rows, gutter, thinking as tool call, timer. Persist to settings.json on change.",
+      "status": "pending",
+      "activeForm": "Building /minimalist config",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1789512794568,
+      "updatedAt": 1789512794568
+    },
+    {
+      "id": "6",
+      "subject": "Add active-tool and active-thinking fold options",
+      "description": "Two options in /minimalist config, both defaulting to \"collapse\" (i.e. the option to keep active items expanded defaults to OFF).\n\n1. Active tools: quiet-mode's foldable() currently excludes outcome === \"pending\", so a running tool never folds into a run. Default becomes: pending rows DO fold. Option keeps them out of runs so you can watch progress.\n\n2. Active thinking: core-patch's updateContent currently forces hidden = false while streaming (neutralizes hideThinkingBlock + the override map). Default becomes: a streaming thinking block stays collapsed to its compact preview. Option restores the force-open behavior.\n\nCONSEQUENCE: item 2 reverses the streaming-expansion behavior the user verified as check 9 earlier today, and its regression test (\"forces thinking open while streaming and restores the override after\") must be rewritten to assert the new default plus the option. Keep the override-restore guarantee either way — an explicit Ctrl+T expansion must still survive.",
+      "status": "pending",
+      "activeForm": "Adding active-fold options",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1789512842468,
+      "updatedAt": 1789512842468
+    }
+  ]
+}

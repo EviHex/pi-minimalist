@@ -8,11 +8,6 @@ const PI_ROOT = process.env.PI_ROOT;
 const EXTENSION = new URL("../index.ts", import.meta.url).pathname;
 const EXTENSION_DIR = new URL("..", import.meta.url).pathname;
 
-function plain(line: string): string {
-  // eslint-disable-next-line no-control-regex
-  return line.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
-}
-
 function bundleSource(): string {
   const directory = `${PI_ROOT}/dist/bundle/chunks`;
   const files = readdirSync(directory).filter((file) => file.startsWith("chunk-") && file.endsWith(".js"));
@@ -46,49 +41,58 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
     }
   });
 
-  it("contains every declared bridge in the actual CLI bundle", () => {
-    // Driven by BRIDGE_SYMBOLS itself, so adding a bridge without patching the
-    // bundle (or misspelling either side) fails here instead of silently
-    // disabling the feature.
+  it("needs NO patch in Pi's shipped bundle", () => {
+    // The inverse of the old assertion. This extension used to rewrite Pi's
+    // compiled bundle with perl (patch-pi.sh); it now wraps the real exported
+    // component prototypes at load time instead, so the shipped artifact must
+    // stay untouched. If a marker ever reappears here, a stale patched bundle is
+    // masking whatever the runtime wrappers actually do.
     const source = bundleSource();
     for (const [name, marker] of Object.entries(BRIDGE_SYMBOLS)) {
-      // quietMode is extension-internal state shared across /reload; core never
-      // reads it, so it is deliberately absent from the bundle.
-      if (name === "quietMode") continue;
-      assert.ok(source.includes(marker), `bundle is missing ${marker}; run ./patch-pi.sh`);
+      if (name === "quietMode") continue; // extension-internal, never in core
+      assert.ok(
+        !source.includes(marker),
+        `bundle contains ${marker}: it is still patched. Reinstall Pi (npm i -g @earendil-works/pi-coding-agent) so the runtime wrappers are what gets tested.`,
+      );
     }
-    assert.ok(
-      source.includes('this.toolDefinition!==void 0||globalThis[Symbol.for("pi.defaultToolRenderer")]?.renderCall!==void 0'),
-      "late-registered tools must reach the compact fallback",
-    );
   });
 
-  it("renders markdown chrome while pi-tui stays pristine", async () => {
-    const { Markdown } = await import(
-      `${PI_ROOT}/node_modules/@earendil-works/pi-tui/dist/components/markdown.js`
-    );
-    const { getMarkdownTheme, initTheme } = await import(
-      `${PI_ROOT}/dist/modes/interactive/theme/theme.js`
-    );
-    const { installMarkdownChrome } = await import(`${EXTENSION_DIR}/src/markdown-chrome.ts`);
+  it("keeps every seam the runtime wrappers depend on", async () => {
+    // Replaces the old "did perl match?" check. These are the exact prototype
+    // methods src/core-patch.ts wraps; if a Pi release renames one, this fails
+    // with its name instead of the feature silently disappearing.
+    const components = await import(`${PI_ROOT}/dist/modes/interactive/components/index.js`);
 
-    initTheme("dark", false);
-    const live = (globalThis as any)[Symbol.for("@earendil-works/pi-coding-agent:theme")];
-    installMarkdownChrome(live);
-    const theme = { ...getMarkdownTheme(), codeBlockIndent: "│ " };
-    const render = (source: string) =>
-      new Markdown(source, 0, 0, theme).render(80).map(plain).map((line: string) => line.trimEnd());
+    for (const method of [
+      "getCallRenderer",
+      "getResultRenderer",
+      "hasRendererDefinition",
+      "getRenderShell",
+      "createResultFallback",
+    ]) {
+      assert.equal(
+        typeof (components.ToolExecutionComponent.prototype as any)[method],
+        "function",
+        `ToolExecutionComponent.${method} disappeared`,
+      );
+    }
+    assert.equal(typeof components.AssistantMessageComponent.prototype.updateContent, "function");
 
-    assert.deepEqual(render("```ts\nconst x = 1;\n```"), ["╭ ts", "│ const x = 1;", "╰"]);
-    assert.deepEqual(render("```\nplain\n```"), ["╭ code", "│ plain", "╰"]);
-    assert.deepEqual(render("> quoted"), ["▌ quoted"]);
-
-    const source = readFileSync(
-      `${PI_ROOT}/node_modules/@earendil-works/pi-tui/dist/components/markdown.js`,
-      "utf8",
+    // Structural signals the thinking wrapper matches on (see core-patch.ts:
+    // instanceof is unreliable because the bundle inlines its own pi-tui copy).
+    const { MouseRegion, Markdown, Spacer, Text, getMarkdownTheme } = {
+      ...(await import(`${PI_ROOT}/node_modules/@earendil-works/pi-tui/dist/index.js`)),
+      ...(await import(`${PI_ROOT}/dist/modes/interactive/theme/theme.js`)),
+    } as any;
+    const region = new MouseRegion(new Text("x", 0, 0), () => undefined);
+    assert.equal(typeof region.onMouse, "function", "MouseRegion.onMouse is the run marker");
+    assert.notEqual(region.child, undefined, "MouseRegion.child must stay reassignable");
+    assert.equal(new Text("x", 0, 0).theme, undefined, "collapsed runs are detected by having no theme");
+    assert.notEqual(
+      new Markdown("x", 0, 0, getMarkdownTheme()).theme,
+      undefined,
+      "expanded runs are detected (and recolored) through Markdown.theme",
     );
-    assert.ok(source.includes('codeBlockIndent ?? "  "'));
-    assert.ok(source.includes('quoteBorder("│ ")'));
-    assert.ok(!source.includes("╭"));
+    assert.equal(typeof new Spacer(1).setLines, "function", "leading spacer is detected by setLines");
   });
 });

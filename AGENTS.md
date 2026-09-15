@@ -1,8 +1,17 @@
 # pi-minimalist — Agent Notes
 
 One home for all Pi UI simplification. Compact tools (including quiet mode),
-thinking preview, one folder, one patch script. Formerly the `compact-tool-renderer` extension (deleted after the merge —
+thinking preview, one folder, NO patch script. Formerly the `compact-tool-renderer` extension (deleted after the merge —
 do not recreate it).
+
+Markdown chrome (`╭ <lang>` / `│` / `╰` code blocks, `▌` blockquotes) was extracted
+into the separate `pi-markdown-chrome` extension: it shares no code with these
+features and goes through the public theme surface instead of a core wrapper. Do
+not reintroduce it here.
+
+**Pi's install is never modified.** The old `patch-pi.sh` (perl rewrites into
+Pi's compiled bundle) is deleted; `src/core-patch.ts` wraps Pi's real component
+prototypes at load time instead. See "Runtime Core Patches" below.
 
 ## Features
 
@@ -63,12 +72,11 @@ still persists. Expanded view keeps Pi's native italic markdown.
 
 ## Files
 
-- `index.ts` — wiring only: installs the core bridges.
+- `index.ts` — wiring only: installs the core bridges + runtime patches.
 - `src/` — all behavior, heavily commented (user is not a TS expert). See Layout.
 - `test/*.test.ts` — deterministic UI tests (`node --test`). See Validation.
 - `run-tests.sh` — test + typecheck runner (symlinks Pi's packages locally).
 - `tsconfig.json` — typecheck-only config (never emits).
-- `patch-pi.sh` — idempotent script re-applying all core bridges after a Pi update.
 - `node_modules/` — gitignored symlinks created by `run-tests.sh`.
 
 - `AGENTS.md` — this file.
@@ -90,23 +98,29 @@ public global/default renderer API and no thinking-renderer hook. Both features
 therefore use the same two-layer pattern:
 
 1. **Normal extension code** does everything possible via public API.
-2. **Small local Pi core bridges** (patch-pi.sh) make core consult
+2. **Runtime prototype wrappers** (`src/core-patch.ts`) make core consult
    process-global symbols; ALL styling/behavior lives in this folder so
    `/reload` refreshes it without touching core.
 
+Layer 2 used to be perl rewrites into Pi's compiled bundle. It no longer touches
+disk at all — see "Runtime Core Patches".
+
 Bridge symbols registered by the extension. `src/bridge.ts` is their SINGLE
-SOURCE OF TRUTH (`BRIDGE_SYMBOLS`): `patch-pi.sh` writes the matching reads into
-Pi's bundle, and `test/integration.test.ts` iterates `BRIDGE_SYMBOLS` to assert
-the bundle contains every one of them, so a typo or a forgotten patch fails the
-test run instead of silently disabling a feature.
+SOURCE OF TRUTH (`BRIDGE_SYMBOLS`); `src/core-patch.ts` reads them at call time,
+and `test/integration.test.ts` asserts the shipped bundle contains NONE of them
+(a marker there means a stale patched bundle is masking the real wrappers).
 
 - `Symbol.for("pi.defaultToolRenderer")` → `{ renderShell: "self", renderCall, renderResult }`
 - `Symbol.for("pi.thinkingPreview")` → `(text, theme, pad, isStreaming) => Component`
 - `Symbol.for("pi.thinkingMarkdownTheme")` → all-purple theme for expanded thinking
-- `Symbol.for("pi.minimalist.quietMode") → shared `/quiet` state, retained across `/reload`
-- `pi.minimalist.quietThinking` / `pi.minimalist.quietProse` → core chronology hooks for unified quiet runs
-- `pi.minimalist.quietSpacer` → removes leading ToolExecution spacer from hidden quiet rows
+- `Symbol.for("pi.minimalist.quietMode")` → shared `/quiet` state, retained across `/reload`
+- `pi.minimalist.quietThinking` / `pi.minimalist.quietProse` → chronology hooks for unified quiet runs
 - `pi.minimalist.quietMessageSpacer` → removes leading assistant spacer from hidden quiet thinking rows
+
+There is deliberately no tool-row spacer symbol. A compact row uses
+`renderShell: "self"`, and core's self-shell branch emits its separator inline
+and returns ZERO lines when the row draws nothing — spacer included. The old
+`quietSpacer` bridge was compensating for a problem core already handles.
 
 ### Renderer details
 
@@ -136,86 +150,89 @@ synchronous invalidate DURING render. The ticker stops at the terminal state and
 is `unref()`d so it never holds the process open (`components.test.ts` fails if a
 finished row leaves an interval registered).
 
-## Local Pi Core Bridges
+## Runtime Core Patches
 
-Only the self-contained CLI bundle is patched:
+**Nothing in Pi's install is modified.** `src/core-patch.ts` wraps Pi's real
+component prototypes when the extension loads.
 
-```text
-/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/<current chunk>.js
-```
+### Why this works
 
-`patch-pi.sh` finds the current chunk by content; hashes change between Pi
-releases. It deliberately leaves SDK/unbundled components and pi-tui pristine.
-Those files are not loaded by the `pi` command, and mirroring every edit there
-previously doubled the upgrade surface while testing the wrong runtime.
+Pi's bundled CLI loads extensions through jiti with
+`virtualModules: VIRTUAL_MODULES` (`core/extensions/loader.ts`; the bundle sets
+`isBundledNode = true`). Those virtual modules are the bundle's OWN live module
+namespaces. So when this extension imports `@earendil-works/pi-coding-agent`, it
+receives the very same class objects the running TUI instantiates — not a second
+copy from `dist/`.
 
-Three bridge groups remain:
+`ToolExecutionComponent` and `AssistantMessageComponent` are public exports, and
+every seam the old patch script rewrote is a `prototype` method. Wrapping those
+prototypes produces exactly the old behavior, and:
 
-1. **Tool renderer** — route selected built-ins and rendererless third-party
-   tools through `pi.defaultToolRenderer`, including late-registered tools whose
-   definition is missing from Pi's UI lookup, without re-registering built-ins
-   and losing their native ownership.
-2. **Quiet spacer** — let a quiet-hidden tool row suppress its parent
-   `Spacer(1)`.
-3. **Thinking** — compact preview, streaming visibility, quiet ordering/spacer,
-   and the all-purple expanded Markdown theme.
+- a Pi upgrade cannot silently revert it (nothing on disk is touched);
+- no chunk-hash discovery, marker greps, `node --check`, or per-release regexes;
+- the wrappers are ordinary TypeScript, unit-tested against the real components.
 
-### Markdown chrome without a patch
+Extensions bind BEFORE `renderInitialMessages()` (`interactive-mode.ts`: "Initialize
+extensions first so resources are shown before messages"), so replayed history is
+already compact on startup.
 
-`src/markdown-chrome.ts` gets `╭ <lang>` / `│` / `╰` code blocks and the `▌`
-blockquote gutter with **no core patch**:
+### The two patches
 
-- `MarkdownTheme.codeBlockBorder` / `.quoteBorder` are `(text) => string` and
-  receive the *literal* frame text, so they can **rewrite** glyphs, not merely
-  recolor them. Both are built as `theme.fg(token, text)`, so intercepting
-  `Theme.fg` is enough.
-- The vertical edge is the public `codeBlockIndent` field, fed by settings
-  `markdown.codeBlockIndent` (`"│ "`).
-- pi-tui emits `` ``` `` for **both** a closing fence and a bare opening fence,
-  so the wrapper tracks parity across each synchronous open/close pair.
-- The live theme object is wrapped **in place**. Passing an instance to
-  `ui.setTheme()` would set the theme name to `<in-memory>`, disabling `/theme`
-  and custom-theme file watching. Re-applied on `session_start`/`turn_start`
-  because `/theme` installs a fresh Theme; the install is idempotent per object.
+1. **Tool renderer** (`patchToolExecution`) — wraps `getCallRenderer`,
+   `getResultRenderer`, `hasRendererDefinition`, `getRenderShell`. Routes
+   selected built-ins and rendererless third-party/MCP tools through
+   `pi.defaultToolRenderer` without re-registering built-ins and losing their
+   native ownership. Late-registered tools (`toolDefinition === undefined`) are
+   covered by the same condition, so the old `createCallFallback` /
+   `createResultFallback` rewrites are gone.
+2. **Thinking** (`patchAssistantMessage`) — wraps `updateContent`: compact
+   preview, streaming visibility, all-purple expanded Markdown, quiet ordering,
+   and the message spacer. Five bundle rewrites became one wrapper.
 
-Known cosmetic gap vs the old patch: core builds `codeBlockIndent` straight from
-settings, so the edge cannot be themed and renders in the default foreground
-while the corners use `mdCodeBlockBorder`. Hardcoding an SGR escape in settings
-would color it but would not follow a theme switch, so it is left plain.
+### Bridge argument polarity
 
-### Upgrade warning
+`quietThinking` takes `hidden`, and `bridge.ts` negates it into `expanded`
+itself. `decorateThinking` must therefore pass `hidden` straight through.
+Passing `!hidden` type-checks fine and inverts all of quiet mode:
 
-A Pi upgrade overwrites the patched bundle. Symptom: built-ins and MCP tools
-return to verbose cards, and thinking blocks show the bare "Thinking..." label.
-Markdown chrome is unaffected — it needs no patch.
+- collapsed thinking became non-foldable, so every thinking row split a run in
+  two (`think / read ×2 / think / bash` instead of one summary);
+- expanded thinking became foldable and swallowed whole runs of visible tool
+  rows into a single summary line.
 
-Fix: re-run the idempotent patch script after every Pi update:
+Two tests in `test/core-patch.test.ts` cover both halves, and the old bundle's
+call site (`...,this.isStreaming,hidden)`) is the ground truth for the polarity.
 
-```bash
-~/.pi/agent/extensions/pi-minimalist/patch-pi.sh
-```
+### Recognizing components structurally, never by class
 
-Safe to run repeatedly (exact marker strings detect already-applied bridges
-and skip them); syntax-checks all patched files before finishing. After
-patching, fully restart Pi once.
+The thinking wrapper finds each thinking run by looking for `MouseRegion`
+(`onMouse` + `child`), a collapsed run by the ABSENCE of a `theme` field, an
+expanded run by its presence, and the leading spacer by `setLines`.
 
-If the script ever fails to match (Pi changed its internals), search the new
-files for:
+Do NOT "fix" these into `instanceof` or `constructor.name`:
 
-```text
-getRenderShell
-createCallFallback
-createResultFallback
-getRenderContext
-thinkingVisibilityOverrides
-```
+- `instanceof` FAILS against the real bundle. The bundle inlines its own copy of
+  pi-tui, so the bundle's `MouseRegion` is a different class object than the one
+  an `import` resolves to. This was verified empirically — the collapsed-preview
+  check failed against a pristine bundle until the checks became structural.
+- `constructor.name` depends on the minifier preserving inferred class names for
+  `var MouseRegion = class {}`.
 
-hand-apply the same edits, then update the script's perl patterns.
+Field names are part of these classes' runtime behavior, so they are the stable
+signal. `test/integration.test.ts` asserts each one still holds.
+
+### Upgrade behavior
+
+A Pi upgrade needs NO action. If a future release renames a wrapped method or a
+structural field, `./run-tests.sh` fails naming it, and the affected feature
+degrades to Pi's native rendering instead of crashing (each class and slot is
+optional). Restart Pi once after upgrading, as usual.
 
 ## Reload Semantics
 
-- After changing any Pi core bridge: fully quit and restart Pi once.
-  `/reload` cannot reload already-cached core modules.
+- After changing `src/core-patch.ts`: fully quit and restart Pi once. The
+  prototype wrappers are applied once per process (`PATCHED` marker), so a
+  `/reload` cannot replace an already-installed wrapper.
 - After that, edits to `index.ts` and `src/` are hot-reloadable with `/reload`.
 - Reload while Pi is idle. Avoid reloading during a running tool or open
   questionnaire overlay.
@@ -320,7 +337,6 @@ index.ts            wiring: shared QuietMode, bridges, /quiet command
 | `src/thinking.ts` | feature 2: `createThinkingPreview()` + `allPurpleThinkingTheme()` |
 | `src/quiet-mode.ts` | `/quiet` state, whitelist, run folding, and `rowFor()` |
 | `src/quiet-state.ts` | reads/writes persistent `~/.pi/agent/pi-minimalist.json` preference |
-| `src/markdown-chrome.ts` | code-block/blockquote glyphs via `Theme.fg`; no core patch |
 | `test/test-support.ts` | deterministic doubles (fake theme/clock/timers, context builder) |
 | `test/*.test.ts` | the tests |
 
@@ -385,12 +401,18 @@ UI state × expanded × width, quiet folds, thinking, real Pi theme), it found z
 differences in painted cells.
 
 `test/integration.test.ts` loads the extension through Pi's real loader, checks
-that it registers zero tools (the pi-subagents ownership contract), and verifies
-all bridge markers in the **actual CLI bundle**. It deliberately does not import
-unbundled component copies. It skips itself when `PI_ROOT` is unset.
+that it registers zero tools (the pi-subagents ownership contract), asserts the
+shipped bundle contains NO bridge markers (a marker means a stale patched bundle
+is masking the real wrappers), and asserts every prototype method and structural
+field the wrappers depend on still exists. It skips itself when `PI_ROOT` is unset.
 
-It also asserts that pi-tui stays pristine while the theme-side markdown chrome
-still renders `╭`/`│`/`╰`/`▌`.
+`test/core-patch.test.ts` is what replaced the old marker greps: it applies the
+real wrappers to Pi's REAL exported component prototypes, constructs those
+components, renders them, and asserts the painted output — built-in rows,
+rendererless third-party rows, unclaimed tools keeping native rendering, expanded
+delegation, quiet folding to zero lines, thinking preview, streaming expansion,
+all-purple recoloring, and wrapper idempotence. The old test could only check that
+strings existed in a compiled file; this one executes them.
 
 What automated tests still cannot cover: real terminal escape output, actual
 keybinding delivery (Ctrl+O / Ctrl+T), and MCP adapter interplay. Those remain
@@ -400,12 +422,6 @@ Fast startup/syntax check:
 
 ```bash
 pi --list-models >/dev/null
-```
-
-Patch script self-check (also syntax-checks the discovered bundle; idempotent):
-
-```bash
-~/.pi/agent/extensions/pi-minimalist/patch-pi.sh
 ```
 
 Interactive checks after restart/reload:

@@ -40,9 +40,6 @@ export function isCompactTool(name: string): boolean {
   return isBuiltIn(name) || isMcpTool(name);
 }
 
-/** Generic quiet category for MCP and other third-party tools. */
-export const FALLBACK_LABEL = "toolcall";
-
 /** Collapse whitespace and truncate long values for one-line display. */
 export function compact(value: unknown, max = 100): string {
   // Replacing every whitespace run prevents multi-line call rows.
@@ -52,7 +49,7 @@ export function compact(value: unknown, max = 100): string {
 
 /**
  * The one-line description of a call: `read` + `src/a.ts:1-50`, `bash` +
- * `go test ./...`, or for a rendererless tool, `toolcall` + its name.
+ * `go test ./...`, or a rendererless tool's registered name.
  */
 export function describeTool(name: string, args: any, expanded = false): { label: string; details: string } {
   if (name === "mcp") return { label: "mcp", details: mcpDetails(args ?? {}) };
@@ -63,8 +60,19 @@ export function describeTool(name: string, args: any, expanded = false): { label
     return { label: "mcp", details: tool ? `${tool} @ ${server}` : `@ ${server}` };
   }
   if (isMcpTool(name)) return { label: "mcp", details: name };
-  if (!isBuiltIn(name)) return { label: FALLBACK_LABEL, details: name };
+  if (!isBuiltIn(name)) return { label: name, details: "" };
   return { label: name, details: toolDetails(name, args ?? {}, expanded) };
+}
+
+/** Name shown in /quiet summaries: operation name, never a generic category. */
+export function quietToolName(name: string, args: any): string {
+  if (isBuiltIn(name) || name === "mcpScript") return name;
+  if (name === "mcp") return compact(args?.tool) || "mcp";
+  if (name.startsWith("mcp__")) {
+    const tool = compact(args?.tool);
+    return tool ? `${tool} @ ${name.slice("mcp__".length)}` : name;
+  }
+  return name;
 }
 
 function mcpDetails(args: any): string {

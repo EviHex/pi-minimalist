@@ -178,7 +178,7 @@ describe("renderCall", () => {
     assert.deepEqual(edit.render(80).map(plain), [" ▌ ✓ read ×1, edit ×1 · ✗ bash ×1"]);
   });
 
-  it("folds bash and generic toolcalls, but not across an expanded entry", () => {
+  it("folds tools under their actual names, but not across an expanded entry", () => {
     const quiet = new QuietMode();
     const { renderer: r } = renderer({ quiet });
     const read = r.renderCall("read", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "1" }));
@@ -190,7 +190,9 @@ describe("renderCall", () => {
     quiet.toggle();
 
     for (const component of [read, bash, mcp]) assert.deepEqual(component.render(80), []);
-    assert.deepEqual(mcpScript.render(80).map(plain), [" ▌ ✓ read ×1, bash ×1, toolcall ×2"]);
+    assert.deepEqual(mcpScript.render(80).map(plain), [
+      " ▌ ✓ read ×1, bash ×1, atlassian_search @ atlassian ×1, mcpScript ×1",
+    ]);
     for (const component of [edit, ls]) assert.equal(component.render(80).length, 1, "cut runs keep individual rows");
   });
 
@@ -213,10 +215,10 @@ describe("renderCall", () => {
     assert.deepEqual(script.render(80).map(plain), [" ▌ ✓ mcpScript await tools.search({ query: 'logs' })"]);
   });
 
-  it("renders rendererless third-party tools with the generic label", () => {
+  it("renders rendererless third-party tools with their registered name", () => {
     const { renderer: r } = renderer();
     const line = r.renderCall("goland__execute_tool", {}, widthTheme, makeContext("completed"));
-    assert.deepEqual(line.render(80).map(plain), [" ▌ ✓ toolcall goland__execute_tool"]);
+    assert.deepEqual(line.render(80).map(plain), [" ▌ ✓ goland__execute_tool"]);
   });
 
   it("does not throw on missing or partial arguments", () => {

@@ -9,14 +9,6 @@
  */
 
 import { summaryRow, type Count, type Row, type ThemeLike } from "./row.ts";
-import { BUILT_INS, FALLBACK_LABEL } from "./tools.ts";
-
-/**
- * Names safe to fold: every built-in, generic third-party calls, and thinking.
- * Derived from BUILT_INS so a new built-in cannot be whitelisted in one place
- * and forgotten in the other.
- */
-export const QUIET_TOOLS: ReadonlySet<string> = new Set<string>([...BUILT_INS, FALLBACK_LABEL, "think"]);
 
 export type QuietOutcome = "success" | "failure" | "pending";
 
@@ -25,6 +17,7 @@ type Entry = {
   name: string;
   outcome: QuietOutcome;
   expanded: boolean;
+  foldable: boolean;
 };
 
 /** "show" keeps the row as-is, "hide" draws nothing, counts fold a whole run. */
@@ -53,10 +46,10 @@ export class QuietMode {
   }
 
   /** Record the current call state. Re-renders update one stable entry in place. */
-  observe(id: string, name: string, outcome: QuietOutcome, expanded: boolean): void {
+  observe(id: string, name: string, outcome: QuietOutcome, expanded: boolean, foldable = true): void {
     const entry = this.byId.get(id);
     if (!entry) {
-      const created = { id, name, outcome, expanded };
+      const created = { id, name, outcome, expanded, foldable };
       this.byId.set(id, created);
       this.entries.push(created);
       return;
@@ -64,6 +57,7 @@ export class QuietMode {
     entry.name = name;
     entry.outcome = outcome;
     entry.expanded = expanded;
+    entry.foldable = foldable;
   }
 
   /** Observe a thinking block with its core component identity and local run index. */
@@ -77,7 +71,7 @@ export class QuietMode {
   observeProse(owner: object, contentIndex: number): void {
     const id = `prose:${this.ownerId(owner)}:${contentIndex}`;
     this.rememberOwnerEntry(owner, id);
-    this.observe(id, "prose", "pending", false);
+    this.observe(id, "prose", "pending", false, false);
   }
 
   thinkingId(owner: object, runIndex: number): string {
@@ -126,7 +120,7 @@ export class QuietMode {
   }
 
   private foldable(entry: Entry | undefined): boolean {
-    return Boolean(entry && entry.outcome !== "pending" && !entry.expanded && QUIET_TOOLS.has(entry.name));
+    return Boolean(entry?.foldable && entry.outcome !== "pending" && !entry.expanded);
   }
 
   private rememberOwnerEntry(owner: object, entryId: string): void {

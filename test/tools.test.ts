@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { BUILT_INS, compact, describeTool, isBuiltIn, isCompactTool, refreshMcpTools } from "../src/tools.ts";
+import { BUILT_INS, compact, describeTool, isBuiltIn, isCompactTool, quietToolName, refreshMcpTools } from "../src/tools.ts";
 
 describe("isBuiltIn", () => {
   it("covers exactly Pi's native tool names", () => {
@@ -64,11 +64,21 @@ describe("describeTool", () => {
     });
   });
 
-  it("uses the generic toolcall label for rendererless tools", () => {
+  it("uses the registered name for rendererless tools", () => {
     assert.deepEqual(describeTool("goland__execute_tool", {}), {
-      label: "toolcall",
-      details: "goland__execute_tool",
+      label: "goland__execute_tool",
+      details: "",
     });
+  });
+
+  it("uses actual operation names in quiet summaries", () => {
+    assert.equal(quietToolName("read", { path: "a.ts" }), "read");
+    assert.equal(quietToolName("goland__execute_tool", {}), "goland__execute_tool");
+    assert.equal(quietToolName("mcp", { tool: "atlassian_search" }), "atlassian_search");
+    assert.equal(
+      quietToolName("mcp__atlassian", { tool: "atlassian_getConfluencePage" }),
+      "atlassian_getConfluencePage @ atlassian",
+    );
   });
 
   it("shows paths verbatim (no ~/ abbreviation)", () => {

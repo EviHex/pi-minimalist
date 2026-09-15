@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { QUIET_TOOLS, QuietMode, summarize, type QuietOutcome } from "../src/quiet-mode.ts";
+import { QuietMode, summarize, type QuietOutcome } from "../src/quiet-mode.ts";
 import { plain, plainTheme } from "./test-support.ts";
 
 function observe(mode: QuietMode, id: string, name: string, outcome: QuietOutcome = "success", expanded = false): void {
@@ -8,12 +8,6 @@ function observe(mode: QuietMode, id: string, name: string, outcome: QuietOutcom
 }
 
 describe("quiet mode", () => {
-  it("whitelists only routine file operations", () => {
-    assert.deepEqual([...QUIET_TOOLS], ["read", "bash", "edit", "write", "grep", "find", "ls", "toolcall", "think"]);
-    assert.equal(QUIET_TOOLS.has("bash"), true);
-    assert.equal(QUIET_TOOLS.has("toolcall"), true);
-  });
-
   it("folds an alternating completed low-noise run into its final line", () => {
     const mode = new QuietMode();
     observe(mode, "1", "read");
@@ -42,7 +36,7 @@ describe("quiet mode", () => {
   it("folds failures, but cuts runs at pending and expanded calls", () => {
     const mode = new QuietMode();
     observe(mode, "read-1", "read");
-    observe(mode, "generic", "toolcall");
+    observe(mode, "generic", "goland__execute_tool");
     observe(mode, "edit-1", "edit");
     observe(mode, "failed", "read", "failure");
     observe(mode, "edit-2", "edit");
@@ -54,7 +48,7 @@ describe("quiet mode", () => {
 
     for (const id of ["read-1", "generic", "edit-1", "failed"]) assert.equal(mode.view(id), "hide", id);
     assert.deepEqual(mode.view("edit-2"), {
-      done: [{ name: "read", count: 1 }, { name: "toolcall", count: 1 }, { name: "edit", count: 2 }],
+      done: [{ name: "read", count: 1 }, { name: "goland__execute_tool", count: 1 }, { name: "edit", count: 2 }],
       failed: [{ name: "read", count: 1 }],
     });
     assert.equal(mode.view("pending"), "show");

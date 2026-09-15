@@ -20,24 +20,26 @@ Pi actually enables and invokes.
 ✓ bash go test ./...
 ✓ mcp atlassian_search @ atlassian
 ✓ mcpScript await tools.search(...)
-✓ toolcall goland__execute_tool
+✓ goland__execute_tool
 ```
 
 Collapsed view hides tool output. `Ctrl+O` / `Cmd+O` expands the original
 output. Each collapsed call is exactly one terminal line: long paths/commands
 truncate using the real viewport width instead of wrapping.
 
-`/quiet` toggles low-noise run folding. A consecutive completed run composed
-only of `read/edit/write/grep/find/ls/bash/toolcall/think` becomes one final summary
-line, e.g. `✓ read ×2, edit ×1`; every other row in that run renders zero lines.
+`/quiet` toggles low-noise run folding. A consecutive completed run of collapsed
+tools/thinking becomes one final summary line, e.g.
+`✓ read ×2, atlassian_search @ atlassian ×1`; every other row in that run
+renders zero lines.
 Every tool registered by `pi-mcp-adapter` is discovered from public
 `getAllTools().sourceInfo` metadata and compacted even when it ships a native
 renderer; expansion still delegates to that renderer. Stable gateway names and
 `mcp__<server>` namespace proxies are recognized immediately, while configured
 direct-tool names refresh on `session_start` and `turn_start`. No server/tool
 whitelist is maintained.
-Rendererless third-party calls use the same `toolcall` quiet category. Completed,
-collapsed thinking blocks share this run and summarize as `think ×N`.
+Quiet summaries preserve real names: rendererless calls use their registered
+name and MCP namespace proxies use `<operation> @ <server>`. Completed, collapsed
+thinking blocks share this run and summarize as `think ×N`.
 Queued/running calls, expanded thinking/tools, and assistant prose break a run
 and stay visible. Failed completed calls remain in their run: successful counts
 stay green and failures become a trailing red group, e.g. `✓ read ×2 · ✗ bash ×1`.
@@ -111,7 +113,7 @@ test run instead of silently disabling a feature.
 The bridge gives the compact renderer priority for native built-ins plus every
 tool whose source metadata identifies `pi-mcp-adapter`. Expanded output delegates to each tool's
 original renderer. Tools without any renderer reach the same compact code
-through core's fallback and use the `toolcall` label.
+through core's fallback and use their registered tool name.
 
 Every action label uses `success` green (mutating tools were once warning orange;
 orange already means "highlighted prose", and the action word is a label, not a
@@ -411,13 +413,13 @@ Interactive checks after restart/reload:
 3. Run several tools consecutively: expect one-line rows, each preceded by a single blank line.
 4. Run `mcp`, `mcpScript`, and an `mcp__<server>` namespace proxy: expect
    compact `✓ mcp <operation> @ <server>` rows; enable `/quiet` and expect
-   consecutive calls to fold into `toolcall ×N`.
-5. Run an unrendered IDE tool: expect `✓ toolcall tool_name`.
-5. Run bash: while running, expect `• bash [⏱ Ns] <cmd>` with NO row background;
+   consecutive calls to retain actual operation names and counts.
+5. Run an unrendered IDE tool: expect `✓ tool_name`.
+6. Run bash: while running, expect `• bash [⏱ Ns] <cmd>` with NO row background;
    the elapsed counter advances once per second even for silent commands.
-6. Press `Ctrl+O` / `Cmd+O`: expect full original output.
-7. Trigger an error: expect red `✗`.
-8. Toggle thinking collapsed (`Ctrl+T`): expect `• think …` (highlighted) while
+7. Press `Ctrl+O` / `Cmd+O`: expect full original output.
+8. Trigger an error: expect red `✗`.
+9. Toggle thinking collapsed (`Ctrl+T`): expect `• think …` (highlighted) while
    streaming, `✓ think <preview>` when done.
 ## Scope
 

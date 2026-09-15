@@ -8,7 +8,7 @@
  *    ownership. That ownership is what lets pi-subagents expose read/bash/write
  *    to child runtimes, so this renderer must never register tools itself.
  * 2. rendererless tools (MCP/third-party) → core's call/result fallbacks reach
- *    the same methods and get the generic "toolcall <name>" row.
+ *    the same methods and get a compact row labeled with the registered name.
  *
  * This module also owns everything derived from a render CONTEXT: the status
  * glyph, the elapsed badge, and the per-call cached components.
@@ -24,7 +24,7 @@ import {
   type Timers,
 } from "./components.ts";
 import { labeledRow, outputGutter, type ThemeLike } from "./row.ts";
-import { describeTool, isBuiltIn, isCompactTool, FALLBACK_LABEL } from "./tools.ts";
+import { describeTool, isBuiltIn, isCompactTool, quietToolName } from "./tools.ts";
 import { QuietMode, type QuietOutcome } from "./quiet-mode.ts";
 
 /**
@@ -201,9 +201,7 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
         component.setRow(base);
         return component;
       }
-      // Rendererless third-party names are intentionally one quiet category:
-      // their normal label is already "toolcall <name>".
-      quiet.observe(id, isBuiltIn(name) ? name : FALLBACK_LABEL, status.outcome, expanded);
+      quiet.observe(id, quietToolName(name, args), status.outcome, expanded);
       component.setRow(() => quiet.rowFor(id, theme, base));
       return component;
     },

@@ -35,13 +35,13 @@ function nativeRenderer(lines: string[]) {
 }
 
 describe("tool renderer bridge contract", () => {
-  it("declares self shell and handles only native tool names", () => {
+  it("declares self shell and handles built-ins plus MCP adapter tools", () => {
     const { renderer: r } = renderer();
     assert.equal(r.renderShell, "self");
-    assert.equal(r.handles("read"), true);
-    assert.equal(r.handles("bash"), true);
-    assert.equal(r.handles("write"), true);
-    assert.equal(r.handles("mcp"), false);
+    for (const name of ["read", "bash", "write", "mcp", "mcpScript"]) {
+      assert.equal(r.handles(name), true, name);
+    }
+    assert.equal(r.handles("subagent"), false);
   });
 });
 
@@ -183,14 +183,34 @@ describe("renderCall", () => {
     const { renderer: r } = renderer({ quiet });
     const read = r.renderCall("read", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "1" }));
     const bash = r.renderCall("bash", { command: "echo ok" }, widthTheme, makeContext("completed", { toolCallId: "2" }));
-    const thirdParty = r.renderCall("mcp", {}, widthTheme, makeContext("completed", { toolCallId: "3" }));
-    const edit = r.renderCall("edit", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "4", expanded: true }));
-    const ls = r.renderCall("ls", {}, widthTheme, makeContext("completed", { toolCallId: "5" }));
+    const mcp = r.renderCall("mcp", { tool: "atlassian_search" }, widthTheme, makeContext("completed", { toolCallId: "3" }));
+    const mcpScript = r.renderCall("mcpScript", { code: "emit(1)" }, widthTheme, makeContext("completed", { toolCallId: "4" }));
+    const edit = r.renderCall("edit", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "5", expanded: true }));
+    const ls = r.renderCall("ls", {}, widthTheme, makeContext("completed", { toolCallId: "6" }));
     quiet.toggle();
 
-    for (const component of [read, bash]) assert.deepEqual(component.render(80), []);
-    assert.deepEqual(thirdParty.render(80).map(plain), [" ▌ ✓ read ×1, bash ×1, toolcall ×1"]);
+    for (const component of [read, bash, mcp]) assert.deepEqual(component.render(80), []);
+    assert.deepEqual(mcpScript.render(80).map(plain), [" ▌ ✓ read ×1, bash ×1, toolcall ×2"]);
     for (const component of [edit, ls]) assert.equal(component.render(80).length, 1, "cut runs keep individual rows");
+  });
+
+  it("renders MCP calls with their target operation", () => {
+    const { renderer: r } = renderer();
+    const call = r.renderCall(
+      "mcp",
+      { tool: "atlassian_getConfluencePage" },
+      widthTheme,
+      makeContext("completed"),
+    );
+    const script = r.renderCall(
+      "mcpScript",
+      { code: "await tools.search({ query: 'logs' })" },
+      widthTheme,
+      makeContext("completed"),
+    );
+
+    assert.deepEqual(call.render(80).map(plain), [" ▌ ✓ mcp atlassian_getConfluencePage"]);
+    assert.deepEqual(script.render(80).map(plain), [" ▌ ✓ mcpScript await tools.search({ query: 'logs' })"]);
   });
 
   it("renders rendererless third-party tools with the generic label", () => {
@@ -291,14 +311,30 @@ describe("renderResult", () => {
     assert.ok(native.seenLastComponents[1] !== undefined, "second pass must reuse the native component");
   });
 
+  it("delegates expanded MCP output to its native renderer", () => {
+    const { renderer: r } = renderer();
+    const native = nativeRenderer(["MCP result"]);
+    const component = r.renderResult(
+      "mcp",
+      {},
+      { expanded: true },
+      theme,
+      makeContext("completed", { expanded: true }),
+      native.render,
+    );
+
+    assert.ok(component instanceof GutteredComponent);
+    assert.deepEqual(component.render(80).map(plain), [" ▌ MCP result"]);
+  });
+
   it("falls back to core rendering for rendererless tools when expanded", () => {
     const { renderer: r } = renderer();
     const context = makeContext("completed", { expanded: true });
 
-    const expanded = r.renderResult("mcp", {}, { expanded: true }, theme, context, undefined);
+    const expanded = r.renderResult("goland__execute_tool", {}, { expanded: true }, theme, context, undefined);
     assert.equal(expanded, undefined, "undefined tells core to use its own full output");
 
-    const collapsed = r.renderResult("mcp", {}, { expanded: false }, theme, makeContext("completed"), undefined);
+    const collapsed = r.renderResult("goland__execute_tool", {}, { expanded: false }, theme, makeContext("completed"), undefined);
     assert.deepEqual(collapsed!.render(80), []);
   });
 

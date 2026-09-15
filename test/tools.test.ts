@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { BUILT_INS, compact, describeTool, isBuiltIn } from "../src/tools.ts";
+import { BUILT_INS, compact, describeTool, isBuiltIn, isCompactTool } from "../src/tools.ts";
 
 describe("isBuiltIn", () => {
   it("covers exactly Pi's native tool names", () => {
@@ -8,6 +8,13 @@ describe("isBuiltIn", () => {
     for (const name of ["mcp", "subagent", "TaskCreate", "web_search", ""]) {
       assert.equal(isBuiltIn(name), false, name);
     }
+  });
+});
+
+describe("isCompactTool", () => {
+  it("adds MCP tools without treating them as Pi built-ins", () => {
+    for (const name of [...BUILT_INS, "mcp", "mcpScript"]) assert.equal(isCompactTool(name), true, name);
+    for (const name of ["subagent", "TaskCreate", "web_search"]) assert.equal(isCompactTool(name), false, name);
   });
 });
 
@@ -22,6 +29,21 @@ describe("describeTool", () => {
     assert.deepEqual(describeTool("grep", { pattern: "foo", path: "src" }), { label: "grep", details: "/foo/ in src" });
     assert.deepEqual(describeTool("find", { pattern: "*.ts" }), { label: "find", details: "*.ts in ." });
     assert.deepEqual(describeTool("ls", {}), { label: "ls", details: "." });
+  });
+
+  it("shows the target MCP operation", () => {
+    assert.deepEqual(describeTool("mcp", { tool: "atlassian_search" }), {
+      label: "mcp",
+      details: "atlassian_search",
+    });
+    assert.deepEqual(describeTool("mcp", { search: "calendar tools" }), {
+      label: "mcp",
+      details: "search calendar tools",
+    });
+    assert.deepEqual(describeTool("mcpScript", { code: "await tools.search({ query: 'logs' })" }), {
+      label: "mcpScript",
+      details: "await tools.search({ query: 'logs' })",
+    });
   });
 
   it("uses the generic toolcall label for rendererless tools", () => {

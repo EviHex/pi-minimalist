@@ -18,7 +18,8 @@ Pi actually enables and invokes.
 ```text
 ✓ read src/a.ts
 ✓ bash go test ./...
-✓ toolcall ask_user_question
+✓ mcp atlassian_search
+✓ mcpScript await tools.search(...)
 ✓ toolcall goland__execute_tool
 ```
 
@@ -29,7 +30,9 @@ truncate using the real viewport width instead of wrapping.
 `/quiet` toggles low-noise run folding. A consecutive completed run composed
 only of `read/edit/write/grep/find/ls/bash/toolcall/think` becomes one final summary
 line, e.g. `✓ read ×2, edit ×1`; every other row in that run renders zero lines.
-Rendererless MCP/third-party calls all use the `toolcall` category. Completed,
+The MCP adapter's `mcp` and `mcpScript` tools are compacted even though they
+ship native renderers; expansion still delegates to those native renderers.
+Rendererless third-party calls use the same `toolcall` quiet category. Completed,
 collapsed thinking blocks share this run and summarize as `think ×N`.
 Queued/running calls, expanded thinking/tools, and assistant prose break a run
 and stay visible. Failed completed calls remain in their run: successful counts
@@ -101,9 +104,10 @@ test run instead of silently disabling a feature.
 
 ### Renderer details
 
-Renderer priority: tool's explicit renderer → global compact fallback →
-Pi native fallback. MCP tools with no renderer get one compact borderless
-line prefixed with `toolcall`.
+The bridge gives the compact renderer priority for native built-ins plus the
+MCP adapter's `mcp`/`mcpScript` tools. Expanded output delegates to each tool's
+original renderer. Tools without any renderer reach the same compact code
+through core's fallback and use the `toolcall` label.
 
 Every action label uses `success` green (mutating tools were once warning orange;
 orange already means "highlighted prose", and the action word is a label, not a
@@ -401,7 +405,9 @@ Interactive checks after restart/reload:
    (Ctrl+O) the call line shows the full command (viewport width still applies).
 2. Read a very long path in a narrow terminal: expect one line ending in `…`, never wrapping.
 3. Run several tools consecutively: expect one-line rows, each preceded by a single blank line.
-4. Run an unrendered MCP/IDE tool: expect `✓ toolcall tool_name`.
+4. Run `mcp` and `mcpScript`: expect compact `✓ mcp <operation>` rows; enable
+   `/quiet` and expect consecutive calls to fold into `toolcall ×N`.
+5. Run an unrendered IDE tool: expect `✓ toolcall tool_name`.
 5. Run bash: while running, expect `• bash [⏱ Ns] <cmd>` with NO row background;
    the elapsed counter advances once per second even for silent commands.
 6. Press `Ctrl+O` / `Cmd+O`: expect full original output.

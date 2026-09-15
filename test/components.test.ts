@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
 import { CompactLine, EmptyComponent, GutteredComponent } from "../src/components.ts";
-import { GUTTER_WIDTH, gutter, labeledRow, outputGutter, summaryRow } from "../src/row.ts";
+import { GUTTER_WIDTH, labeledRow, outputGutter, summaryRow } from "../src/row.ts";
 import { fakeTheme, fakeTimers, plain, plainTheme } from "../test/test-support.ts";
 
 const theme = fakeTheme();

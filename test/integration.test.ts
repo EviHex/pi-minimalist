@@ -30,14 +30,11 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
 
     assert.deepEqual(loaded.errors, []);
     assert.deepEqual([...loaded.extensions[0].tools.keys()], []);
-    assert.equal(
-      typeof (globalThis as any)[Symbol.for("pi.defaultToolRenderer")],
-      "object",
-    );
-    assert.equal(
-      typeof (globalThis as any)[Symbol.for("pi.thinkingPreview")],
-      "function",
-    );
+    const renderer = (globalThis as any)[Symbol.for("pi.defaultToolRenderer")];
+    assert.equal(typeof renderer, "object");
+    assert.equal(renderer.handles("mcp"), true);
+    assert.equal(renderer.handles("mcpScript"), true);
+    assert.equal(typeof (globalThis as any)[Symbol.for("pi.thinkingPreview")], "function");
   });
 
   it("keeps the built-in name list aligned with Pi", async () => {

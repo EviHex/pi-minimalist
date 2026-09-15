@@ -24,7 +24,7 @@ import {
   type Timers,
 } from "./components.ts";
 import { labeledRow, outputGutter, type ThemeLike } from "./row.ts";
-import { describeTool, isBuiltIn, FALLBACK_LABEL } from "./tools.ts";
+import { describeTool, isBuiltIn, isCompactTool, FALLBACK_LABEL } from "./tools.ts";
 import { QuietMode, type QuietOutcome } from "./quiet-mode.ts";
 
 /**
@@ -152,7 +152,7 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
   return {
     // One custom line instead of Pi's padded Box shell.
     renderShell: "self",
-    handles: isBuiltIn,
+    handles: isCompactTool,
 
     renderCall(name, args, theme: ThemeLike, context: CallContext & { lastComponent?: unknown; invalidate(): void }) {
       const status = statusGlyph(context, now);
@@ -209,17 +209,15 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
     },
 
     renderResult(name, result, options, theme: ThemeLike, context, nativeRenderer) {
-      // Rendererless third-party tools: undefined tells core to use its own
-      // full-text output when expanded.
-      if (!isBuiltIn(name)) return options.expanded ? undefined : new EmptyComponent();
+      // The call row carries collapsed status; results add no height.
+      if (!options.expanded) return new EmptyComponent();
 
-      // Native built-ins: collapsed output is hidden (the call row carries the
-      // status); expanded output delegates to the ORIGINAL renderer so diffs and
-      // syntax highlighting survive, then gets the dim continuation gutter.
-      if (!options.expanded || !nativeRenderer) return new EmptyComponent();
+      // Rendererless third-party tools have no native renderer to preserve.
+      // undefined tells core's fallback path to show its full text output.
+      if (!nativeRenderer) return isBuiltIn(name) ? new EmptyComponent() : undefined;
 
-      // Built-ins always reach here through the named-override path, which does
-      // pass lastComponent, so no state cache is needed for the wrapper itself.
+      // Expanded built-ins and MCP tools delegate to their ORIGINAL renderer,
+      // preserving diffs, syntax highlighting, and MCP result formatting.
       const state = context.state as RenderState;
       const component = nativeRenderer(result, options, theme, {
         // Replace only lastComponent: the built-in must see ITS component, not

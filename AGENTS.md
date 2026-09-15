@@ -15,7 +15,59 @@ prototypes at load time instead. See "Runtime Core Patches" below.
 
 ## Features
 
-### 0. Required settings
+### 0. Configuration
+
+Everything lives under the `minimalist` key in Pi's settings.json (global
+`~/.pi/agent/settings.json`, overridden per project by `<cwd>/.pi/settings.json`),
+so `pi-env` and any other settings tooling sees it. Pi tolerates unknown
+top-level keys; the published `pi-powerline-footer` uses the same pattern.
+
+```json
+"minimalist": {
+  "compactToolRows": true,
+  "groupToolRuns": false,
+  "gutter": true,
+  "timer": true,
+  "thinkingAsToolCall": false,
+  "keepActiveToolsExpanded": false,
+  "keepActiveThinkingExpanded": false,
+
+  "excludeTools": ["subagent"],
+  "glyphStyle": "unicode",
+  "glyphs": {},
+  "tokens": {},
+  "maxDetailChars": 4000
+}
+```
+
+`/minimalist` prints the current state; `/minimalist config` opens an editor
+built on pi-tui's `SettingsList` — the same component `/settings` uses, so arrow
+keys, hover descriptions and Enter/Space cycling behave identically.
+
+The command edits ONLY the seven keys above the blank line, and never writes the
+advanced ones, so a hand-written `glyphs`/`tokens`/`excludeTools` block is safe.
+It also REFUSES to write a settings.json containing comments (`JSON.stringify`
+would delete them) and says so, applying the change for the session instead.
+
+`src/config.ts` deliberately re-implements Pi's `getAgentDir()` in two lines
+rather than importing it, because importing pulls in the package's whole module
+graph and would make `--unit` require a full Pi install. An integration test
+asserts the copy agrees with Pi.
+
+Session overrides: settings are re-read on every `turn_start` so an external edit
+applies without a restart. A value that could NOT be persisted is kept in
+`Config.overrides` and re-applied after each re-read — otherwise the next turn
+would silently revert it while the UI still claimed it was applied.
+
+#### Which settings are discoverable, and why
+
+In the command: the effect is visible immediately and needs no vocabulary.
+JSON-only: needs exact tool names or Pi palette knowledge. Notably `glyphStyle`
+IS in neither — it is JSON-only, but `glyphs` matters most for people whose font
+renders `▌✓✗` as boxes, and rows truncate by visible column so a mis-measured
+glyph shifts the line. The `ascii` preset exists for exactly that.
+
+### 0b. Required settings
 
 `~/.pi/agent/settings.json` keeps `"defaultTools": ["read", "bash", "edit", "write"]`
 as Pi's enabled-tool policy. The extension's render-only bridge recognizes all
@@ -36,7 +88,7 @@ Collapsed view hides tool output. `Ctrl+O` / `Cmd+O` expands the original
 output. Each collapsed call is exactly one terminal line: long paths/commands
 truncate using the real viewport width instead of wrapping.
 
-`/quiet` toggles low-noise run folding. A consecutive completed run of collapsed
+The `groupToolRuns` setting toggles low-noise run folding. A consecutive completed run of collapsed
 tools/thinking becomes one final summary line, e.g.
 `✓ read ×2, atlassian_search @ atlassian ×1`; every other row in that run
 renders zero lines.
@@ -54,9 +106,10 @@ and stay visible. Failed completed calls remain in their run: successful counts
 stay green and failures become a trailing red group, e.g. `✓ read ×2 · ✗ bash ×1`.
 Summary tool names use normal `success` green; counts/separators use dim
 `toolTitle`. Tool and aggregate gutters use the same green `success` token as
-their action text, even when visible tail was a `think` preview. `/quiet` persists its state in
-`~/.pi/agent/pi-minimalist.json`;
-that user preference is intentionally outside this nested jj repo. The state is process-global so `/reload` keeps existing rows connected
+their action text, even when visible tail was a `think` preview. Run folding persists as `minimalist.groupToolRuns` in settings.json; the legacy
+`pi-minimalist.json` written by the old `/quiet` command is migrated once, and
+only when settings.json has no `groupToolRuns` yet, so a stale file cannot
+resurrect a preference the user has since changed. The state is process-global so `/reload` keeps existing rows connected
 to the new command handler. No core patch is involved.
 
 ### 2. Collapsed thinking preview
@@ -113,7 +166,9 @@ and `test/integration.test.ts` asserts the shipped bundle contains NONE of them
 - `Symbol.for("pi.defaultToolRenderer")` → `{ renderShell: "self", renderCall, renderResult }`
 - `Symbol.for("pi.thinkingPreview")` → `(text, theme, pad, isStreaming) => Component`
 - `Symbol.for("pi.thinkingMarkdownTheme")` → all-purple theme for expanded thinking
-- `Symbol.for("pi.minimalist.quietMode")` → shared `/quiet` state, retained across `/reload`
+- `Symbol.for("pi.minimalist.quietMode")` → shared run-folding state, retained across `/reload`
+- `Symbol.for("pi.minimalist.config")` → live settings, also retained across `/reload`
+- `pi.minimalist.keepActiveThinkingExpanded` → `() => boolean`, read per call
 - `pi.minimalist.quietThinking` / `pi.minimalist.quietProse` → chronology hooks for unified quiet runs
 - `pi.minimalist.quietMessageSpacer` → removes leading assistant spacer from hidden quiet thinking rows
 
@@ -317,7 +372,7 @@ The dependency direction is strictly one way, so no module needs to know about a
 layer above it:
 
 ```text
-index.ts            wiring: shared QuietMode, bridges, /quiet command
+index.ts            wiring: shared Config + QuietMode, bridges, /minimalist command
   └─ bridge.ts      symbol table + installation
        ├─ tool-renderer.ts   feature 1  ─┐
        └─ thinking.ts        feature 2  ─┬─ quiet-mode.ts ─┐
@@ -335,8 +390,9 @@ index.ts            wiring: shared QuietMode, bridges, /quiet command
 | `src/tools.ts` | tool vocabulary: `BUILT_INS`, `isBuiltIn`, `compact`, `describeTool` |
 | `src/tool-renderer.ts` | feature 1: `createToolRenderer()`, plus everything derived from a render context (`statusGlyph`, `timerBadge`, `RenderState`) |
 | `src/thinking.ts` | feature 2: `createThinkingPreview()` + `allPurpleThinkingTheme()` |
-| `src/quiet-mode.ts` | `/quiet` state, whitelist, run folding, and `rowFor()` |
-| `src/quiet-state.ts` | reads/writes persistent `~/.pi/agent/pi-minimalist.json` preference |
+| `src/quiet-mode.ts` | run-folding order, fold decisions, and `rowFor()` |
+| `src/config.ts` | settings schema, defaults, global/project merge, save, legacy migration |
+| `src/config-ui.ts` | `/minimalist config` field list + `SettingsList` wiring |
 | `test/test-support.ts` | deterministic doubles (fake theme/clock/timers, context builder) |
 | `test/*.test.ts` | the tests |
 
@@ -358,7 +414,7 @@ the conversion written out in each feature, so every change to quiet semantics
 had to be made twice.
 
 **3. Resolve at render time, not at construction.** The resolver runs on every
-`render()`, which is why `/quiet` re-folds existing transcript history with no
+`render()`, which is why a config toggle re-folds existing transcript history with no
 core rebuild: `notify()` triggers a repaint and every row re-reads shared state.
 
 Why factories instead of module-level singletons: tests drive the exact
@@ -432,15 +488,24 @@ Interactive checks after restart/reload:
 2. Read a very long path in a narrow terminal: expect one line ending in `…`, never wrapping.
 3. Run several tools consecutively: expect one-line rows, each preceded by a single blank line.
 4. Run `mcp`, `mcpScript`, and an `mcp__<server>` namespace proxy: expect
-   compact `✓ mcp <operation> @ <server>` rows; enable `/quiet` and expect
+   compact `✓ mcp <operation> @ <server>` rows; enable `groupToolRuns` and expect
    consecutive calls to retain actual operation names and counts.
 5. Run an unrendered IDE tool: expect `✓ tool_name`.
 6. Run bash: while running, expect `• bash [⏱ Ns] <cmd>` with NO row background;
    the elapsed counter advances once per second even for silent commands.
 7. Press `Ctrl+O` / `Cmd+O`: expect full original output.
 8. Trigger an error: expect red `✗`.
-9. Toggle thinking collapsed (`Ctrl+T`): expect `• think …` (highlighted) while
-   streaming, `✓ think <preview>` when done.
+9. Toggle thinking collapsed (`Ctrl+T`): expect `• think …` while streaming and
+   `✓ think <preview>` when done. A streaming block stays COLLAPSED by default;
+   set `keepActiveThinkingExpanded` to see it in full while it streams.
+10. `/minimalist`: expect a one-line-per-setting summary.
+11. `/minimalist config`: expect arrow-key navigation, a description line for the
+    hovered setting, and Enter/Space cycling on/off — identical to `/settings`.
+    Each toggle should visibly change the transcript behind the overlay.
+12. Set `"glyphStyle": "ascii"` in settings.json: expect `+ bash …` with a `|`
+    gutter, and rows that stay aligned in a non-Nerd-Font terminal.
+13. Run a long command: while running with `groupToolRuns` on, expect it counted
+    in the summary's `•` group rather than vanishing.
 ## Scope
 
 Keep implementation small. No config format, package.json, runtime dependency,

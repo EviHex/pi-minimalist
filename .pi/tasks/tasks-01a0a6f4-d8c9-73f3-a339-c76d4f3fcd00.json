@@ -1,77 +1,65 @@
 {
-  "nextId": 7,
+  "nextId": 12,
   "tasks": [
     {
-      "id": "1",
-      "subject": "Add config module reading settings.json",
-      "description": "Create src/config.ts: schema + defaults + merge of global ~/.pi/agent/settings.json (via getAgentDir()) and project <cwd>/.pi/settings.json under a \"minimalist\" key. Must tolerate malformed JSON (log + defaults, never crash). Include migration from the old pi-minimalist.json quiet state. Writes must only touch the \"minimalist\" key and must refuse if the file contains comments.",
-      "status": "in_progress",
-      "activeForm": "Adding config module",
+      "id": "7",
+      "subject": "Remove global mutable config from row painting",
+      "description": "row.ts has a module-level `fallbackConfig` + `useConfig()` and four functions taking `config = defaultConfig()`. That is hidden mutable state: painting silently depends on load order, and one test can leak config into the next. Replace with a Painter that binds theme+config once per render, so every paint call is explicit and row.ts has no globals.",
+      "status": "pending",
+      "activeForm": "Removing global config",
       "metadata": {},
       "blocks": [],
       "blockedBy": [],
-      "createdAt": 1789512794563,
-      "updatedAt": 1789512991146
+      "createdAt": 1789516865401,
+      "updatedAt": 1789516865401
     },
     {
-      "id": "2",
-      "subject": "Switch tool claiming from whitelist to blacklist",
-      "description": "Default to compacting ALL tools; exclude only names in the configurable blacklist. Replace isCompactTool's whitelist. Add a generic details extractor for unknown tools so they show more than a bare name. Keep renderResult delegating to native renderers so Ctrl+O still shows the third-party card.",
+      "id": "8",
+      "subject": "Split the 424-line config.ts by concern",
+      "description": "config.ts mixes three concerns: (1) schema/defaults/Config class, (2) settings.json disk I/O including comment handling, (3) legacy pi-minimalist.json migration. Split into config.ts (schema + Config) and config-file.ts (paths, load, save, migration).",
       "status": "pending",
-      "activeForm": "Switching to blacklist",
+      "activeForm": "Splitting config.ts",
       "metadata": {},
       "blocks": [],
       "blockedBy": [],
-      "createdAt": 1789512794564,
-      "updatedAt": 1789512794564
+      "createdAt": 1789516865402,
+      "updatedAt": 1789516865402
     },
     {
-      "id": "3",
-      "subject": "Make truncation width dynamic",
-      "description": "Remove the fixed 100-char single-field cap for bash so CompactLine's real viewport-width truncation governs. Keep per-field budgets for COMPOSED details (grep/find pattern vs path) but derive them from available width instead of hardcoding 50. Retain a large sanity cap to avoid colorizing pathological megabyte strings.",
+      "id": "9",
+      "subject": "Rename QuietMode to RunGrouping and drop compat shims",
+      "description": "There is no /quiet command anymore and the setting is `groupToolRuns`, so QuietMode/QuietView/QuietOutcome are stale names. Rename to RunGrouping/RowView/Outcome (file run-grouping.ts) and rename the bridge symbols to match. Drop the `Config | boolean` constructor shim that exists only for tests — give tests a real config helper instead. Remove the dead GUTTER_WIDTH back-compat export.",
       "status": "pending",
-      "activeForm": "Making truncation dynamic",
+      "activeForm": "Renaming QuietMode",
       "metadata": {},
       "blocks": [],
       "blockedBy": [],
-      "createdAt": 1789512794566,
-      "updatedAt": 1789512794566
+      "createdAt": 1789516865403,
+      "updatedAt": 1789516865403
     },
     {
-      "id": "4",
-      "subject": "Add gutter, timer, thinking-as-tool, compact-rows toggles",
-      "description": "Wire four new config options through row.ts/tool-renderer.ts/thinking.ts: gutter on/off, timer on/off (default on), thinking-as-tool-call (green label + participates in runs like any tool), compact tool rows master switch (off = native rendering).",
+      "id": "10",
+      "subject": "Replace positional params with named options",
+      "description": "summaryRow(theme, done, failed, running, config) has three same-typed array params in a row — easy to transpose silently. Introduce a shared RunSummary type and pass it as one object. Same for installBridges(quiet, timers, config).",
       "status": "pending",
-      "activeForm": "Adding toggles",
+      "activeForm": "Replacing positional params",
       "metadata": {},
       "blocks": [],
       "blockedBy": [],
-      "createdAt": 1789512794567,
-      "updatedAt": 1789512794567
+      "createdAt": 1789516865403,
+      "updatedAt": 1789516865403
     },
     {
-      "id": "5",
-      "subject": "Build /minimalist config with SettingsList",
-      "description": "Replace /quiet with /minimalist. Use pi-tui's SettingsList via ctx.ui.custom() — same component /settings uses, so arrow keys, hover descriptions and value cycling come for free. Include only: group tool runs, compact tool rows, gutter, thinking as tool call, timer. Persist to settings.json on change.",
+      "id": "11",
+      "subject": "Rewrite AGENTS.md around the current design",
+      "description": "519 lines accumulated by incremental agent edits: stale /quiet references, a Files table that no longer matches src/, and history mixed into reference material. Restructure so it answers what a future reader needs: what it does, how it hooks into Pi, the invariants that must not be \"fixed\", and how to validate. Keep every hard-won gotcha but attach it to the code it protects.",
       "status": "pending",
-      "activeForm": "Building /minimalist config",
+      "activeForm": "Rewriting AGENTS.md",
       "metadata": {},
       "blocks": [],
       "blockedBy": [],
-      "createdAt": 1789512794568,
-      "updatedAt": 1789512794568
-    },
-    {
-      "id": "6",
-      "subject": "Add active-tool and active-thinking fold options",
-      "description": "Two options in /minimalist config, both defaulting to \"collapse\" (i.e. the option to keep active items expanded defaults to OFF).\n\n1. Active tools: quiet-mode's foldable() currently excludes outcome === \"pending\", so a running tool never folds into a run. Default becomes: pending rows DO fold. Option keeps them out of runs so you can watch progress.\n\n2. Active thinking: core-patch's updateContent currently forces hidden = false while streaming (neutralizes hideThinkingBlock + the override map). Default becomes: a streaming thinking block stays collapsed to its compact preview. Option restores the force-open behavior.\n\nCONSEQUENCE: item 2 reverses the streaming-expansion behavior the user verified as check 9 earlier today, and its regression test (\"forces thinking open while streaming and restores the override after\") must be rewritten to assert the new default plus the option. Keep the override-restore guarantee either way — an explicit Ctrl+T expansion must still survive.",
-      "status": "pending",
-      "activeForm": "Adding active-fold options",
-      "metadata": {},
-      "blocks": [],
-      "blockedBy": [],
-      "createdAt": 1789512842468,
-      "updatedAt": 1789512842468
+      "createdAt": 1789516865404,
+      "updatedAt": 1789516865404
     }
   ]
 }

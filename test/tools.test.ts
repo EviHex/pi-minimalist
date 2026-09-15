@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { BUILT_INS, compact, describeTool, isBuiltIn, isCompactTool, quietToolName, refreshMcpTools } from "../src/tools.ts";
+import { Config, DEFAULTS } from "../src/config.ts";
 
 describe("isBuiltIn", () => {
   it("covers exactly Pi's native tool names", () => {
@@ -12,22 +13,35 @@ describe("isBuiltIn", () => {
 });
 
 describe("isCompactTool", () => {
-  it("adds MCP tools without treating them as Pi built-ins", () => {
-    for (const name of [...BUILT_INS, "mcp", "mcpScript", "mcp__atlassian"]) {
-      assert.equal(isCompactTool(name), true, name);
+  it("compacts every tool by default (blacklist, not whitelist)", () => {
+    const config = new Config(DEFAULTS);
+    // The old rule was a whitelist of built-ins + MCP, which silently exempted
+    // every third-party tool that shipped its own renderer.
+    for (const name of [...BUILT_INS, "mcp", "mcpScript", "mcp__atlassian", "TaskCreate", "web_search", "anything"]) {
+      assert.equal(isCompactTool(name, config), true, name);
     }
-    for (const name of ["subagent", "TaskCreate", "web_search"]) assert.equal(isCompactTool(name), false, name);
   });
 
-  it("discovers direct tools registered by pi-mcp-adapter", () => {
+  it("exempts only the configured tool names", () => {
+    // `subagent` is excluded by DEFAULT, because its own renderer shows a run id
+    // and state that one line cannot carry.
+    assert.equal(isCompactTool("subagent", new Config(DEFAULTS)), false);
+
+    const custom = new Config({ ...DEFAULTS, excludeTools: ["web_search"] });
+    assert.equal(isCompactTool("web_search", custom), false);
+    // Replacing the list also un-excludes subagent: the list IS the policy.
+    assert.equal(isCompactTool("subagent", custom), true);
+  });
+
+  it("labels pi-mcp-adapter tools as mcp without deciding what compacts", () => {
     refreshMcpTools([
       { name: "slack_search", sourceInfo: { path: "/packages/pi-mcp-adapter/index.ts" } },
       { name: "other_tool", sourceInfo: { path: "/extensions/other/index.ts" } },
     ]);
 
-    assert.equal(isCompactTool("slack_search"), true);
-    assert.equal(isCompactTool("other_tool"), false);
     assert.deepEqual(describeTool("slack_search", {}), { label: "mcp", details: "slack_search" });
+    // Not an MCP tool, so it keeps its own name as the label.
+    assert.equal(describeTool("other_tool", {}).label, "other_tool");
     refreshMcpTools([]);
   });
 });
@@ -88,19 +102,25 @@ describe("describeTool", () => {
   it("collapses a multiline command into ONE row, collapsed and expanded", () => {
     const command = "python3 - <<'EOF'\nprint(1)\n\n  print(2)\nEOF";
 
-    const collapsed = describeTool("bash", { command }).details;
-    const expanded = describeTool("bash", { command }, true).details;
+    const collapsed = describeTool("bash", { command }, { budget: 100 }).details;
+    const expanded = describeTool("bash", { command }, { expanded: true }).details;
 
     assert.ok(!collapsed.includes("\n"), "collapsed row must be single-line");
     assert.ok(!expanded.includes("\n"), "expanded row must be single-line");
     assert.equal(expanded, "python3 - <<'EOF' print(1) print(2) EOF");
   });
 
-  it("truncates long commands when collapsed but keeps full length when expanded", () => {
+  it("truncates to the given width budget, not a fixed character count", () => {
     const command = "echo " + "y".repeat(300);
 
-    const collapsed = describeTool("bash", { command }).details;
-    const expanded = describeTool("bash", { command }, true).details;
+    // The budget comes from the real viewport width at render time. A wide
+    // terminal therefore shows more, where the old fixed 100-char cap threw
+    // away ~89 usable columns on a 200-column terminal.
+    assert.equal(describeTool("bash", { command }, { budget: 60 }).details.length, 60);
+    assert.equal(describeTool("bash", { command }, { budget: 180 }).details.length, 180);
+
+    const collapsed = describeTool("bash", { command }, { budget: 100 }).details;
+    const expanded = describeTool("bash", { command }, { expanded: true }).details;
 
     assert.equal(collapsed.length, 100);
     assert.ok(collapsed.endsWith("…"));

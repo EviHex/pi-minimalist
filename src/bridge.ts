@@ -13,6 +13,7 @@
 import { createToolRenderer } from "./tool-renderer.ts";
 import { createThinkingPreview, allPurpleThinkingTheme } from "./thinking.ts";
 import { QuietMode } from "./quiet-mode.ts";
+import { Config, DEFAULTS } from "./config.ts";
 
 export const BRIDGE_SYMBOLS = {
   /** `{ renderShell, handles, renderCall, renderResult }` for every tool row. */
@@ -21,8 +22,12 @@ export const BRIDGE_SYMBOLS = {
   thinkingPreview: "pi.thinkingPreview",
   /** `(markdownTheme, theme) => markdownTheme` for expanded thinking. */
   thinkingMarkdownTheme: "pi.thinkingMarkdownTheme",
-  /** Shared `/quiet` state, deliberately readable across a /reload. */
+  /** Shared run-grouping state, deliberately readable across a /reload. */
   quietMode: "pi.minimalist.quietMode",
+  /** Live settings object, also retained across a /reload. */
+  config: "pi.minimalist.config",
+  /** `() => boolean`: keep a STREAMING thinking block expanded. */
+  keepActiveThinkingExpanded: "pi.minimalist.keepActiveThinkingExpanded",
   /** Chronology hooks that keep thinking and prose in transcript order. */
   quietThinking: "pi.minimalist.quietThinking",
   quietProse: "pi.minimalist.quietProse",
@@ -52,6 +57,18 @@ export function sharedQuietMode(): QuietMode | undefined {
 }
 
 /**
+ * The Config instance surviving /reload.
+ *
+ * Reused for the same reason as QuietMode: existing transcript rows close over
+ * it and resolve their appearance at render time, so replacing the instance
+ * would strand every row on stale settings.
+ */
+export function sharedConfig(): Config | undefined {
+  const existing = (globalThis as Globals)[slot("config")];
+  return existing instanceof Config ? existing : undefined;
+}
+
+/**
  * Install every bridge. Each /reload overwrites these slots with fresh
  * instances; do NOT clear them from session_shutdown, because reload ordering
  * can let an old shutdown hook erase the newly installed bridges. Process exit
@@ -60,12 +77,20 @@ export function sharedQuietMode(): QuietMode | undefined {
  * The prototype wrappers in core-patch.ts read these slots on every call, so an
  * unloaded extension degrades to Pi's own native rendering.
  */
-export function installBridges(quiet: QuietMode, timers?: Parameters<typeof createThinkingPreview>[0]): void {
+export function installBridges(
+  quiet: QuietMode,
+  timers?: Parameters<typeof createThinkingPreview>[0],
+  config: Config = new Config(DEFAULTS),
+): void {
   const globals = globalThis as Globals;
   globals[slot("quietMode")] = quiet;
-  globals[slot("toolRenderer")] = createToolRenderer({ quiet });
-  globals[slot("thinkingPreview")] = createThinkingPreview(timers, quiet);
+  globals[slot("config")] = config;
+  globals[slot("toolRenderer")] = createToolRenderer({ quiet, config });
+  globals[slot("thinkingPreview")] = createThinkingPreview(timers, quiet, config);
   globals[slot("thinkingMarkdownTheme")] = allPurpleThinkingTheme;
+  // A function, not a value: the prototype wrapper reads it on every call, so a
+  // toggle takes effect without reinstalling anything.
+  globals[slot("keepActiveThinkingExpanded")] = () => config.get("keepActiveThinkingExpanded");
 
   globals[slot("quietThinking")] = (owner: object, runIndex: number, streaming: boolean, hidden: boolean) =>
     quiet.observeThinking(owner, runIndex, !streaming, !hidden);

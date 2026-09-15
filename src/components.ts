@@ -8,7 +8,7 @@
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
-import { GUTTER_WIDTH, type Row } from "./row.ts";
+import { gutterWidth, type Row } from "./row.ts";
 
 /**
  * Injectable timer pair. Production passes Node's globals; tests pass fakes so
@@ -31,10 +31,14 @@ export const realTimers: Timers = {
 
 /**
  * Resolve what to draw, at render time. `null` means draw NOTHING (zero lines),
- * which is how quiet mode hides a row. Resolved on every render, so a `/quiet`
+ * which is how quiet mode hides a row. Resolved on every render, so a config
  * toggle repaints existing transcript rows with no core rebuild.
+ *
+ * Receives the real terminal width, because detail truncation budgets depend on
+ * it and TUI only reveals the width during render(). Passing a fixed character
+ * count from the caller cannot adapt to the actual viewport.
  */
-export type ResolveRow = () => Row | null;
+export type ResolveRow = (width: number) => Row | null;
 
 /**
  * One physical terminal line with width-aware truncation and full-width color.
@@ -81,15 +85,15 @@ export class CompactLine implements Component {
   }
 
   render(width: number): string[] {
-    const row = this.resolve();
+    const row = this.resolve(width);
     if (row === null) return [];
 
     // TUI pads each line to terminal width, so no manual trailing padding is
     // needed. truncateToWidth understands ANSI codes and wide Unicode glyphs,
     // so colored text truncates at VISIBLE columns. The gutter is a fixed-width
-    // prefix, so the content gets the remaining columns.
-    const gutterWidth = row.gutter ? GUTTER_WIDTH : 0;
-    const line = truncateToWidth(row.text, Math.max(1, width - gutterWidth), "…");
+    // prefix, so the content gets the remaining columns. Width comes from the
+    // row's OWN gutter text, so a disabled gutter reclaims those columns.
+    const line = truncateToWidth(row.text, Math.max(1, width - gutterWidth(row.gutter)), "…");
     return [row.gutter + (row.highlight ? row.highlight(line) : line)];
   }
 
@@ -137,7 +141,7 @@ export class GutteredComponent implements Component {
   }
 
   render(width: number): string[] {
-    const lines = this.inner.render(Math.max(1, width - GUTTER_WIDTH));
+    const lines = this.inner.render(Math.max(1, width - gutterWidth(this.gutterText)));
     return lines.map((line) => this.gutterText + line);
   }
 

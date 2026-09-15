@@ -1,13 +1,14 @@
 /**
- * Quiet-mode grouping state.
+ * Run-grouping state (the `groupToolRuns` setting, formerly `/quiet`).
  *
  * ToolExecutionComponent instances are independent transcript entries, but their
  * call renderers are constructed in transcript order. Keep that order here so
  * each row can decide AT RENDER TIME whether it is hidden, unchanged, or the
- * visible tail of a folded run. That is what makes /quiet affect existing
+ * visible tail of a folded run. That is what makes the setting affect existing
  * history with no core rebuild and no core patch.
  */
 
+import { Config, DEFAULTS } from "./config.ts";
 import { summaryRow, type Count, type Row, type ThemeLike } from "./row.ts";
 
 export type QuietOutcome = "success" | "failure" | "pending";
@@ -21,28 +22,32 @@ type Entry = {
 };
 
 /** "show" keeps the row as-is, "hide" draws nothing, counts fold a whole run. */
-export type QuietView = "show" | "hide" | { done: Count[]; failed: Count[] };
+export type QuietView = "show" | "hide" | { done: Count[]; failed: Count[]; running: Count[] };
 
-/** Fold completed, adjacent low-noise tools while /quiet is enabled. */
+/** Fold adjacent low-noise tool rows while `groupToolRuns` is enabled. */
 export class QuietMode {
-  private enabled: boolean;
+  private config: Config;
   private entries: Entry[] = [];
   private byId = new Map<string, Entry>();
   private ownerIds = new WeakMap<object, number>();
   private ownerEntries = new Map<number, Set<string>>();
   private nextOwnerId = 1;
 
-  constructor(enabled = false) {
-    this.enabled = enabled;
+  /** Accepts a boolean so existing call sites and tests read naturally. */
+  constructor(config: Config | boolean = new Config(DEFAULTS)) {
+    this.config = typeof config === "boolean"
+      ? new Config({ ...DEFAULTS, groupToolRuns: config })
+      : config;
   }
 
   toggle(): boolean {
-    this.enabled = !this.enabled;
-    return this.enabled;
+    const next = !this.config.get("groupToolRuns");
+    this.config.set("groupToolRuns", next);
+    return next;
   }
 
   setEnabled(enabled: boolean): void {
-    this.enabled = enabled;
+    this.config.set("groupToolRuns", enabled);
   }
 
   /** Record the current call state. Re-renders update one stable entry in place. */
@@ -93,11 +98,11 @@ export class QuietMode {
     const view = this.view(id);
     if (view === "show") return base();
     if (view === "hide") return null;
-    return summaryRow(theme, view.done, view.failed);
+    return summaryRow(theme, view.done, view.failed, view.running, this.config);
   }
 
   view(id: string): QuietView {
-    if (!this.enabled) return "show";
+    if (!this.config.get("groupToolRuns")) return "show";
 
     // ponytail: linear scan per row per frame — O(n²) over one transcript.
     // Fine at a few hundred entries; index runs by id if long sessions lag.
@@ -113,14 +118,24 @@ export class QuietMode {
     if (first === last) return "show";
     if (index !== last) return "hide";
     const run = this.entries.slice(first, last + 1);
-    return {
-      done: summarize(run.filter((entry) => entry.outcome === "success").map((entry) => entry.name)),
-      failed: summarize(run.filter((entry) => entry.outcome === "failure").map((entry) => entry.name)),
-    };
+    const named = (outcome: QuietOutcome) =>
+      summarize(run.filter((entry) => entry.outcome === outcome).map((entry) => entry.name));
+    // Every outcome gets a group. Omitting "pending" made a folded running row
+    // disappear from the transcript entirely instead of being counted.
+    return { done: named("success"), failed: named("failure"), running: named("pending") };
   }
 
+  /**
+   * Can this entry disappear into a run summary?
+   *
+   * A RUNNING entry folds by default: a fold is re-evaluated on every render, so
+   * the row reappears the moment it needs to. `keepActiveToolsExpanded` opts out
+   * for people who want to watch a long command's progress in place.
+   */
   private foldable(entry: Entry | undefined): boolean {
-    return Boolean(entry?.foldable && entry.outcome !== "pending" && !entry.expanded);
+    if (!entry?.foldable || entry.expanded) return false;
+    if (entry.outcome === "pending" && this.config.get("keepActiveToolsExpanded")) return false;
+    return true;
   }
 
   private rememberOwnerEntry(owner: object, entryId: string): void {

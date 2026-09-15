@@ -75,7 +75,7 @@ describe("painted row structure", () => {
     const args = { path: "a/".repeat(80) + "f.ts", command: "x\ny\nz", pattern: "p" };
     for (const name of BUILT_INS) {
       for (const expanded of [false, true]) {
-        const { label, details } = describeTool(name, args, expanded);
+        const { label, details } = describeTool(name, args, { expanded });
         const text = labeledRow(theme, { glyph: "✓", label, details }).text;
         assert.ok(!text.includes("\n"), `${name} exp=${expanded} must stay single-line`);
       }

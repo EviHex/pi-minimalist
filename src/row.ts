@@ -14,6 +14,7 @@
 // Type-only: erased at runtime, but makes a mistyped token ("succes") a compile
 // error instead of a theme.fg() throw that core turns into a verbose card.
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import { Config, DEFAULTS, type Glyphs, type Tokens } from "./config.ts";
 
 // ThemeBg is not exported publicly, so recover it from Theme.bg's own signature
 // rather than importing a deep dist path (which is not a package export).
@@ -32,7 +33,18 @@ export type ThemeLike = {
   bg(token: ThemeBg, text: string): string;
 };
 
-/** Visible columns consumed by every gutter variant (space + block + space). */
+/**
+ * Visible columns a gutter consumes: one space, the glyph, one space.
+ *
+ * DERIVED, never configured. An earlier design exposed this as a number, which
+ * let it disagree with the glyph's real width and shifted every row. Callers
+ * pass the row's own gutter text so width and content cannot drift apart.
+ */
+export function gutterWidth(gutter: string): number {
+  return gutter.length === 0 ? 0 : 3;
+}
+
+/** Back-compat constant for the default single-column gutter glyph. */
 export const GUTTER_WIDTH = 3;
 
 /** One painted row. `text` is already colored; truncation happens at render. */
@@ -53,16 +65,35 @@ export type Row = {
  * Indented one column so the bar sits inside the text area. Tokens must be
  * native Pi theme colors — a custom key makes theme.fg() throw.
  */
-export function gutter(theme: ThemeLike, token: ThemeColor = "success"): string {
-  return ` ${theme.fg(token, "▌")} `;
+export function gutter(theme: ThemeLike, token: ThemeColor = "success", config = defaultConfig()): string {
+  if (!config.get("gutter")) return "";
+  return ` ${theme.fg(token, config.glyphs().gutter)} `;
 }
 
 /**
  * Gutter for expanded OUTPUT lines: same glyph and column as the call row but
  * dimmed, so the call row still reads as the block header.
  */
-export function outputGutter(theme: ThemeLike): string {
-  return ` ${theme.fg("borderMuted", "▌")} `;
+export function outputGutter(theme: ThemeLike, config = defaultConfig()): string {
+  if (!config.get("gutter")) return "";
+  return ` ${theme.fg(config.tokens().outputGutter, config.glyphs().gutter)} `;
+}
+
+/**
+ * Config used when a caller passes none.
+ *
+ * Rows are painted from many places; threading a Config through every one of
+ * them would be noise. Tests and the extension pass an explicit instance, so
+ * this fallback only matters for direct/legacy calls.
+ */
+let fallbackConfig: Config | undefined;
+function defaultConfig(): Config {
+  return (fallbackConfig ??= new Config(DEFAULTS));
+}
+
+/** Point row painting at the live config (called once at extension load). */
+export function useConfig(config: Config): void {
+  fallbackConfig = config;
 }
 
 /**
@@ -86,19 +117,20 @@ export type Labeled = {
   highlight?: boolean;
 };
 
-export function labeledRow(theme: ThemeLike, spec: Labeled): Row {
-  const labelColor = spec.labelColor ?? "success";
+export function labeledRow(theme: ThemeLike, spec: Labeled, config = defaultConfig()): Row {
+  const tokens = config.tokens();
+  const labelColor = spec.labelColor ?? tokens.label;
   const parts: string[] = [];
-  if (spec.glyph) parts.push(theme.fg(spec.glyphColor ?? "success", spec.glyph));
+  if (spec.glyph) parts.push(theme.fg(spec.glyphColor ?? tokens.label, spec.glyph));
   parts.push(theme.fg(labelColor, spec.label));
-  if (spec.badge) parts.push(theme.fg("success", spec.badge));
-  if (spec.details) parts.push(theme.fg("toolTitle", spec.details));
+  if (spec.badge) parts.push(theme.fg(tokens.label, spec.badge));
+  if (spec.details) parts.push(theme.fg(tokens.details, spec.details));
   return {
     // The gutter follows the label's hue, so thinking rows stay purple and tool
     // rows stay green without either caller naming a gutter color.
-    gutter: gutter(theme, labelColor),
+    gutter: gutter(theme, labelColor, config),
     text: parts.join(" "),
-    highlight: spec.highlight ? (text) => theme.bg("toolPendingBg", text) : undefined,
+    highlight: spec.highlight ? (text) => theme.bg(tokens.activeBg, text) : undefined,
   };
 }
 
@@ -107,23 +139,41 @@ export type Count = { name: string; count: number };
 
 /**
  * The single line a folded quiet run collapses to, e.g.
- * `✓ read ×2, edit ×1 · ✗ bash ×1`. Always green-guttered, even when it
- * replaces a purple thinking row: the summary belongs to the run, not to one
- * of its members.
+ * `✓ read ×2, edit ×1 · ✗ bash ×1 · • bash ×1`. Always green-guttered, even
+ * when it replaces a purple thinking row: the summary belongs to the run, not to
+ * one of its members.
+ *
+ * `running` exists because a still-running row folds by default. Without its own
+ * group a folded running call was counted nowhere and simply vanished from the
+ * transcript until it finished.
  */
-export function summaryRow(theme: ThemeLike, done: Count[], failed: Count[]): Row {
+export function summaryRow(
+  theme: ThemeLike,
+  done: Count[],
+  failed: Count[],
+  running: Count[] = [],
+  config = defaultConfig(),
+): Row {
+  const { label, details, error } = config.tokens();
+  const glyphs = config.glyphs();
   const groups: string[] = [];
-  if (done.length) groups.push(`${theme.fg("success", "✓")} ${countsText(theme, done, "success")}`);
-  if (failed.length) groups.push(`${theme.fg("error", "✗")} ${countsText(theme, failed, "error")}`);
-  return { gutter: gutter(theme), text: groups.join(theme.fg("toolTitle", " · ")) };
+  if (done.length) groups.push(`${theme.fg(label, glyphs.done)} ${countsText(theme, done, label, config)}`);
+  if (failed.length) groups.push(`${theme.fg(error, glyphs.failed)} ${countsText(theme, failed, error, config)}`);
+  if (running.length) groups.push(`${theme.fg(label, glyphs.running)} ${countsText(theme, running, label, config)}`);
+  return { gutter: gutter(theme, label, config), text: groups.join(theme.fg(details, " · ")) };
 }
 
-function countsText(theme: ThemeLike, counts: Count[], color: ThemeColor): string {
+function countsText(theme: ThemeLike, counts: Count[], color: ThemeColor, config: Config): Row["text"] {
+  const tokens = config.tokens();
+  const glyphs = config.glyphs();
   return counts
     .map(({ name, count }) => {
-      // Thinking keeps its purple language even inside a green quiet summary.
-      const token = name === "think" && color === "success" ? "thinkingText" : color;
-      return `${theme.fg(token, name)} ${theme.fg("toolTitle", `×${count}`)}`;
+      // Thinking keeps its purple language inside a green quiet summary — unless
+      // it is configured to behave exactly like a tool, in which case it should
+      // look like one too.
+      const isThinking = name === "think" && color === tokens.label && !config.get("thinkingAsToolCall");
+      const token = isThinking ? tokens.thinking : color;
+      return `${theme.fg(token, name)} ${theme.fg(tokens.details, `${glyphs.count}${count}`)}`;
     })
-    .join(theme.fg("toolTitle", ", "));
+    .join(theme.fg(tokens.details, ", "));
 }

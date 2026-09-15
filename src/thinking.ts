@@ -14,6 +14,7 @@
 import { CompactLine, realTimers, type Timers } from "./components.ts";
 import { labeledRow, type ThemeLike } from "./row.ts";
 import { QuietMode } from "./quiet-mode.ts";
+import { Config, DEFAULTS } from "./config.ts";
 
 /** Core calls this with the full hidden thinking text plus a streaming flag. */
 export type ThinkingPreview = (
@@ -25,22 +26,37 @@ export type ThinkingPreview = (
   runIndex?: number,
 ) => CompactLine;
 
-export function createThinkingPreview(timers: Timers = realTimers, quiet?: QuietMode): ThinkingPreview {
+export function createThinkingPreview(
+  timers: Timers = realTimers,
+  quiet?: QuietMode,
+  config: Config = new Config(DEFAULTS),
+): ThinkingPreview {
   // `pad` is part of the core bridge signature but unused: the gutter already
   // positions the row, so honoring pad too would double-indent it.
   return (text, theme, _pad, streaming, owner, runIndex) => {
     const line = new CompactLine(timers);
-    // Purple label and gutter (thinkingText = #c4a7e7) match the expanded
-    // thinking text, so collapsed and expanded thinking share one hue. The
-    // glyph keeps the tool status language: • streaming, ✓ complete.
-    const base = () =>
-      labeledRow(theme, {
-        glyph: streaming ? "•" : "✓",
+    // Takes no width: thinking has a single detail field, so CompactLine's
+    // viewport-width truncation is the only budget it needs.
+    const base = () => {
+      const glyphs = config.glyphs();
+      const tokens = config.tokens();
+      // `thinkingAsToolCall` makes a collapsed thinking row indistinguishable
+      // from a tool row: same green label and gutter, no highlight while
+      // streaming. Off (default) it keeps the purple thinking hue, so collapsed
+      // and expanded thinking share one visual language.
+      const asTool = config.get("thinkingAsToolCall");
+      const glyph = streaming ? glyphs.running : glyphs.done;
+      // Thinking is a SINGLE field, so it needs no width budget: CompactLine
+      // truncates at the real viewport width. Only the whitespace collapse
+      // matters here, to keep the preview on one physical line.
+      return labeledRow(theme, {
+        glyph,
         label: "think",
-        labelColor: "thinkingText",
+        labelColor: asTool ? tokens.label : tokens.thinking,
         details: text.replace(/\s+/g, " ").trim(),
-        highlight: streaming,
-      });
+        highlight: asTool ? false : streaming,
+      }, config);
+    };
 
     if (quiet && owner && runIndex !== undefined) {
       const id = quiet.thinkingId(owner, runIndex);

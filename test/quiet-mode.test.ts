@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { Config, DEFAULTS } from "../src/config.ts";
 import { QuietMode, summarize, type QuietOutcome } from "../src/quiet-mode.ts";
 import { plain, plainTheme } from "./test-support.ts";
 
@@ -23,6 +24,7 @@ describe("quiet mode", () => {
     assert.deepEqual(mode.view("4"), {
       done: [{ name: "read", count: 2 }, { name: "edit", count: 2 }],
       failed: [],
+      running: [],
     });
   });
 
@@ -33,31 +35,59 @@ describe("quiet mode", () => {
     assert.equal(mode.view("1"), "show");
   });
 
-  it("folds failures, but cuts runs at pending and expanded calls", () => {
+  it("folds failures and RUNNING calls, but cuts runs at expanded calls", () => {
     const mode = new QuietMode();
     observe(mode, "read-1", "read");
     observe(mode, "generic", "goland__execute_tool");
     observe(mode, "edit-1", "edit");
     observe(mode, "failed", "read", "failure");
-    observe(mode, "edit-2", "edit");
     observe(mode, "pending", "bash", "pending");
+    observe(mode, "edit-2", "edit");
+    observe(mode, "expanded", "read", "success", true);
     observe(mode, "find", "find");
     observe(mode, "ls", "ls");
-    observe(mode, "expanded", "read", "success", true);
     mode.toggle();
 
-    for (const id of ["read-1", "generic", "edit-1", "failed"]) assert.equal(mode.view(id), "hide", id);
+    // A running call folds by DEFAULT: the fold is recomputed on every render,
+    // so the row reappears the moment it matters.
+    for (const id of ["read-1", "generic", "edit-1", "failed", "pending"]) {
+      assert.equal(mode.view(id), "hide", id);
+    }
     assert.deepEqual(mode.view("edit-2"), {
       done: [{ name: "read", count: 1 }, { name: "goland__execute_tool", count: 1 }, { name: "edit", count: 2 }],
       failed: [{ name: "read", count: 1 }],
+      // The running bash is counted, not silently dropped.
+      running: [{ name: "bash", count: 1 }],
     });
+    // An EXPANDED call is a hard boundary either way: the user asked to see it.
+    assert.equal(mode.view("expanded"), "show");
+    assert.equal(mode.view("find"), "hide");
+    assert.deepEqual(mode.view("ls"), {
+      done: [{ name: "find", count: 1 }, { name: "ls", count: 1 }],
+      failed: [],
+      running: [],
+    });
+  });
+
+  it("keeps RUNNING calls out of a fold when configured", () => {
+    const config = new Config({ ...DEFAULTS, groupToolRuns: true, keepActiveToolsExpanded: true });
+    const mode = new QuietMode(config);
+    observe(mode, "read-1", "read");
+    observe(mode, "read-2", "read");
+    observe(mode, "pending", "bash", "pending");
+    observe(mode, "find", "find");
+    observe(mode, "ls", "ls");
+
+    // The running row splits the transcript into two independent runs.
+    assert.equal(mode.view("read-1"), "hide");
+    assert.deepEqual(mode.view("read-2"), { done: [{ name: "read", count: 2 }], failed: [], running: [] });
     assert.equal(mode.view("pending"), "show");
     assert.equal(mode.view("find"), "hide");
     assert.deepEqual(mode.view("ls"), {
       done: [{ name: "find", count: 1 }, { name: "ls", count: 1 }],
       failed: [],
+      running: [],
     });
-    assert.equal(mode.view("expanded"), "show");
   });
 
   it("unifies completed thinking and tool calls in transcript order", () => {
@@ -74,6 +104,7 @@ describe("quiet mode", () => {
     assert.deepEqual(mode.view(mode.thinkingId(owner, 1)), {
       done: [{ name: "bash", count: 1 }, { name: "edit", count: 1 }, { name: "think", count: 2 }],
       failed: [],
+      running: [],
     });
   });
 

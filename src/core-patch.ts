@@ -100,15 +100,22 @@ type ToolExecutionProto = {
 export function patchToolExecution(proto: ToolExecutionProto): void {
   const nativeResultFallback = proto.createResultFallback;
 
-  // "Ours" when the bridge claims the name, or when the tool has no renderer of
-  // its own (rendererless MCP/third-party tools, and late-registered tools whose
-  // definition is missing from the UI lookup entirely).
+  /**
+   * "Ours" when the bridge claims this tool name — and ONLY then.
+   *
+   * `handles()` is now the single authority (blacklist plus the master switch),
+   * so it covers rendererless MCP/third-party tools and late-registered tools
+   * whose definition is missing from the UI lookup entirely.
+   *
+   * There used to be an extra "...or the tool has no renderer of its own"
+   * fallback here. Under the old whitelist it was load-bearing. With a blacklist
+   * it silently OVERRODE the user: an excluded tool with no renderer, and every
+   * tool when `compactToolRows` was off, got compacted anyway.
+   */
   function claims(this: ToolExecutionProto): ToolRendererBridge | undefined {
     const renderer = bridge<ToolRendererBridge>("toolRenderer");
     if (!renderer?.renderCall) return undefined;
-    if (renderer.handles?.(this.toolName)) return renderer;
-    const definition = this.toolDefinition;
-    return !definition?.renderCall && !definition?.renderResult ? renderer : undefined;
+    return renderer.handles?.(this.toolName) ? renderer : undefined;
   }
 
   once(proto, "toolExecution", () => {
@@ -218,10 +225,13 @@ function thinkingRegions(children: Component[]): any[] {
  *
  * Replaces five bundle rewrites inside `updateContent` with one wrapper:
  *
- *  - streaming expansion: force `hidden = false` for the duration of the
- *    original call by neutralizing `hideThinkingBlock` + the override map, then
- *    restoring both. The click handler stores into the LIVE map, so explicit
- *    expansion after completion still persists.
+ *  - active thinking: a streaming block stays COLLAPSED by default (its compact
+ *    preview already shows the latest text). `keepActiveThinkingExpanded` forces
+ *    it open for the duration of the original call by neutralizing
+ *    `hideThinkingBlock` + the override map, then restoring both. Either way the
+ *    click handler stores into the LIVE map, so an explicit Ctrl+T expansion
+ *    always survives — the default only decides what happens when the user has
+ *    not expressed a preference.
  *  - collapsed preview: swap the hidden run's `Text` for our compact line.
  *  - expanded theme: recolor the run's `Markdown` in place (its private `theme`
  *    field is read at render time, and this runs before the first render).
@@ -236,8 +246,10 @@ export function patchAssistantMessage(proto: AssistantProto): void {
     proto.updateContent = function (this: AssistantProto, message: any, isStreaming = this.isStreaming) {
       const savedHide = this.hideThinkingBlock;
       const savedOverrides = this.thinkingVisibilityOverrides;
-      if (isStreaming) {
-        // Equivalent to the old `hidden = this.isStreaming ? false : (...)`.
+      // Default: a streaming block stays collapsed to its compact preview, which
+      // already shows the newest text. Opt in to force it open instead.
+      const forceOpen = isStreaming && bridge<() => boolean>("keepActiveThinkingExpanded")?.() === true;
+      if (forceOpen) {
         this.hideThinkingBlock = false;
         this.thinkingVisibilityOverrides = new Map();
       }

@@ -14,6 +14,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { installBridges } from "../src/bridge.ts";
+import { Config, DEFAULTS } from "../src/config.ts";
 import { patchAssistantMessage, patchToolExecution } from "../src/core-patch.ts";
 import { QuietMode } from "../src/quiet-mode.ts";
 
@@ -88,23 +89,28 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     row.updateResult({ content: [{ type: "text", text: "ide output" }], details: {} });
 
     const lines = row.render(80).map(plain).map((line: string) => line.trimEnd());
-    assert.deepEqual(lines, ["", " ▌ ✓ goland__execute_tool"]);
+    // Blacklist default: it compacts, and the generic extractor surfaces the
+    // most identifying argument so the row beats a bare tool name.
+    assert.deepEqual(lines, ["", " ▌ ✓ goland__execute_tool x"]);
     // Pi's verbose card would have dumped the args JSON and the output.
     assert.ok(!lines.join("\n").includes("ide output"));
   });
 
-  it("keeps native rendering for tools the bridge does not claim", async () => {
+  it("keeps native rendering ONLY for excluded tools", async () => {
     const { components, withBuiltInRenderers } = await loadPi();
-    installBridges(new QuietMode(false));
+    // Blacklist semantics: exclusion is the only exemption, so it is now
+    // explicit configuration rather than the old implicit "has its own
+    // renderer?" rule that silently exempted every third-party tool.
+    const config = new Config({ ...DEFAULTS, excludeTools: ["powershell"] });
+    installBridges(new QuietMode(config), undefined, config);
     patchToolExecution(components.ToolExecutionComponent.prototype);
 
-    const definition = withBuiltInRenderers("powershell", undefined);
     const row = new components.ToolExecutionComponent(
       "powershell",
       "call-3",
       { command: "Get-Date" },
       {},
-      definition,
+      withBuiltInRenderers("powershell", undefined),
       fakeUi(),
       process.cwd(),
     );
@@ -112,6 +118,27 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // Native shell renderer prints its prompt prefix; ours never would.
     assert.ok(text.includes("PS>"), text);
     assert.ok(!text.includes("▌ ✓ powershell"), text);
+  });
+
+  it("compacts a tool that ships its own renderer when it is not excluded", async () => {
+    const { components, withBuiltInRenderers, markdownTheme } = await loadPi();
+    const config = new Config({ ...DEFAULTS, excludeTools: [] });
+    installBridges(new QuietMode(config), undefined, config);
+    patchToolExecution(components.ToolExecutionComponent.prototype);
+    void markdownTheme;
+
+    const row = new components.ToolExecutionComponent(
+      "powershell",
+      "call-3b",
+      { command: "Get-Date" },
+      {},
+      withBuiltInRenderers("powershell", undefined),
+      fakeUi(),
+      process.cwd(),
+    );
+    const text = row.render(80).map(plain).join("\n");
+    assert.ok(text.includes("▌ › powershell Get-Date"), text);
+    assert.ok(!text.includes("PS>"), text);
   });
 
   it("expands a built-in row through its ORIGINAL renderer", async () => {
@@ -186,7 +213,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     assert.ok(!text.includes("Thinking..."), text);
   });
 
-  it("forces thinking open while streaming and restores the override after", async () => {
+  it("keeps a STREAMING thinking block collapsed by default", async () => {
     const { components, markdownTheme } = await loadPi();
     installBridges(new QuietMode(false));
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
@@ -196,8 +223,30 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
     component.updateContent(message, true);
     const streaming = component.render(80).map(plain).join("\n");
+    // The compact preview already shows the newest text, so the default no
+    // longer force-expands a streaming block (it used to, before the setting
+    // existed). The running glyph marks it as still going.
+    assert.ok(streaming.includes("• think partial reasoning"), streaming);
+
+    component.updateContent(message, false);
+    const done = component.render(80).map(plain).join("\n");
+    assert.ok(done.includes("✓ think partial reasoning"), done);
+    assert.equal(component.hideThinkingBlock, true);
+  });
+
+  it("expands a STREAMING thinking block when configured, restoring the override after", async () => {
+    const { components, markdownTheme } = await loadPi();
+    const config = new Config({ ...DEFAULTS, keepActiveThinkingExpanded: true });
+    installBridges(new QuietMode(config), undefined, config);
+    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+
+    const message = assistantMessage([{ type: "thinking", thinking: "partial reasoning" }]);
+    const component = new components.AssistantMessageComponent(message, true, markdownTheme, "Thinking...", 1, []);
+
+    component.updateContent(message, true);
+    const streaming = component.render(80).map(plain).join("\n");
     assert.ok(streaming.includes("partial reasoning"), streaming);
-    assert.ok(!streaming.includes("think partial reasoning"), "streaming must not collapse to a preview");
+    assert.ok(!streaming.includes("think partial reasoning"), "configured streaming must not collapse");
 
     component.updateContent(message, false);
     const done = component.render(80).map(plain).join("\n");
@@ -341,6 +390,54 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // A lone foldable row is left alone, and thinking was never counted into it.
     assert.ok(text.includes("✓ read a.ts"), text);
     assert.ok(!text.includes("think ×1"), `expanded thinking must not fold: ${text}`);
+  });
+
+  it("obeys the master switch even for a tool with no renderer", async () => {
+    // REGRESSION: claims() also returned our renderer when a tool had no
+    // renderer of its own. Load-bearing under the old whitelist; with a
+    // blacklist it silently OVERRODE the user, so `compactToolRows: false` and an
+    // excluded rendererless tool were both compacted anyway. Caught by an
+    // end-to-end check against the real bundle, not by the unit tests.
+    const { components } = await loadPi();
+    const config = new Config({ ...DEFAULTS, compactToolRows: false });
+    installBridges(new QuietMode(config), undefined, config);
+    patchToolExecution(components.ToolExecutionComponent.prototype);
+
+    const row = new components.ToolExecutionComponent(
+      "goland__execute_tool",
+      "master-off",
+      { command: "run" },
+      {},
+      undefined, // no renderer at all
+      fakeUi(),
+      process.cwd(),
+    );
+    row.updateResult({ content: [{ type: "text", text: "ide output" }], details: {} });
+
+    const text = row.render(80).map(plain).join("\n");
+    assert.ok(!text.includes("▌ ✓ goland__execute_tool"), `master switch ignored: ${text}`);
+    // Pi's own fallback rendering shows the output instead.
+    assert.ok(text.includes("ide output"), text);
+  });
+
+  it("leaves an excluded rendererless tool to Pi", async () => {
+    const { components } = await loadPi();
+    const config = new Config({ ...DEFAULTS, excludeTools: ["mystery_tool"] });
+    installBridges(new QuietMode(config), undefined, config);
+    patchToolExecution(components.ToolExecutionComponent.prototype);
+
+    const row = new components.ToolExecutionComponent(
+      "mystery_tool",
+      "excluded-rendererless",
+      { path: "x" },
+      {},
+      undefined,
+      fakeUi(),
+      process.cwd(),
+    );
+    row.updateResult({ content: [{ type: "text", text: "raw" }], details: {} });
+    const text = row.render(80).map(plain).join("\n");
+    assert.ok(!text.includes("▌ ✓ mystery_tool"), text);
   });
 
   it("is idempotent, so /reload never stacks wrappers", async () => {

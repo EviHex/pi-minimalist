@@ -26,6 +26,7 @@ import {
 import { labeledRow, outputGutter, type ThemeLike } from "./row.ts";
 import { describeTool, isBuiltIn, isCompactTool, quietToolName } from "./tools.ts";
 import { QuietMode, type QuietOutcome } from "./quiet-mode.ts";
+import { Config, DEFAULTS } from "./config.ts";
 
 /**
  * State shared between renderCall and renderResult through `context.state`
@@ -69,9 +70,9 @@ export type Status = {
 
 /**
  * Pick the status glyph, color, and outcome for a render context:
- * - finished: ✓ success green; failed: ✗ error red
- * - running:  • success green, with elapsed seconds
- * - queued:   › success green
+ * - finished: ✓ label color; failed: ✗ error color
+ * - running:  • label color, with elapsed seconds
+ * - queued:   › label color
  *
  * GOTCHA: session replay (restart with history) never calls
  * markExecutionStarted(), so executionStarted stays false for reloaded tools.
@@ -79,24 +80,31 @@ export type Status = {
  * executionStarted, or every historical tool call shows the queued caret after
  * a restart. executionStarted only separates queued from running while live.
  */
-export function statusGlyph(context: CallContext, now: () => number = Date.now): Status {
+export function statusGlyph(
+  context: CallContext,
+  now: () => number = Date.now,
+  config: Config = new Config(DEFAULTS),
+): Status {
+  const glyphs = config.glyphs();
+  const { label, error } = config.tokens();
   if (!context.isPartial) {
     // Final result present: covers both live completion and replayed history.
     return context.isError
-      ? { glyph: "✗", color: "error", outcome: "failure" }
-      : { glyph: "✓", color: "success", outcome: "success" };
+      ? { glyph: glyphs.failed, color: error, outcome: "failure" }
+      : { glyph: glyphs.done, color: label, outcome: "success" };
   }
   if (context.executionStarted) {
     const state = context.state;
     state.startedAt ??= now();
     return {
-      glyph: "•",
-      color: "success",
+      glyph: glyphs.running,
+      color: label,
       outcome: "pending",
-      elapsed: Math.floor((now() - state.startedAt) / 1000),
+      // Omitted entirely when the timer is off, so no ticker is ever started.
+      elapsed: config.get("timer") ? Math.floor((now() - state.startedAt) / 1000) : undefined,
     };
   }
-  return { glyph: "›", color: "success", outcome: "pending" };
+  return { glyph: glyphs.queued, color: label, outcome: "pending" };
 }
 
 /**
@@ -104,8 +112,11 @@ export function statusGlyph(context: CallContext, now: () => number = Date.now):
  * first second avoids a `[⏱ 0s]` flicker on commands that finish instantly; the
  * 1s ticker repaints the row once it becomes meaningful.
  */
-export function timerBadge(elapsed: number | undefined): string {
-  return elapsed !== undefined && elapsed >= 1 ? `[⏱ ${elapsed}s]` : "";
+export function timerBadge(elapsed: number | undefined, config: Config = new Config(DEFAULTS)): string {
+  if (elapsed === undefined || elapsed < 1) return "";
+  const icon = config.glyphs().timer;
+  // The ASCII preset has no clock glyph, so the badge degrades to `[3s]`.
+  return icon ? `[${icon} ${elapsed}s]` : `[${elapsed}s]`;
 }
 
 /** Original built-in result renderer, handed to us by the core bridge. */
@@ -136,8 +147,10 @@ export type RendererDeps = {
   now?: () => number;
   /** Repaint scheduler for the ticker; injectable for fake-timer tests. */
   timers?: Timers;
-  /** Shared /quiet state; injected so existing rows update without a core patch. */
+  /** Shared run-grouping state; injected so existing rows update without a patch. */
   quiet?: QuietMode;
+  /** Live settings; read at render time so toggles apply to existing history. */
+  config?: Config;
 };
 
 /**
@@ -147,15 +160,18 @@ export type RendererDeps = {
 export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
   const now = deps.now ?? Date.now;
   const timers = deps.timers ?? realTimers;
-  const quiet = deps.quiet ?? new QuietMode();
+  const config = deps.config ?? new Config(DEFAULTS);
+  const quiet = deps.quiet ?? new QuietMode(config);
 
   return {
     // One custom line instead of Pi's padded Box shell.
     renderShell: "self",
-    handles: isCompactTool,
+    // Blacklist: every tool compacts unless excluded, and the master switch
+    // turns the whole feature off without unloading the extension.
+    handles: (name) => config.get("compactToolRows") && isCompactTool(name, config),
 
     renderCall(name, args, theme: ThemeLike, context: CallContext & { lastComponent?: unknown; invalidate(): void }) {
-      const status = statusGlyph(context, now);
+      const status = statusGlyph(context, now, config);
       const state = context.state;
 
       // Reuse the previous component so the TUI updates it in place. Two caches
@@ -181,15 +197,25 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
       const expanded = context.expanded === true;
       // No background while executing — the animated timer already signals
       // activity, and a highlight flashing on each repaint was distracting.
-      const base = () => {
-        const { label, details } = describeTool(name, args, expanded);
+      //
+      // `width` arrives from render(), so the detail budget follows the real
+      // viewport instead of a fixed character count.
+      const base = (width: number) => {
+        const badge = timerBadge(status.elapsed, config);
+        // Columns the fixed parts consume: gutter, glyph, label, badge, spaces.
+        const overhead = 3 + status.glyph.length + 1 + name.length + 1 + (badge ? badge.length + 1 : 0);
+        const { label, details } = describeTool(name, args, {
+          expanded,
+          budget: Math.max(1, width - overhead),
+          config,
+        });
         return labeledRow(theme, {
           glyph: status.glyph,
           glyphColor: status.color,
           label,
-          badge: timerBadge(status.elapsed),
+          badge,
           details,
-        });
+        }, config);
       };
 
       // All tool calls are recorded so a bash/MCP call cuts an otherwise quiet
@@ -202,7 +228,7 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
         return component;
       }
       quiet.observe(id, quietToolName(name, args), status.outcome, expanded);
-      component.setRow(() => quiet.rowFor(id, theme, base));
+      component.setRow((width) => quiet.rowFor(id, theme, () => base(width)));
       return component;
     },
 
@@ -227,7 +253,7 @@ export function createToolRenderer(deps: RendererDeps = {}): ToolRenderer {
 
       const wrapper = context.lastComponent instanceof GutteredComponent
         ? context.lastComponent
-        : new GutteredComponent(component, outputGutter(theme));
+        : new GutteredComponent(component, outputGutter(theme, config));
       wrapper.setInner(component);
       return wrapper;
     },

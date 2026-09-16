@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { BASIC_KEYS, Config, DEFAULTS } from "../src/config.ts";
-import { FIELDS, createConfigScreen, items, summary } from "../src/config-ui.ts";
+import { FIELDS, argumentCompletions, createConfigScreen, items, summary } from "../src/config-ui.ts";
 
 type Item = { id: string; label: string; description?: string; currentValue: string; values?: string[] };
 
@@ -39,9 +39,10 @@ class FakeSettingsList {
   }
   invalidate(): void {}
   handleInput(): void {}
+  selectItem(): void {}
 }
 
-function screen(config: Config, onChange = (_k: string, _v: boolean) => {}, onClose = () => {}) {
+function screen(config: Config, onChange = (_k: string, _v: unknown) => {}, onClose = () => {}) {
   createConfigScreen({
     SettingsList: FakeSettingsList as never,
     theme: {} as never,
@@ -82,8 +83,25 @@ describe("config screen contents", () => {
     for (const item of rendered) assert.deepEqual(item.values, ["on", "off"]);
   });
 
-  it("shows every row without scrolling", () => {
-    assert.equal(screen(new Config(DEFAULTS)).maxVisible, FIELDS.length);
+  it("indents prose subsettings under their master setting", () => {
+    const dependent = FIELDS.filter((field) => field.activityOption);
+    assert.equal(dependent.length, 2);
+    for (const field of dependent) assert.match(field.label, /^  \S/, field.key);
+    assert.doesNotMatch(FIELDS.find((field) => field.key === "foldIntermediateActivity")!.label, /^\s/);
+  });
+
+  it("shows prose options only while prose folding is active", () => {
+    assert.equal(items(DEFAULTS).some((item) => item.id === "foldActivityOnFinalAnswer"), false);
+    const rendered = items({ ...DEFAULTS, foldIntermediateActivity: true, activitySummary: "tools" });
+    const byId = new Map(rendered.map((item) => [item.id, item]));
+    assert.equal(byId.get("foldActivityOnFinalAnswer")?.currentValue, "off");
+    assert.equal(byId.get("activitySummary")?.currentValue, "tools used");
+    assert.deepEqual(byId.get("activitySummary")?.values, ["elapsed time", "tools used"]);
+  });
+
+  it("shows every visible row without scrolling", () => {
+    const list = screen(new Config(DEFAULTS));
+    assert.equal(list.maxVisible, list.items.length);
   });
 });
 
@@ -99,13 +117,22 @@ describe("config screen behaviour", () => {
     assert.equal(config.get("gutter"), false);
   });
 
-  it("reports the changed key and value to its caller", () => {
-    const changes: [string, boolean][] = [];
-    const list = screen(new Config(DEFAULTS), (key, value) => changes.push([key, value]));
+  it("reports boolean and summary changes to its caller", () => {
+    const changes: [string, unknown][] = [];
+    const list = screen(new Config({ ...DEFAULTS, foldIntermediateActivity: true }), (key, value) =>
+      changes.push([key, value]),
+    );
 
     list.onChange("groupToolRuns", "on");
-    list.onChange("timer", "off");
-    assert.deepEqual(changes, [["groupToolRuns", true], ["timer", false]]);
+    list.onChange("activitySummary", "tools used");
+    assert.deepEqual(changes, [["groupToolRuns", true], ["activitySummary", "tools"]]);
+  });
+
+  it("adds dependent rows immediately when prose folding turns on", () => {
+    const config = new Config(DEFAULTS);
+    screen(config).onChange("foldIntermediateActivity", "on");
+    assert.equal(config.get("foldIntermediateActivity"), true);
+    assert.ok(FakeSettingsList.last?.items.some((item) => item.id === "foldActivityOnFinalAnswer"));
   });
 
   it("ignores unknown ids instead of writing junk into settings", () => {
@@ -125,13 +152,29 @@ describe("config screen behaviour", () => {
 });
 
 describe("summary", () => {
-  it("lists every setting with its state and where to find the rest", () => {
+  it("lists every visible setting with its state and where to find the rest", () => {
     const text = summary({ ...DEFAULTS, groupToolRuns: true });
-    for (const field of FIELDS) assert.ok(text.includes(field.label), field.key);
+    for (const field of FIELDS.filter((field) => !field.activityOption)) {
+      assert.ok(text.includes(field.label), field.key);
+    }
+    assert.ok(!text.includes("Wait for OpenAI final answer"));
     assert.match(text, /Group tool runs\s+on/);
     assert.match(text, /Elapsed timer\s+on/);
     // Bare `/minimalist` should point at both the editor and the JSON-only keys.
     assert.ok(text.includes("/minimalist config"));
     assert.ok(text.includes("settings.json"));
+  });
+});
+
+describe("argumentCompletions", () => {
+  it("suggests `config` after `/minimalist ` and filters by the typed prefix", () => {
+    const empty = argumentCompletions("");
+    assert.ok(empty && empty.length === 1 && empty[0].value === "config");
+    assert.ok(empty?.[0].description, "the suggestion menu shows the description");
+
+    const typed = argumentCompletions("con");
+    assert.ok(typed && typed.length === 1 && typed[0].value === "config");
+
+    assert.equal(argumentCompletions("x"), null, "no match means no menu");
   });
 });

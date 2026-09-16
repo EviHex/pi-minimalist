@@ -1,0 +1,17 @@
+{
+  "nextId": 2,
+  "tasks": [
+    {
+      "id": "1",
+      "subject": "Improve onboarding and command entry point in two jj commits",
+      "description": "Delegate to a GPT 6 sol subagent: (1) README with honest visual demo, installation, basic usage, disable/restart instructions, tested compatibility/limitations; (2) /minimalist opens settings, /minimalist status shows current state, config remains alias, concise UI hint and tests. Verify actual changes and commits after completion.",
+      "status": "in_progress",
+      "activeForm": "Improving onboarding and the command entry point",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1790105179731,
+      "updatedAt": 1790105182738
+    }
+  ]
+}

@@ -12,6 +12,7 @@
 
 import { Config } from "./config.ts";
 import { RunGrouping } from "./run-grouping.ts";
+import { Painter, type ThemeLike } from "./row.ts";
 import { createToolRenderer } from "./tool-renderer.ts";
 import { createThinkingPreview, singleHueThinkingTheme } from "./thinking.ts";
 import type { Timers } from "./components.ts";
@@ -32,6 +33,12 @@ export const BRIDGE_SYMBOLS = {
   /** Chronology hooks that keep thinking and prose in transcript order. */
   observeThinking: "pi.minimalist.observeThinking",
   observeProse: "pi.minimalist.observeProse",
+  /** `undefined` = native prose, `null` = hidden, Row = folded summary. */
+  proseView: "pi.minimalist.proseView",
+  /** `(toolCallId) => boolean`: omit core's separator before an activity summary. */
+  activitySummaryRow: "pi.minimalist.activitySummaryRow",
+  /** `(owner) => normal|hidden|summary`: normalize assistant host spacing. */
+  activityMessageView: "pi.minimalist.activityMessageView",
   /**
    * Spacer suppression for a fully hidden assistant message.
    *
@@ -98,8 +105,15 @@ export function installBridges({ config, grouping, timers }: InstallOptions): vo
   // depends on that order.
   globals[slot("observeThinking")] = (owner: object, runIndex: number, streaming: boolean, hidden: boolean) =>
     grouping.observeThinking(owner, runIndex, !streaming, !hidden);
-  globals[slot("observeProse")] = (owner: object, contentIndex: number) =>
-    grouping.observeProse(owner, contentIndex);
+  globals[slot("observeProse")] = (
+    owner: object,
+    contentIndex: number,
+    signal: Parameters<RunGrouping["observeProse"]>[2],
+  ) => grouping.observeProse(owner, contentIndex, signal);
+  globals[slot("proseView")] = (id: string, theme: ThemeLike) =>
+    grouping.proseView(id, new Painter(theme, config));
+  globals[slot("activitySummaryRow")] = (id: string) => grouping.isActivitySummary(id);
+  globals[slot("activityMessageView")] = (owner: object) => grouping.activityMessageView(owner);
   globals[slot("messageSpacer")] = (owner: object) => grouping.showsMessageSpacer(owner);
 
   // A function, not a value: the prototype wrapper reads it on every call, so a

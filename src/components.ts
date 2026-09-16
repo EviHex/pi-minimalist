@@ -110,6 +110,28 @@ export class CompactLine implements Component {
  * say "no content at all" while still returning a Component, as the
  * renderResult slot contract requires.
  */
+export class FoldableProse implements Component {
+  private inner: Component;
+  private resolve: (width: number) => Row | null | undefined;
+
+  constructor(inner: Component, resolve: (width: number) => Row | null | undefined) {
+    this.inner = inner;
+    this.resolve = resolve;
+  }
+
+  render(width: number): string[] {
+    const row = this.resolve(width);
+    if (row === undefined) return this.inner.render(width);
+    const line = new CompactLine();
+    line.setRow(() => row);
+    return line.render(width);
+  }
+
+  invalidate(): void {
+    this.inner.invalidate?.();
+  }
+}
+
 export class EmptyComponent implements Component {
   render(): string[] {
     return [];

@@ -84,11 +84,19 @@ export const DEFAULT_TOKENS: Tokens = {
 // ---------------------------------------------------------------------------
 
 /** Settings `/minimalist config` can edit: visible effect, no vocabulary needed. */
+export type ActivitySummary = "elapsed" | "tools";
+
 export type BasicSettings = {
   /** Master switch. Off restores Pi's native tool cards entirely. */
   compactToolRows: boolean;
   /** Fold adjacent finished rows into one summary line. */
   groupToolRuns: boolean;
+  /** Replace all but the latest assistant prose block with one summary row. */
+  foldIntermediateActivity: boolean;
+  /** Keep commentary visible until OpenAI starts its final-answer message. */
+  foldActivityOnFinalAnswer: boolean;
+  /** What replaces the activity hidden before the latest prose block. */
+  activitySummary: ActivitySummary;
   /** Draw the left gutter bar. */
   gutter: boolean;
   /** Show the elapsed badge while a tool runs. */
@@ -121,6 +129,9 @@ export type Settings = BasicSettings & AdvancedSettings;
 export const DEFAULT_BASIC: BasicSettings = {
   compactToolRows: true,
   groupToolRuns: false,
+  foldIntermediateActivity: false,
+  foldActivityOnFinalAnswer: false,
+  activitySummary: "elapsed",
   gutter: true,
   timer: true,
   thinkingAsToolCall: false,

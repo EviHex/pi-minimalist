@@ -24,6 +24,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   BASIC_KEYS,
+  DEFAULT_BASIC,
   DEFAULTS,
   DEFAULT_TOKENS,
   GLYPH_PRESETS,
@@ -158,7 +159,14 @@ function coerce(raw: unknown, into: Settings): Settings {
   const out = { ...into };
 
   for (const key of BASIC_KEYS) {
-    if (typeof raw[key] === "boolean") out[key] = raw[key] as boolean;
+    if (typeof DEFAULT_BASIC[key] === "boolean" && typeof raw[key] === "boolean") {
+      // BASIC_KEYS also contains the enum below; the runtime default narrows the
+      // assignable values more honestly than a second maintained key list.
+      (out as Record<string, unknown>)[key] = raw[key];
+    }
+  }
+  if (raw.activitySummary === "elapsed" || raw.activitySummary === "tools") {
+    out.activitySummary = raw.activitySummary;
   }
   if (Array.isArray(raw.excludeTools)) {
     out.excludeTools = raw.excludeTools.filter((name): name is string => typeof name === "string");

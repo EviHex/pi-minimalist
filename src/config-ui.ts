@@ -1,29 +1,24 @@
-/**
- * `/minimalist config` — the interactive settings screen.
- *
- * WHY pi-tui's SettingsList RATHER THAN A HAND-ROLLED MENU
- * -------------------------------------------------------
- * It is the exact component Pi's own `/settings` uses, and both it and
- * `getSettingsListTheme()` are public exports. Reusing it means arrow-key
- * navigation, the hover description line, Enter/Space cycling, search and mouse
- * support are identical to `/settings` — nothing new to learn, and no
- * re-implementation to keep in sync with Pi's look.
- *
- * WHAT BELONGS HERE
- * -----------------
- * Only settings whose effect is visible immediately and needs no vocabulary.
- * Glyph maps, theme tokens, the exclusion list and the sanity cap stay JSON-only:
- * they need exact tool names or Pi palette knowledge, and putting them in a
- * chooser would imply they are casual choices.
- */
+/** `/minimalist config` — Pi's own SettingsList with live, conditional rows. */
 
-// Real pi-tui types, not structural stand-ins: a mismatched theme or item shape
-// would otherwise only surface as a runtime throw inside the overlay.
-import type { Component, SettingItem, SettingsList, SettingsListTheme } from "@earendil-works/pi-tui";
-import { BASIC_KEYS, type BasicKey, type Config, type Settings } from "./config.ts";
+import type { AutocompleteItem, Component, SettingItem, SettingsList, SettingsListTheme } from "@earendil-works/pi-tui";
+import {
+  BASIC_KEYS,
+  type BasicKey,
+  type BasicSettings,
+  type Config,
+  type Settings,
+} from "./config.ts";
 
-/** Label and hover description for every setting the screen exposes, in order. */
-export const FIELDS: { key: BasicKey; label: string; description: string }[] = [
+type Field = {
+  key: BasicKey;
+  label: string;
+  description: string;
+  /** Hidden until prose folding is on. */
+  activityOption?: boolean;
+};
+
+/** Label and hover description for every basic setting, in display order. */
+export const FIELDS: Field[] = [
   {
     key: "compactToolRows",
     label: "Compact tool rows",
@@ -33,6 +28,23 @@ export const FIELDS: { key: BasicKey; label: string; description: string }[] = [
     key: "groupToolRuns",
     label: "Group tool runs",
     description: "Fold a run of finished rows into one summary line, e.g. 'read ×2, edit ×1'.",
+  },
+  {
+    key: "foldIntermediateActivity",
+    label: "Fold intermediate activity",
+    description: "Keep the latest assistant prose and replace all preceding prose, thinking, and tool rows with one summary.",
+  },
+  {
+    key: "foldActivityOnFinalAnswer",
+    label: "  Wait for OpenAI final answer",
+    description: "Keep commentary visible while the agent works, then fold it as soon as OpenAI starts its final answer.",
+    activityOption: true,
+  },
+  {
+    key: "activitySummary",
+    label: "  Activity summary",
+    description: "Show either elapsed work time or the tools used in place of folded activity.",
+    activityOption: true,
   },
   {
     key: "gutter",
@@ -61,68 +73,101 @@ export const FIELDS: { key: BasicKey; label: string; description: string }[] = [
   },
 ];
 
-/** What `ctx.ui.custom()` needs back: a Component that also takes key input. */
 type InputComponent = Component & { handleInput(data: string): void };
-
-/** The class itself, injected so tests can drive the real component. */
 type SettingsListConstructor = new (...args: ConstructorParameters<typeof SettingsList>) => SettingsList;
+type BasicValue = BasicSettings[BasicKey];
 
-/** Rows for the list, with booleans worded as on/off — this is a UI, not JSON. */
+/** Conditional rows plus their display values. */
 export function items(settings: Settings): SettingItem[] {
-  return FIELDS.map(({ key, label, description }) => ({
-    id: key,
-    label,
-    description,
-    currentValue: settings[key] ? "on" : "off",
-    values: ["on", "off"],
-  }));
+  return FIELDS.filter((field) => !field.activityOption || settings.foldIntermediateActivity).map(
+    ({ key, label, description }) => {
+      const value = settings[key];
+      return {
+        id: key,
+        label,
+        description,
+        currentValue: displayValue(value),
+        values: key === "activitySummary" ? ["elapsed time", "tools used"] : ["on", "off"],
+      };
+    },
+  );
 }
 
 export type ConfigScreenDeps = {
   SettingsList: SettingsListConstructor;
   theme: SettingsListTheme;
-  /** Live settings, mutated as the user cycles values. */
   config: Config;
-  /** Called after every change so the caller can persist and repaint. */
-  onChange: (key: BasicKey, value: boolean) => void;
-  /** Called when the user dismisses the screen. */
+  onChange: (key: BasicKey, value: BasicValue) => void;
   onClose: () => void;
 };
 
-/**
- * Build the screen.
- *
- * Every change is applied to the live Config IMMEDIATELY, so the transcript
- * behind the overlay re-renders as the user moves through the list. Seeing the
- * effect while choosing is the whole reason this is a screen and not a set of
- * flags.
- */
+/** Build a live screen; toggling prose folding immediately adds/removes its two child rows. */
 export function createConfigScreen(deps: ConfigScreenDeps): InputComponent {
   const { SettingsList, theme, config, onChange, onClose } = deps;
-  return new SettingsList(
-    items(config.all()),
-    // Show every row: the list is short, and scrolling would hide options.
-    FIELDS.length,
-    theme,
-    (id, newValue) => {
-      if (!isBasicKey(id)) return;
-      const value = newValue === "on";
-      config.set(id, value);
-      onChange(id, value);
-    },
-    onClose,
-  );
+  let list: SettingsList;
+
+  const build = () => {
+    const rows = items(config.all());
+    return new SettingsList(
+      rows,
+      rows.length,
+      theme,
+      (id, displayValue) => {
+        if (!isBasicKey(id)) return;
+        if (id === "activitySummary") {
+          const value = displayValue === "tools used" ? "tools" : "elapsed";
+          config.set(id, value);
+          onChange(id, value);
+        } else {
+          const value = displayValue === "on";
+          config.set(id, value);
+          onChange(id, value);
+        }
+        if (id === "foldIntermediateActivity") {
+          list = build();
+          list.selectItem(id);
+        }
+      },
+      onClose,
+    );
+  };
+
+  list = build();
+  return {
+    render: (width) => list.render(width),
+    handleInput: (data) => list.handleInput(data),
+    handleMouse: (event) => list.handleMouse?.(event),
+    invalidate: () => list.invalidate?.(),
+  };
 }
 
 function isBasicKey(id: string): id is BasicKey {
   return (BASIC_KEYS as string[]).includes(id);
 }
 
-/** One-line-per-setting summary for `/minimalist` with no arguments. */
+function displayValue(value: BasicValue): string {
+  if (value === "elapsed") return "elapsed time";
+  if (value === "tools") return "tools used";
+  return value ? "on" : "off";
+}
+
+/** Argument completions for `/minimalist ...`. */
+export function argumentCompletions(prefix: string): AutocompleteItem[] | null {
+  const items: AutocompleteItem[] = [
+    { value: "config", label: "config", description: "Open the settings editor" },
+  ];
+  const filtered = items.filter((item) => item.value.startsWith(prefix));
+  return filtered.length > 0 ? filtered : null;
+}
+
+/** One-line-per-visible-setting summary for `/minimalist` with no arguments. */
 export function summary(settings: Settings): string {
-  const width = Math.max(...FIELDS.map((field) => field.label.length));
+  const visible = FIELDS.filter((field) => !field.activityOption || settings.foldIntermediateActivity);
+  const width = Math.max(...visible.map((field) => field.label.length));
   return [
-    ...FIELDS.map(({ key, label }) => `  ${label.padEnd(width)}  ${settings[key] ? "on" : "off"}`),
+    ...visible.map(({ key, label }) => {
+      return `  ${label.padEnd(width)}  ${displayValue(settings[key])}`;
+    }),
     "",
     "  /minimalist config   change these",
     "  settings.json        glyphs, colours, excluded tools",

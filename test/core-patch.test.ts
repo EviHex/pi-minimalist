@@ -302,6 +302,148 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     assert.ok(text.includes("think second"), text);
   });
 
+  it("folds commentary as soon as OpenAI's final answer starts streaming", async () => {
+    const { components, markdownTheme } = await loadPi();
+    const shared = state({ foldIntermediateActivity: true, foldActivityOnFinalAnswer: true });
+    shared.grouping.agentStarted(0);
+    installBridges(shared);
+    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+
+    const prose = (text: string, phase: "commentary" | "final_answer", stopReason: string) =>
+      new components.AssistantMessageComponent(
+        assistantMessage([{ type: "text", text, textSignature: JSON.stringify({ v: 1, phase }) }], stopReason),
+        true,
+        markdownTheme,
+        "Thinking...",
+        1,
+        [],
+      );
+    const first = prose("first progress note", "commentary", "toolUse");
+    const second = prose("second progress note", "commentary", "toolUse");
+    assert.ok(first.render(80).map(plain).join("\n").includes("first progress note"));
+    assert.ok(second.render(80).map(plain).join("\n").includes("second progress note"));
+
+    // Pi sets stopReason=stop on response.output_item.added, before the first
+    // final-answer text delta. A non-empty first delta is enough to create the
+    // Markdown child and fold every earlier prose component on the same repaint.
+    const finalMessage = assistantMessage([{ type: "text", text: "final answer starts" }], "stop");
+    const final = new components.AssistantMessageComponent(finalMessage, true, markdownTheme, "Thinking...", 1, []);
+    final.updateContent(finalMessage, true);
+
+    assert.deepEqual(first.render(80), []);
+    const proseSummary = second.render(80).map(plain).map((line: string) => line.trimEnd());
+    assert.equal(proseSummary.length, 2, `summary must have exactly one leading spacer: ${proseSummary}`);
+    assert.equal(proseSummary[0], "");
+    assert.match(proseSummary[1], /Worked for/);
+
+    const combined = [first, second, final].flatMap((item) => item.render(80)).map(plain).join("\n");
+    assert.ok(!combined.includes("first progress note"), combined);
+    assert.ok(!combined.includes("second progress note"), combined);
+    assert.ok(combined.includes("Worked for"), combined);
+    assert.ok(combined.includes("final answer starts"), combined);
+  });
+
+  it("keeps exactly one blank separator before a tool-hosted activity summary", async () => {
+    const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
+    const shared = state({ foldIntermediateActivity: true, activitySummary: "tools" });
+    shared.grouping.agentStarted(0);
+    installBridges(shared);
+    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    patchToolExecution(components.ToolExecutionComponent.prototype);
+
+    const commentary = assistantMessage([{ type: "text", text: "progress" }], "toolUse");
+    const prose = new components.AssistantMessageComponent(commentary, true, markdownTheme, "Thinking...", 1, []);
+    const tool = new components.ToolExecutionComponent(
+      "read",
+      "summary-anchor",
+      { path: "a.ts" },
+      {},
+      withBuiltInRenderers("read", undefined),
+      fakeUi(),
+      process.cwd(),
+    );
+    tool.updateResult({ content: [{ type: "text", text: "ok" }], details: {} });
+    tool.render(80); // register before the final prose arrives
+
+    const finalMessage = assistantMessage([{ type: "text", text: "final" }], "stop");
+    const final = new components.AssistantMessageComponent(finalMessage, true, markdownTheme, "Thinking...", 1, []);
+    final.updateContent(finalMessage, true);
+
+    assert.deepEqual(prose.render(80), []);
+    const summary = tool.render(80).map(plain).map((line: string) => line.trimEnd());
+    assert.deepEqual(summary, ["", " ▌ ✓ read ×1"], "summary must have exactly one blank separator");
+  });
+
+  it("removes interstitial spacers left by fully hidden mixed assistant messages", async () => {
+    const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
+    const shared = state({ foldIntermediateActivity: true, activitySummary: "tools" });
+    shared.grouping.agentStarted(0);
+    installBridges(shared);
+    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    patchToolExecution(components.ToolExecutionComponent.prototype);
+
+    const mixed = (thinking: string, text: string) =>
+      new components.AssistantMessageComponent(
+        assistantMessage([{ type: "thinking", thinking }, { type: "text", text }], "toolUse"),
+        true,
+        markdownTheme,
+        "Thinking...",
+        1,
+        [],
+      );
+    const hidden = [mixed("thought one", "progress one"), mixed("thought two", "progress two")];
+    const tool = new components.ToolExecutionComponent(
+      "read",
+      "mixed-summary-anchor",
+      { path: "a.ts" },
+      {},
+      withBuiltInRenderers("read", undefined),
+      fakeUi(),
+      process.cwd(),
+    );
+    tool.updateResult({ content: [{ type: "text", text: "ok" }], details: {} });
+    tool.render(80);
+    const finalMessage = assistantMessage([{ type: "text", text: "final" }], "stop");
+    const final = new components.AssistantMessageComponent(finalMessage, true, markdownTheme, "Thinking...", 1, []);
+    final.updateContent(finalMessage, true);
+
+    for (const row of hidden) assert.deepEqual(row.render(80), [], "hidden message must not retain an inner spacer");
+    assert.deepEqual(
+      tool.render(80).map(plain).map((line: string) => line.trimEnd()),
+      ["", " ▌ ✓ think ×2, read ×1"],
+    );
+  });
+
+  it("preserves each historical interaction's final prose during session replay", async () => {
+    const { components, markdownTheme } = await loadPi();
+    installBridges(state({ foldIntermediateActivity: true }));
+    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+
+    const prose = (text: string, phase: "commentary" | "final_answer", stopReason: string) =>
+      new components.AssistantMessageComponent(
+        assistantMessage([{ type: "text", text, textSignature: JSON.stringify({ v: 1, phase }) }], stopReason),
+        true,
+        markdownTheme,
+        "Thinking...",
+        1,
+        [],
+      );
+    // No agentStarted(): replay only emits finalized historical messages.
+    const rows = [
+      prose("old progress one", "commentary", "toolUse"),
+      prose("FINAL ONE", "final_answer", "stop"),
+      prose("old progress two", "commentary", "toolUse"),
+      prose("FINAL TWO", "final_answer", "stop"),
+    ];
+    const text = rows.flatMap((row) => row.render(80)).map(plain).join("\n");
+
+    assert.ok(!text.includes("old progress one"), text);
+    assert.ok(!text.includes("old progress two"), text);
+    assert.ok(text.includes("FINAL ONE"), text);
+    assert.ok(text.includes("FINAL TWO"), text);
+    assert.equal(text.match(/Worked for/g)?.length, 2, text);
+  });
+
   it("folds thinking together with adjacent tool rows under /quiet", async () => {
     // REGRESSION: decorateThinking passed `!hidden` to the quietThinking bridge,
     // which negates it into `expanded` itself. The double negation made COLLAPSED

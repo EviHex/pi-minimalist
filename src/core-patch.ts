@@ -27,6 +27,8 @@
 
 import type { Component } from "@earendil-works/pi-tui";
 import { BRIDGE_SYMBOLS } from "./bridge.ts";
+import { FoldableProse } from "./components.ts";
+import type { Row, ThemeLike } from "./row.ts";
 
 type Globals = Record<symbol, unknown>;
 
@@ -79,11 +81,12 @@ type ToolExecutionProto = {
   hasRendererDefinition(): boolean;
   getRenderShell(): string;
   createResultFallback(): Component | undefined;
+  render(width: number): string[];
 };
 
 /**
- * PATCH 1 — give the compact renderer priority for selected native built-ins
- * and for every rendererless third-party/MCP tool.
+ * PATCH 1 — give the compact renderer priority and remove the self-shell spacer
+ * when a tool row temporarily hosts the one folded-activity summary.
  *
  * Replaces the old `getCallRenderer` / `getResultRenderer` /
  * `hasRendererDefinition` / `getRenderShell` bundle rewrite, plus both
@@ -99,6 +102,7 @@ type ToolExecutionProto = {
  */
 export function patchToolExecution(proto: ToolExecutionProto): void {
   const nativeResultFallback = proto.createResultFallback;
+  const nativeRender = proto.render;
 
   /**
    * "Ours" when the bridge claims this tool name — and ONLY then.
@@ -151,6 +155,14 @@ export function patchToolExecution(proto: ToolExecutionProto): void {
       const renderer = claims.call(this);
       return renderer?.renderShell ?? nativeRenderShell.call(this);
     };
+
+    proto.render = function (width: number) {
+      const lines = nativeRender.call(this, width);
+      const ownsSummary = bridge<(id: string) => boolean>("activitySummaryRow")?.(this.toolCallId);
+      // The summary must have the same one-line separation regardless of which
+      // tool/assistant component happened to become its host.
+      return ownsSummary ? withOneLeadingBlank(lines) : lines;
+    };
   });
 }
 
@@ -178,6 +190,7 @@ type AssistantProto = {
   outputPad: number;
   isStreaming: boolean;
   updateContent(message: any, isStreaming?: boolean): void;
+  render(width: number): string[];
 };
 
 /** One thinking run: consecutive `thinking` blocks, exactly as core groups them. */
@@ -243,6 +256,7 @@ function thinkingRegions(children: Component[]): any[] {
 export function patchAssistantMessage(proto: AssistantProto): void {
   once(proto, "assistantMessage", () => {
     const nativeUpdateContent = proto.updateContent;
+    const nativeRender = proto.render;
 
     proto.updateContent = function (this: AssistantProto, message: any, isStreaming = this.isStreaming) {
       const savedHide = this.hideThinkingBlock;
@@ -262,6 +276,13 @@ export function patchAssistantMessage(proto: AssistantProto): void {
       }
       decorateThinking(this, message, isStreaming);
     };
+
+    proto.render = function (width: number) {
+      const lines = nativeRender.call(this, width);
+      const view = bridge<(owner: object) => "normal" | "hidden" | "summary">("activityMessageView")?.(this);
+      if (view === "hidden") return [];
+      return view === "summary" ? withOneLeadingBlank(lines) : lines;
+    };
   });
 }
 
@@ -273,7 +294,17 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
   const observeThinking = bridge<(owner: object, run: number, streaming: boolean, hidden: boolean) => void>(
     "observeThinking",
   );
-  const observeProse = bridge<(owner: object, contentIndex: number) => void>("observeProse");
+  const observeProse = bridge<(
+    owner: object,
+    contentIndex: number,
+    signal: {
+      phase?: "commentary" | "final_answer";
+      stopReason?: string;
+      streaming?: boolean;
+      timestamp?: number;
+    },
+  ) => string>("observeProse");
+  const proseView = bridge<(id: string, theme: ThemeLike) => Row | null | undefined>("proseView");
   const messageSpacer = bridge<(owner: object) => boolean>("messageSpacer");
   const theme = liveTheme();
 
@@ -281,13 +312,30 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
   const regions = thinkingRegions(children);
   const runs = thinkingRuns(message);
 
+  // Direct Markdown children correspond one-for-one with non-empty text blocks;
+  // thinking Markdown lives inside MouseRegion and is deliberately excluded.
+  const proseChildren = children
+    .map((child, index) => ({ child: child as any, index }))
+    .filter(({ child }) => typeof child?.text === "string" && child?.theme !== undefined);
+
   // Transcript order: core interleaves prose and thinking while walking
   // message.content, and run folding depends on that order.
   let run = 0;
+  let prose = 0;
   for (let i = 0; i < (message?.content?.length ?? 0); i++) {
     const content = message.content[i];
     if (content?.type === "text" && String(content.text ?? "").trim()) {
-      observeProse?.(component, i);
+      const phase = textPhase(content.textSignature);
+      const id = observeProse?.(component, i, {
+        phase,
+        stopReason: message.stopReason,
+        streaming: isStreaming,
+        timestamp: message.timestamp,
+      });
+      const target = proseChildren[prose++];
+      if (id && target && proseView && theme) {
+        children[target.index] = new FoldableProse(target.child, () => proseView(id, theme as ThemeLike));
+      }
       continue;
     }
     if (content?.type !== "thinking") continue;
@@ -337,6 +385,33 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
       render: () => (messageSpacer(component) === false ? [] : [""]),
       invalidate: () => {},
     };
+  }
+}
+
+/** Exactly one physical blank before a visible activity summary. */
+function withOneLeadingBlank(lines: string[]): string[] {
+  const firstVisible = lines.findIndex((line) => !visiblyBlank(line));
+  if (firstVisible === -1) return [];
+  if (firstVisible === 0) return ["", ...lines];
+  // Keep the first blank because it may carry Pi's OSC 133 zone-start marker;
+  // discard every other spacer-only line before the summary.
+  return [lines[0], ...lines.slice(firstVisible)];
+}
+
+function visiblyBlank(line: string): boolean {
+  return line
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .trim() === "";
+}
+
+function textPhase(signature: unknown): "commentary" | "final_answer" | undefined {
+  if (typeof signature !== "string" || !signature.startsWith("{")) return undefined;
+  try {
+    const phase = JSON.parse(signature).phase;
+    return phase === "commentary" || phase === "final_answer" ? phase : undefined;
+  } catch {
+    return undefined;
   }
 }
 

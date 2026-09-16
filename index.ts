@@ -22,9 +22,9 @@ import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 // keybindings and colours, as Pi's own `/settings`.
 import { SettingsList } from "@earendil-works/pi-tui";
 import { installBridges, sharedState } from "./src/bridge.ts";
-import type { BasicKey, Config } from "./src/config.ts";
+import type { BasicKey, BasicSettings, Config } from "./src/config.ts";
 import { loadSettings, migratedQuiet, saveBasicSettings } from "./src/config-file.ts";
-import { createConfigScreen, summary } from "./src/config-ui.ts";
+import { argumentCompletions, createConfigScreen, summary } from "./src/config-ui.ts";
 import { patchCore } from "./src/core-patch.ts";
 import { refreshMcpTools } from "./src/tools.ts";
 
@@ -55,9 +55,12 @@ export default function (pi: ExtensionAPI) {
   };
   pi.on("session_start", refresh);
   pi.on("turn_start", refresh);
+  pi.on("agent_start", () => grouping.agentStarted());
+  pi.on("agent_settled", () => grouping.agentSettled());
 
   pi.registerCommand("minimalist", {
     description: "Show pi-minimalist settings; `config` opens the editor",
+    getArgumentCompletions: argumentCompletions,
     handler: async (args, ctx) => {
       if (args.trim().toLowerCase() !== "config") {
         // Bare `/minimalist` prints current state instead of opening a chooser:
@@ -93,7 +96,12 @@ type NotifyContext = { ui: { notify(message: string, type?: "info" | "warning" |
  * the file disagreeing. Keeping it as a session override means the per-turn
  * re-read cannot revert what the message says was applied.
  */
-function persist(ctx: NotifyContext, config: Config, key: BasicKey, value: boolean): void {
+function persist(
+  ctx: NotifyContext,
+  config: Config,
+  key: BasicKey,
+  value: BasicSettings[BasicKey],
+): void {
   const result = saveBasicSettings(config.all());
   if (result.ok) {
     // The file now agrees, so it becomes the source of truth again.
@@ -103,7 +111,7 @@ function persist(ctx: NotifyContext, config: Config, key: BasicKey, value: boole
   config.setSessionOverride(key, value);
   ctx.ui.notify(
     result.reason === "comments"
-      ? `Applied for this session only. settings.json has comments, which JSON.stringify would delete — set "minimalist": { "${key}": ${value} } by hand to persist.`
+      ? `Applied for this session only. settings.json has comments, which JSON.stringify would delete — set "minimalist": { "${key}": ${JSON.stringify(value)} } by hand to persist.`
       : `Applied for this session only; settings.json could not be written (${result.reason}).`,
     "warning",
   );

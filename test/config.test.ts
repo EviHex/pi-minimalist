@@ -84,6 +84,15 @@ describe("loadSettings", () => {
     assert.equal(settings.timer, false, "good value in the same block still applies");
   });
 
+  it("accepts the prose summary enum and rejects unknown values", () => {
+    const { env, cwd, settingsPath } = sandbox();
+    writeFileSync(settingsPath, JSON.stringify({ minimalist: { activitySummary: "tools" } }));
+    assert.equal(loadSettings(cwd, env).activitySummary, "tools");
+
+    writeFileSync(settingsPath, JSON.stringify({ minimalist: { activitySummary: "verbose" } }));
+    assert.equal(loadSettings(cwd, env).activitySummary, "elapsed");
+  });
+
   it("accepts a settings.json containing comments", () => {
     const { env, cwd, settingsPath } = sandbox();
     writeFileSync(settingsPath, '{\n  // my preference\n  "minimalist": { "gutter": false }\n}');

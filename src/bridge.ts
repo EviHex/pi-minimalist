@@ -1,19 +1,20 @@
 /**
- * The core-bridge boundary: every process-global symbol this extension installs,
- * and the one function that installs them.
+ * The boundary between this extension and Pi's core components.
  *
- * Nothing on disk is patched. src/core-patch.ts wraps Pi's real component
- * prototypes at load time and READS these slots at call time, so `/reload`
- * swaps behavior without re-wrapping anything.
+ * Nothing on disk is patched. `core-patch.ts` wraps Pi's real component
+ * prototypes at load time and READS the process-global slots below at CALL time,
+ * so `/reload` swaps behavior without re-wrapping anything, and an unloaded
+ * extension degrades to Pi's native rendering.
  *
- * SINGLE SOURCE OF TRUTH for the symbol names, shared by the wrappers and the
- * tests.
+ * SINGLE SOURCE OF TRUTH for the symbol names, shared by the wrappers, the state
+ * that must survive `/reload`, and the tests.
  */
 
+import { Config } from "./config.ts";
+import { RunGrouping } from "./run-grouping.ts";
 import { createToolRenderer } from "./tool-renderer.ts";
-import { createThinkingPreview, allPurpleThinkingTheme } from "./thinking.ts";
-import { QuietMode } from "./quiet-mode.ts";
-import { Config, DEFAULTS } from "./config.ts";
+import { createThinkingPreview, singleHueThinkingTheme } from "./thinking.ts";
+import type { Timers } from "./components.ts";
 
 export const BRIDGE_SYMBOLS = {
   /** `{ renderShell, handles, renderCall, renderResult }` for every tool row. */
@@ -22,26 +23,27 @@ export const BRIDGE_SYMBOLS = {
   thinkingPreview: "pi.thinkingPreview",
   /** `(markdownTheme, theme) => markdownTheme` for expanded thinking. */
   thinkingMarkdownTheme: "pi.thinkingMarkdownTheme",
-  /** Shared run-grouping state, deliberately readable across a /reload. */
-  quietMode: "pi.minimalist.quietMode",
-  /** Live settings object, also retained across a /reload. */
+
+  /** Live settings, retained across a /reload. */
   config: "pi.minimalist.config",
-  /** `() => boolean`: keep a STREAMING thinking block expanded. */
-  keepActiveThinkingExpanded: "pi.minimalist.keepActiveThinkingExpanded",
+  /** Run-grouping state, retained across a /reload. */
+  grouping: "pi.minimalist.grouping",
+
   /** Chronology hooks that keep thinking and prose in transcript order. */
-  quietThinking: "pi.minimalist.quietThinking",
-  quietProse: "pi.minimalist.quietProse",
+  observeThinking: "pi.minimalist.observeThinking",
+  observeProse: "pi.minimalist.observeProse",
   /**
    * Spacer suppression for a fully hidden assistant message.
    *
-   * There is deliberately NO tool-row equivalent: a compact tool row uses
+   * There is deliberately NO tool-row equivalent: a compact row uses
    * `renderShell: "self"`, and core's self-shell branch emits its separator
    * inline and returns ZERO lines when the row renders nothing — spacer
-   * included. The old `quietSpacer` bridge was compensating for a problem core
-   * already handles (see test/core-patch.test.ts, "renders zero lines for a
-   * quiet-hidden row, spacer included").
+   * included. An earlier `quietSpacer` bridge was compensating for a problem core
+   * already handles.
    */
-  quietMessageSpacer: "pi.minimalist.quietMessageSpacer",
+  messageSpacer: "pi.minimalist.messageSpacer",
+  /** `() => boolean`: keep a STREAMING thinking block expanded. */
+  keepActiveThinkingExpanded: "pi.minimalist.keepActiveThinkingExpanded",
 } as const;
 
 type Globals = Record<symbol, unknown>;
@@ -50,50 +52,57 @@ function slot(key: keyof typeof BRIDGE_SYMBOLS): symbol {
   return Symbol.for(BRIDGE_SYMBOLS[key]);
 }
 
-/** The QuietMode instance surviving /reload, if a previous load installed one. */
-export function sharedQuietMode(): QuietMode | undefined {
-  const existing = (globalThis as Globals)[slot("quietMode")];
-  return existing instanceof QuietMode ? existing : undefined;
-}
-
 /**
- * The Config instance surviving /reload.
+ * State that must survive `/reload`.
  *
- * Reused for the same reason as QuietMode: existing transcript rows close over
- * it and resolve their appearance at render time, so replacing the instance
- * would strand every row on stale settings.
+ * Existing transcript rows close over these objects and resolve their appearance
+ * at render time, so replacing an instance would strand every row on stale state.
  */
-export function sharedConfig(): Config | undefined {
-  const existing = (globalThis as Globals)[slot("config")];
-  return existing instanceof Config ? existing : undefined;
-}
+export type SharedState = { config: Config; grouping: RunGrouping };
 
-/**
- * Install every bridge. Each /reload overwrites these slots with fresh
- * instances; do NOT clear them from session_shutdown, because reload ordering
- * can let an old shutdown hook erase the newly installed bridges. Process exit
- * clears globalThis naturally.
- *
- * The prototype wrappers in core-patch.ts read these slots on every call, so an
- * unloaded extension degrades to Pi's own native rendering.
- */
-export function installBridges(
-  quiet: QuietMode,
-  timers?: Parameters<typeof createThinkingPreview>[0],
-  config: Config = new Config(DEFAULTS),
-): void {
+/** Adopt the previous load's state, or start fresh. */
+export function sharedState(settings?: ConstructorParameters<typeof Config>[0]): SharedState {
   const globals = globalThis as Globals;
-  globals[slot("quietMode")] = quiet;
+  const existingConfig = globals[slot("config")];
+  const existingGrouping = globals[slot("grouping")];
+  if (existingConfig instanceof Config && existingGrouping instanceof RunGrouping) {
+    return { config: existingConfig, grouping: existingGrouping };
+  }
+  const config = new Config(settings);
+  return { config, grouping: new RunGrouping(config) };
+}
+
+export type InstallOptions = SharedState & {
+  /** Injectable repaint scheduler; production uses Node's timers. */
+  timers?: Timers;
+};
+
+/**
+ * Install every bridge.
+ *
+ * Each `/reload` overwrites these slots with fresh instances. Do NOT clear them
+ * from `session_shutdown`: reload ordering can let an old shutdown hook erase the
+ * newly installed bridges. Process exit clears globalThis naturally.
+ */
+export function installBridges({ config, grouping, timers }: InstallOptions): void {
+  const globals = globalThis as Globals;
+
   globals[slot("config")] = config;
-  globals[slot("toolRenderer")] = createToolRenderer({ quiet, config });
-  globals[slot("thinkingPreview")] = createThinkingPreview(timers, quiet, config);
-  globals[slot("thinkingMarkdownTheme")] = allPurpleThinkingTheme;
+  globals[slot("grouping")] = grouping;
+  globals[slot("toolRenderer")] = createToolRenderer({ config, grouping, timers });
+  globals[slot("thinkingPreview")] = createThinkingPreview({ config, grouping, timers });
+  globals[slot("thinkingMarkdownTheme")] = (base: Record<string, unknown>, theme: never) =>
+    singleHueThinkingTheme(base, theme, config);
+
+  // Chronology: core walks message content in transcript order, and run folding
+  // depends on that order.
+  globals[slot("observeThinking")] = (owner: object, runIndex: number, streaming: boolean, hidden: boolean) =>
+    grouping.observeThinking(owner, runIndex, !streaming, !hidden);
+  globals[slot("observeProse")] = (owner: object, contentIndex: number) =>
+    grouping.observeProse(owner, contentIndex);
+  globals[slot("messageSpacer")] = (owner: object) => grouping.showsMessageSpacer(owner);
+
   // A function, not a value: the prototype wrapper reads it on every call, so a
   // toggle takes effect without reinstalling anything.
   globals[slot("keepActiveThinkingExpanded")] = () => config.get("keepActiveThinkingExpanded");
-
-  globals[slot("quietThinking")] = (owner: object, runIndex: number, streaming: boolean, hidden: boolean) =>
-    quiet.observeThinking(owner, runIndex, !streaming, !hidden);
-  globals[slot("quietProse")] = (owner: object, contentIndex: number) => quiet.observeProse(owner, contentIndex);
-  globals[slot("quietMessageSpacer")] = (owner: object) => quiet.showMessageSpacer(owner);
 }

@@ -1,6 +1,6 @@
 /**
  * TUI components. Purely presentational: they render painted rows (see row.ts)
- * and know nothing about themes, tools, or quiet mode.
+ * and know nothing about themes, tools, or run grouping.
  *
  * Kept free of Pi extension API imports so unit tests can exercise the real
  * production components without loading an extension runtime.
@@ -31,7 +31,7 @@ export const realTimers: Timers = {
 
 /**
  * Resolve what to draw, at render time. `null` means draw NOTHING (zero lines),
- * which is how quiet mode hides a row. Resolved on every render, so a config
+ * which is how run grouping hides a row. Resolved on every render, so a config
  * toggle repaints existing transcript rows with no core rebuild.
  *
  * Receives the real terminal width, because detail truncation budgets depend on

@@ -1,18 +1,13 @@
 /**
- * Tool vocabulary: which tools we compact, and how each one describes itself on
- * one line. Pure and deterministic — no components, no theme, no globals.
+ * Tool vocabulary: how each tool describes itself on one line.
  *
- * describeTool returns the label and details SEPARATELY. It must never join
- * them: the painter (row.ts) colors each part, and an earlier version that
- * returned one string forced the painter to split it back apart on the first
- * space, silently assuming no label ever contains one.
+ * Pure and deterministic — no components, no theme, no globals. Which tools get
+ * compacted is `Config.compacts()`, not this file.
  *
- * CLAIMING IS A BLACKLIST. Every tool is compacted unless it is named in
- * `excludeTools`. The old rule ("built-ins + MCP, plus anything with no renderer
- * of its own") silently exempted every third-party tool that shipped a renderer,
- * which was impossible to discover from the UI: `subagent` stayed a big card and
- * nothing explained why. Now the exemption list is data the user can see and
- * edit.
+ * `describeTool` returns the label and details SEPARATELY and must never join
+ * them: the painter colors each part, and an earlier version that returned one
+ * string forced the painter to split it back apart on the first space, silently
+ * assuming no label ever contains one.
  */
 
 import type { Config } from "./config.ts";
@@ -48,11 +43,6 @@ export function refreshMcpTools(tools: { name: string; sourceInfo: { path: strin
 
 export function isMcpTool(name: string): boolean {
   return name === "mcp" || name === "mcpScript" || name.startsWith("mcp__") || mcpTools.has(name);
-}
-
-/** Blacklist test: everything compacts unless the user excluded it. */
-export function isCompactTool(name: string, config: Config): boolean {
-  return !config.isExcluded(name);
 }
 
 /**
@@ -114,8 +104,13 @@ export function describeTool(name: string, args: any, options: DescribeOptions =
   return { label: name, details: genericDetails(a, budget, hardCap) };
 }
 
-/** Name shown in /quiet summaries: operation name, never a generic category. */
-export function quietToolName(name: string, args: any): string {
+/**
+ * Name shown in a folded run summary: the concrete operation, never a category.
+ *
+ * `mcp` rows label themselves `mcp` for readability, but a summary of five
+ * different MCP calls reading `mcp ×5` would hide which servers were touched.
+ */
+export function summaryName(name: string, args: any): string {
   if (isBuiltIn(name) || name === "mcpScript") return name;
   if (name === "mcp") return compact(args?.tool) || "mcp";
   if (name.startsWith("mcp__")) {

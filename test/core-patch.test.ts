@@ -14,9 +14,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { installBridges } from "../src/bridge.ts";
-import { Config, DEFAULTS } from "../src/config.ts";
+import { Config } from "../src/config.ts";
 import { patchAssistantMessage, patchToolExecution } from "../src/core-patch.ts";
-import { QuietMode } from "../src/quiet-mode.ts";
+import { RunGrouping } from "../src/run-grouping.ts";
 
 const PI_ROOT = process.env.PI_ROOT;
 
@@ -37,6 +37,12 @@ async function loadPi() {
   return { components, withBuiltInRenderers, markdownTheme };
 }
 
+/** Config + grouping for one test, on top of the production defaults. */
+function state(settings: Partial<ConstructorParameters<typeof Config>[0]> = {}) {
+  const config = new Config(settings);
+  return { config, grouping: new RunGrouping(config) };
+}
+
 function fakeUi() {
   return { requestRender() {}, invalidate() {} };
 }
@@ -48,7 +54,7 @@ function assistantMessage(content: unknown[], stopReason = "stop") {
 describe("runtime core patches against real Pi components", { skip: PI_ROOT ? false : "PI_ROOT not set" }, () => {
   it("compacts a built-in tool row without touching its definition", async () => {
     const { components, withBuiltInRenderers } = await loadPi();
-    installBridges(new QuietMode(false));
+    installBridges(state());
     patchToolExecution(components.ToolExecutionComponent.prototype);
 
     // Exactly what interactive-mode passes: built-in renderers merged in.
@@ -74,7 +80,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("compacts a rendererless third-party tool (no definition at all)", async () => {
     const { components } = await loadPi();
-    installBridges(new QuietMode(false));
+    installBridges(state());
     patchToolExecution(components.ToolExecutionComponent.prototype);
 
     const row = new components.ToolExecutionComponent(
@@ -101,8 +107,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // Blacklist semantics: exclusion is the only exemption, so it is now
     // explicit configuration rather than the old implicit "has its own
     // renderer?" rule that silently exempted every third-party tool.
-    const config = new Config({ ...DEFAULTS, excludeTools: ["powershell"] });
-    installBridges(new QuietMode(config), undefined, config);
+    installBridges(state({ excludeTools: ["powershell"] }));
     patchToolExecution(components.ToolExecutionComponent.prototype);
 
     const row = new components.ToolExecutionComponent(
@@ -122,8 +127,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("compacts a tool that ships its own renderer when it is not excluded", async () => {
     const { components, withBuiltInRenderers, markdownTheme } = await loadPi();
-    const config = new Config({ ...DEFAULTS, excludeTools: [] });
-    installBridges(new QuietMode(config), undefined, config);
+    installBridges(state({ excludeTools: [] }));
     patchToolExecution(components.ToolExecutionComponent.prototype);
     void markdownTheme;
 
@@ -143,7 +147,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("expands a built-in row through its ORIGINAL renderer", async () => {
     const { components, withBuiltInRenderers } = await loadPi();
-    installBridges(new QuietMode(false));
+    installBridges(state());
     patchToolExecution(components.ToolExecutionComponent.prototype);
 
     const row = new components.ToolExecutionComponent(
@@ -168,8 +172,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("renders zero lines for a quiet-hidden row, spacer included", async () => {
     const { components, withBuiltInRenderers } = await loadPi();
-    const quiet = new QuietMode(true);
-    installBridges(quiet);
+    installBridges(state({ groupToolRuns: true }));
     patchToolExecution(components.ToolExecutionComponent.prototype);
 
     const rows = ["a", "b"].map((id, index) => {
@@ -195,7 +198,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("shows a compact preview instead of the bare Thinking... label", async () => {
     const { components, markdownTheme } = await loadPi();
-    installBridges(new QuietMode(false));
+    installBridges(state());
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
     const message = assistantMessage([{ type: "thinking", thinking: "The user wants a preview" }]);
@@ -215,7 +218,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("keeps a STREAMING thinking block collapsed by default", async () => {
     const { components, markdownTheme } = await loadPi();
-    installBridges(new QuietMode(false));
+    installBridges(state());
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
     const message = assistantMessage([{ type: "thinking", thinking: "partial reasoning" }]);
@@ -236,8 +239,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("expands a STREAMING thinking block when configured, restoring the override after", async () => {
     const { components, markdownTheme } = await loadPi();
-    const config = new Config({ ...DEFAULTS, keepActiveThinkingExpanded: true });
-    installBridges(new QuietMode(config), undefined, config);
+    installBridges(state({ keepActiveThinkingExpanded: true }));
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
     const message = assistantMessage([{ type: "thinking", thinking: "partial reasoning" }]);
@@ -257,7 +259,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("recolors expanded thinking to a single purple hue", async () => {
     const { components, markdownTheme } = await loadPi();
-    installBridges(new QuietMode(false));
+    installBridges(state());
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
     const message = assistantMessage([{ type: "thinking", thinking: "# Heading\n\nplain text" }]);
@@ -282,8 +284,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("keeps thinking and prose in transcript order for quiet folding", async () => {
     const { components, markdownTheme } = await loadPi();
-    const quiet = new QuietMode(true);
-    installBridges(quiet);
+    installBridges(state({ groupToolRuns: true }));
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
     const message = assistantMessage([
@@ -309,8 +310,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // summary. Expanded thinking got the mirror-image bug: it became foldable and
     // swallowed whole runs of visible tool rows into a single summary line.
     const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
-    const quiet = new QuietMode(true);
-    installBridges(quiet);
+    installBridges(state({ groupToolRuns: true }));
     patchToolExecution(components.ToolExecutionComponent.prototype);
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
@@ -359,8 +359,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // The other half of the same inversion: expanded thinking must stay visible
     // and act as a run boundary, never fold neighbouring tool rows away.
     const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
-    const quiet = new QuietMode(true);
-    installBridges(quiet);
+    installBridges(state({ groupToolRuns: true }));
     patchToolExecution(components.ToolExecutionComponent.prototype);
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
@@ -399,8 +398,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // excluded rendererless tool were both compacted anyway. Caught by an
     // end-to-end check against the real bundle, not by the unit tests.
     const { components } = await loadPi();
-    const config = new Config({ ...DEFAULTS, compactToolRows: false });
-    installBridges(new QuietMode(config), undefined, config);
+    installBridges(state({ compactToolRows: false }));
     patchToolExecution(components.ToolExecutionComponent.prototype);
 
     const row = new components.ToolExecutionComponent(
@@ -422,8 +420,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("leaves an excluded rendererless tool to Pi", async () => {
     const { components } = await loadPi();
-    const config = new Config({ ...DEFAULTS, excludeTools: ["mystery_tool"] });
-    installBridges(new QuietMode(config), undefined, config);
+    installBridges(state({ excludeTools: ["mystery_tool"] }));
     patchToolExecution(components.ToolExecutionComponent.prototype);
 
     const row = new components.ToolExecutionComponent(
@@ -442,7 +439,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("is idempotent, so /reload never stacks wrappers", async () => {
     const { components, withBuiltInRenderers } = await loadPi();
-    installBridges(new QuietMode(false));
+    installBridges(state());
     for (let i = 0; i < 3; i++) patchToolExecution(components.ToolExecutionComponent.prototype);
 
     const row = new components.ToolExecutionComponent(

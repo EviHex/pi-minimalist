@@ -3,29 +3,27 @@
  *
  * WHY pi-tui's SettingsList RATHER THAN A HAND-ROLLED MENU
  * -------------------------------------------------------
- * `SettingsList` is the exact component Pi's own `/settings` uses
- * (`settings-selector.js` constructs it the same way), and both it and
+ * It is the exact component Pi's own `/settings` uses, and both it and
  * `getSettingsListTheme()` are public exports. Reusing it means arrow-key
- * navigation, the hover description line, Enter/Space value cycling, search and
- * mouse support are all identical to `/settings` — nothing new for the user to
- * learn, and no re-implementation to keep in sync with Pi's look.
+ * navigation, the hover description line, Enter/Space cycling, search and mouse
+ * support are identical to `/settings` — nothing new to learn, and no
+ * re-implementation to keep in sync with Pi's look.
  *
  * WHAT BELONGS HERE
  * -----------------
- * Only settings whose effect is visible immediately and needs no vocabulary:
- * the five feature toggles plus the two "keep active thing expanded" options.
- * Glyph maps, theme-token maps, the exclusion list and the sanity cap stay
- * JSON-only: they need exact tool names or Pi palette knowledge, and a chooser
- * would imply they are casual choices.
+ * Only settings whose effect is visible immediately and needs no vocabulary.
+ * Glyph maps, theme tokens, the exclusion list and the sanity cap stay JSON-only:
+ * they need exact tool names or Pi palette knowledge, and putting them in a
+ * chooser would imply they are casual choices.
  */
 
 // Real pi-tui types, not structural stand-ins: a mismatched theme or item shape
 // would otherwise only surface as a runtime throw inside the overlay.
 import type { Component, SettingItem, SettingsList, SettingsListTheme } from "@earendil-works/pi-tui";
-import { COMMAND_KEYS, type CommandKey, type Config, type Settings } from "./config.ts";
+import { BASIC_KEYS, type BasicKey, type Config, type Settings } from "./config.ts";
 
-/** Label and hover description for every key the command exposes, in display order. */
-export const FIELDS: { key: CommandKey; label: string; description: string }[] = [
+/** Label and hover description for every setting the screen exposes, in order. */
+export const FIELDS: { key: BasicKey; label: string; description: string }[] = [
   {
     key: "compactToolRows",
     label: "Compact tool rows",
@@ -63,37 +61,30 @@ export const FIELDS: { key: CommandKey; label: string; description: string }[] =
   },
 ];
 
-/**
- * What `ctx.ui.custom()` needs back: a Component that also takes key input.
- * pi-tui's SettingsList satisfies this; naming it explicitly keeps the factory
- * honest if Pi's component contract changes.
- */
+/** What `ctx.ui.custom()` needs back: a Component that also takes key input. */
 type InputComponent = Component & { handleInput(data: string): void };
 
-/** The class itself, injected so tests construct the real component. */
+/** The class itself, injected so tests can drive the real component. */
 type SettingsListConstructor = new (...args: ConstructorParameters<typeof SettingsList>) => SettingsList;
 
+/** Rows for the list, with booleans worded as on/off — this is a UI, not JSON. */
 export function items(settings: Settings): SettingItem[] {
   return FIELDS.map(({ key, label, description }) => ({
     id: key,
     label,
     description,
     currentValue: settings[key] ? "on" : "off",
-    // Same two-value cycling Pi uses for its own booleans, but worded as on/off
-    // rather than true/false: this is a UI, not a JSON editor.
     values: ["on", "off"],
   }));
 }
 
 export type ConfigScreenDeps = {
-  /** pi-tui's SettingsList class. */
   SettingsList: SettingsListConstructor;
-  /** pi-tui's settings-list theme, from Pi's getSettingsListTheme(). */
   theme: SettingsListTheme;
   /** Live settings, mutated as the user cycles values. */
   config: Config;
   /** Called after every change so the caller can persist and repaint. */
-  onChange: (key: CommandKey, value: boolean) => void;
+  onChange: (key: BasicKey, value: boolean) => void;
   /** Called when the user dismisses the screen. */
   onClose: () => void;
 };
@@ -102,19 +93,19 @@ export type ConfigScreenDeps = {
  * Build the screen.
  *
  * Every change is applied to the live Config IMMEDIATELY, so the transcript
- * behind the overlay re-renders as the user moves through the list — the effect
- * of a toggle is visible while choosing it, which is the whole reason this is a
- * screen instead of a set of flags.
+ * behind the overlay re-renders as the user moves through the list. Seeing the
+ * effect while choosing is the whole reason this is a screen and not a set of
+ * flags.
  */
 export function createConfigScreen(deps: ConfigScreenDeps): InputComponent {
   const { SettingsList, theme, config, onChange, onClose } = deps;
   return new SettingsList(
     items(config.all()),
-    // Show every row: the list is short and scrolling would hide options.
+    // Show every row: the list is short, and scrolling would hide options.
     FIELDS.length,
     theme,
     (id, newValue) => {
-      if (!isCommandKey(id)) return;
+      if (!isBasicKey(id)) return;
       const value = newValue === "on";
       config.set(id, value);
       onChange(id, value);
@@ -123,15 +114,17 @@ export function createConfigScreen(deps: ConfigScreenDeps): InputComponent {
   );
 }
 
-function isCommandKey(id: string): id is CommandKey {
-  return (COMMAND_KEYS as readonly string[]).includes(id);
+function isBasicKey(id: string): id is BasicKey {
+  return (BASIC_KEYS as string[]).includes(id);
 }
 
 /** One-line-per-setting summary for `/minimalist` with no arguments. */
 export function summary(settings: Settings): string {
   const width = Math.max(...FIELDS.map((field) => field.label.length));
-  const rows = FIELDS.map(
-    ({ key, label }) => `  ${label.padEnd(width)}  ${settings[key] ? "on" : "off"}`,
-  );
-  return [...rows, "", "  /minimalist config   change these", "  settings.json        glyphs, colours, excluded tools"].join("\n");
+  return [
+    ...FIELDS.map(({ key, label }) => `  ${label.padEnd(width)}  ${settings[key] ? "on" : "off"}`),
+    "",
+    "  /minimalist config   change these",
+    "  settings.json        glyphs, colours, excluded tools",
+  ].join("\n");
 }

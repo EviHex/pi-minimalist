@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { COMMAND_KEYS, Config, DEFAULTS } from "../src/config.ts";
+import { BASIC_KEYS, Config, DEFAULTS } from "../src/config.ts";
 import { FIELDS, createConfigScreen, items, summary } from "../src/config-ui.ts";
 
 type Item = { id: string; label: string; description?: string; currentValue: string; values?: string[] };
@@ -61,7 +61,7 @@ describe("config screen contents", () => {
     // chooser would imply they are casual choices.
     assert.deepEqual(
       FIELDS.map((field) => field.key).sort(),
-      [...COMMAND_KEYS].sort(),
+      [...BASIC_KEYS].sort(),
     );
   });
 

@@ -1,11 +1,18 @@
 /**
  * The row data model, and the ONLY place that turns a row into colored text.
  *
- * Rows are described as DATA and painted exactly once. Nothing downstream may
- * re-parse painted text: an earlier version built `"read src/a.ts"`, then split
- * it on the first space to recolor the action word, which silently depended on
- * every label being space-free. Same for quiet summaries, which were joined
- * into `"read ×2, edit ×1"` and split back apart to color the names.
+ * TWO RULES THIS FILE ENFORCES
+ * ---------------------------
+ * 1. Rows are described as DATA and painted exactly once. Nothing downstream may
+ *    re-parse painted text. An earlier version built `"read src/a.ts"` and then
+ *    split it on the first space to recolor the action word, which silently
+ *    assumed no label ever contains a space; run summaries were joined into
+ *    `"read ×2, edit ×1"` and split back apart the same way.
+ *
+ * 2. Theme and settings are bound ONCE, in a `Painter`. There used to be a
+ *    module-level mutable config with `config = defaultConfig()` defaults on four
+ *    functions, which made painting depend on load order and let one test leak
+ *    settings into the next.
  *
  * Free of Pi extension-API runtime imports, so tests exercise real painting
  * without an extension runtime.
@@ -14,7 +21,7 @@
 // Type-only: erased at runtime, but makes a mistyped token ("succes") a compile
 // error instead of a theme.fg() throw that core turns into a verbose card.
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { Config, DEFAULTS, type Glyphs, type Tokens } from "./config.ts";
+import type { Config } from "./config.ts";
 
 // ThemeBg is not exported publicly, so recover it from Theme.bg's own signature
 // rather than importing a deep dist path (which is not a package export).
@@ -33,23 +40,9 @@ export type ThemeLike = {
   bg(token: ThemeBg, text: string): string;
 };
 
-/**
- * Visible columns a gutter consumes: one space, the glyph, one space.
- *
- * DERIVED, never configured. An earlier design exposed this as a number, which
- * let it disagree with the glyph's real width and shifted every row. Callers
- * pass the row's own gutter text so width and content cannot drift apart.
- */
-export function gutterWidth(gutter: string): number {
-  return gutter.length === 0 ? 0 : 3;
-}
-
-/** Back-compat constant for the default single-column gutter glyph. */
-export const GUTTER_WIDTH = 3;
-
 /** One painted row. `text` is already colored; truncation happens at render. */
 export type Row = {
-  /** Pre-colored left marker, GUTTER_WIDTH columns wide. */
+  /** Pre-colored left marker, or "" when the gutter is disabled. */
   gutter: string;
   /** Fully colored row content. */
   text: string;
@@ -58,42 +51,14 @@ export type Row = {
 };
 
 /**
- * Dim vertical bar at the left of every compact row. Model prose stays flush
- * left, so a run of tool rows reads as one indented block instead of
- * same-weight lines mixed into text.
+ * Visible columns a gutter occupies: one space, the glyph, one space.
  *
- * Indented one column so the bar sits inside the text area. Tokens must be
- * native Pi theme colors — a custom key makes theme.fg() throw.
+ * DERIVED from the row's own gutter text, never configured. An earlier design
+ * exported this as a constant, which could disagree with the real glyph width and
+ * shift every row.
  */
-export function gutter(theme: ThemeLike, token: ThemeColor = "success", config = defaultConfig()): string {
-  if (!config.get("gutter")) return "";
-  return ` ${theme.fg(token, config.glyphs().gutter)} `;
-}
-
-/**
- * Gutter for expanded OUTPUT lines: same glyph and column as the call row but
- * dimmed, so the call row still reads as the block header.
- */
-export function outputGutter(theme: ThemeLike, config = defaultConfig()): string {
-  if (!config.get("gutter")) return "";
-  return ` ${theme.fg(config.tokens().outputGutter, config.glyphs().gutter)} `;
-}
-
-/**
- * Config used when a caller passes none.
- *
- * Rows are painted from many places; threading a Config through every one of
- * them would be noise. Tests and the extension pass an explicit instance, so
- * this fallback only matters for direct/legacy calls.
- */
-let fallbackConfig: Config | undefined;
-function defaultConfig(): Config {
-  return (fallbackConfig ??= new Config(DEFAULTS));
-}
-
-/** Point row painting at the live config (called once at extension load). */
-export function useConfig(config: Config): void {
-  fallbackConfig = config;
+export function gutterWidth(gutter: string): number {
+  return gutter === "" ? 0 : 3;
 }
 
 /**
@@ -117,63 +82,112 @@ export type Labeled = {
   highlight?: boolean;
 };
 
-export function labeledRow(theme: ThemeLike, spec: Labeled, config = defaultConfig()): Row {
-  const tokens = config.tokens();
-  const labelColor = spec.labelColor ?? tokens.label;
-  const parts: string[] = [];
-  if (spec.glyph) parts.push(theme.fg(spec.glyphColor ?? tokens.label, spec.glyph));
-  parts.push(theme.fg(labelColor, spec.label));
-  if (spec.badge) parts.push(theme.fg(tokens.label, spec.badge));
-  if (spec.details) parts.push(theme.fg(tokens.details, spec.details));
-  return {
-    // The gutter follows the label's hue, so thinking rows stay purple and tool
-    // rows stay green without either caller naming a gutter color.
-    gutter: gutter(theme, labelColor, config),
-    text: parts.join(" "),
-    highlight: spec.highlight ? (text) => theme.bg(tokens.activeBg, text) : undefined,
-  };
-}
-
-/** One folded tool/thinking name and how many times it ran in a quiet run. */
+/** One folded name and how many times it appeared in a run. */
 export type Count = { name: string; count: number };
 
 /**
- * The single line a folded quiet run collapses to, e.g.
- * `✓ read ×2, edit ×1 · ✗ bash ×1 · • bash ×1`. Always green-guttered, even
- * when it replaces a purple thinking row: the summary belongs to the run, not to
- * one of its members.
+ * What a folded run collapses to, grouped by outcome.
  *
- * `running` exists because a still-running row folds by default. Without its own
- * group a folded running call was counted nowhere and simply vanished from the
- * transcript until it finished.
+ * `running` is a group of its own because a still-running row folds by default.
+ * Without it, a folded running call was counted nowhere and simply vanished from
+ * the transcript until it finished.
+ *
+ * An object rather than three positional arrays: they are the same type, so
+ * transposing two of them would have been silent.
  */
-export function summaryRow(
-  theme: ThemeLike,
-  done: Count[],
-  failed: Count[],
-  running: Count[] = [],
-  config = defaultConfig(),
-): Row {
-  const { label, details, error } = config.tokens();
-  const glyphs = config.glyphs();
-  const groups: string[] = [];
-  if (done.length) groups.push(`${theme.fg(label, glyphs.done)} ${countsText(theme, done, label, config)}`);
-  if (failed.length) groups.push(`${theme.fg(error, glyphs.failed)} ${countsText(theme, failed, error, config)}`);
-  if (running.length) groups.push(`${theme.fg(label, glyphs.running)} ${countsText(theme, running, label, config)}`);
-  return { gutter: gutter(theme, label, config), text: groups.join(theme.fg(details, " · ")) };
-}
+export type RunSummary = {
+  done: Count[];
+  failed: Count[];
+  running: Count[];
+};
 
-function countsText(theme: ThemeLike, counts: Count[], color: ThemeColor, config: Config): Row["text"] {
-  const tokens = config.tokens();
-  const glyphs = config.glyphs();
-  return counts
-    .map(({ name, count }) => {
-      // Thinking keeps its purple language inside a green quiet summary — unless
-      // it is configured to behave exactly like a tool, in which case it should
-      // look like one too.
-      const isThinking = name === "think" && color === tokens.label && !config.get("thinkingAsToolCall");
-      const token = isThinking ? tokens.thinking : color;
-      return `${theme.fg(token, name)} ${theme.fg(tokens.details, `${glyphs.count}${count}`)}`;
-    })
-    .join(theme.fg(tokens.details, ", "));
+export const EMPTY_SUMMARY: RunSummary = { done: [], failed: [], running: [] };
+
+/**
+ * Paints rows for one theme and one settings object.
+ *
+ * Created per render pass, so `/theme` and every setting toggle are picked up
+ * without any shared mutable state.
+ */
+export class Painter {
+  private theme: ThemeLike;
+  private config: Config;
+
+  constructor(theme: ThemeLike, config: Config) {
+    this.theme = theme;
+    this.config = config;
+  }
+
+  /**
+   * Vertical bar at the left of a compact row. Model prose stays flush left, so a
+   * run of tool rows reads as one indented block instead of same-weight lines
+   * mixed into text. Indented one column so the bar sits inside the text area.
+   */
+  gutter(token: ThemeColor = this.config.tokens().label): string {
+    if (!this.config.get("gutter")) return "";
+    return ` ${this.theme.fg(token, this.config.glyphs().gutter)} `;
+  }
+
+  /**
+   * Gutter for expanded OUTPUT lines: same glyph and column as the call row but
+   * dimmed, so the call row still reads as the block header.
+   */
+  outputGutter(): string {
+    if (!this.config.get("gutter")) return "";
+    const { outputGutter } = this.config.tokens();
+    return ` ${this.theme.fg(outputGutter, this.config.glyphs().gutter)} `;
+  }
+
+  labeled(spec: Labeled): Row {
+    const tokens = this.config.tokens();
+    const labelColor = spec.labelColor ?? tokens.label;
+    const parts: string[] = [];
+    if (spec.glyph) parts.push(this.theme.fg(spec.glyphColor ?? tokens.label, spec.glyph));
+    parts.push(this.theme.fg(labelColor, spec.label));
+    if (spec.badge) parts.push(this.theme.fg(tokens.label, spec.badge));
+    if (spec.details) parts.push(this.theme.fg(tokens.details, spec.details));
+    return {
+      // The gutter follows the label's hue, so thinking rows stay purple and tool
+      // rows stay green without either caller naming a gutter color.
+      gutter: this.gutter(labelColor),
+      text: parts.join(" "),
+      highlight: spec.highlight ? (text) => this.theme.bg(tokens.activeBg, text) : undefined,
+    };
+  }
+
+  /**
+   * The single line a folded run collapses to, e.g.
+   * `✓ read ×2, edit ×1 · ✗ bash ×1 · • bash ×1`.
+   *
+   * Always label-colored, even when it replaces a purple thinking row: the
+   * summary belongs to the run, not to one of its members.
+   */
+  summary(summary: RunSummary): Row {
+    const { label, details, error } = this.config.tokens();
+    const glyphs = this.config.glyphs();
+    const groups = [
+      { counts: summary.done, glyph: glyphs.done, token: label },
+      { counts: summary.failed, glyph: glyphs.failed, token: error },
+      { counts: summary.running, glyph: glyphs.running, token: label },
+    ]
+      .filter((group) => group.counts.length > 0)
+      .map((group) => `${this.theme.fg(group.token, group.glyph)} ${this.counts(group.counts, group.token)}`);
+
+    return { gutter: this.gutter(label), text: groups.join(this.theme.fg(details, " · ")) };
+  }
+
+  private counts(counts: Count[], color: ThemeColor): string {
+    const tokens = this.config.tokens();
+    const glyphs = this.config.glyphs();
+    return counts
+      .map(({ name, count }) => {
+        // Thinking keeps its own hue inside a summary — unless it is configured to
+        // behave exactly like a tool, in which case it should look like one too.
+        const keepsThinkingHue =
+          name === "think" && color === tokens.label && !this.config.get("thinkingAsToolCall");
+        const token = keepsThinkingHue ? tokens.thinking : color;
+        return `${this.theme.fg(token, name)} ${this.theme.fg(tokens.details, `${glyphs.count}${count}`)}`;
+      })
+      .join(this.theme.fg(tokens.details, ", "));
+  }
 }

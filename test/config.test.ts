@@ -3,16 +3,15 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import { Config, DEFAULTS } from "../src/config.ts";
 import {
-  Config,
-  DEFAULTS,
   agentDir,
   hasComments,
   loadSettings,
   migratedQuiet,
-  saveCommandSettings,
+  saveBasicSettings,
   stripJsonComments,
-} from "../src/config.ts";
+} from "../src/config-file.ts";
 
 /** Isolated fake agent dir + project dir, so no test touches real settings. */
 function sandbox(): { env: NodeJS.ProcessEnv; cwd: string; settingsPath: string } {
@@ -92,12 +91,12 @@ describe("loadSettings", () => {
   });
 });
 
-describe("saveCommandSettings", () => {
+describe("saveBasicSettings", () => {
   it("writes only the minimalist key and preserves everything else", () => {
     const { env, settingsPath } = sandbox();
     writeFileSync(settingsPath, JSON.stringify({ theme: "dark", extensions: ["a"] }, null, 2));
 
-    assert.deepEqual(saveCommandSettings({ ...DEFAULTS, groupToolRuns: true }, env), { ok: true });
+    assert.deepEqual(saveBasicSettings({ ...DEFAULTS, groupToolRuns: true }, env), { ok: true });
     const written = JSON.parse(readFileSync(settingsPath, "utf8"));
     assert.equal(written.theme, "dark", "unrelated keys survive");
     assert.deepEqual(written.extensions, ["a"]);
@@ -108,7 +107,7 @@ describe("saveCommandSettings", () => {
     const { env, settingsPath } = sandbox();
     writeFileSync(settingsPath, JSON.stringify({ minimalist: { glyphs: { done: "OK" }, excludeTools: ["x"] } }));
 
-    saveCommandSettings({ ...DEFAULTS, timer: false }, env);
+    saveBasicSettings({ ...DEFAULTS, timer: false }, env);
     const written = JSON.parse(readFileSync(settingsPath, "utf8"));
     assert.deepEqual(written.minimalist.glyphs, { done: "OK" }, "glyphs are JSON-only and untouched");
     assert.deepEqual(written.minimalist.excludeTools, ["x"]);
@@ -120,7 +119,7 @@ describe("saveCommandSettings", () => {
     const original = '{\n  // keep me\n  "theme": "dark"\n}';
     writeFileSync(settingsPath, original);
 
-    const result = saveCommandSettings({ ...DEFAULTS, timer: false }, env);
+    const result = saveBasicSettings({ ...DEFAULTS, timer: false }, env);
     assert.deepEqual(
       { ok: result.ok, reason: result.ok ? undefined : result.reason },
       { ok: false, reason: "comments" },

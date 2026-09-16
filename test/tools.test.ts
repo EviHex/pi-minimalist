@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { BUILT_INS, compact, describeTool, isBuiltIn, isCompactTool, quietToolName, refreshMcpTools } from "../src/tools.ts";
-import { Config, DEFAULTS } from "../src/config.ts";
+import { BUILT_INS, compact, describeTool, isBuiltIn, refreshMcpTools, summaryName } from "../src/tools.ts";
+import { Config } from "../src/config.ts";
 
 describe("isBuiltIn", () => {
   it("covers exactly Pi's native tool names", () => {
@@ -12,25 +12,25 @@ describe("isBuiltIn", () => {
   });
 });
 
-describe("isCompactTool", () => {
+describe("Config.compacts", () => {
   it("compacts every tool by default (blacklist, not whitelist)", () => {
-    const config = new Config(DEFAULTS);
+    const config = new Config();
     // The old rule was a whitelist of built-ins + MCP, which silently exempted
     // every third-party tool that shipped its own renderer.
     for (const name of [...BUILT_INS, "mcp", "mcpScript", "mcp__atlassian", "TaskCreate", "web_search", "anything"]) {
-      assert.equal(isCompactTool(name, config), true, name);
+      assert.equal(config.compacts(name), true, name);
     }
   });
 
   it("exempts only the configured tool names", () => {
     // `subagent` is excluded by DEFAULT, because its own renderer shows a run id
     // and state that one line cannot carry.
-    assert.equal(isCompactTool("subagent", new Config(DEFAULTS)), false);
+    assert.equal(new Config().compacts("subagent"), false);
 
-    const custom = new Config({ ...DEFAULTS, excludeTools: ["web_search"] });
-    assert.equal(isCompactTool("web_search", custom), false);
+    const custom = new Config({ excludeTools: ["web_search"] });
+    assert.equal(custom.compacts("web_search"), false);
     // Replacing the list also un-excludes subagent: the list IS the policy.
-    assert.equal(isCompactTool("subagent", custom), true);
+    assert.equal(custom.compacts("subagent"), true);
   });
 
   it("labels pi-mcp-adapter tools as mcp without deciding what compacts", () => {
@@ -85,12 +85,12 @@ describe("describeTool", () => {
     });
   });
 
-  it("uses actual operation names in quiet summaries", () => {
-    assert.equal(quietToolName("read", { path: "a.ts" }), "read");
-    assert.equal(quietToolName("goland__execute_tool", {}), "goland__execute_tool");
-    assert.equal(quietToolName("mcp", { tool: "atlassian_search" }), "atlassian_search");
+  it("uses actual operation names in run summaries", () => {
+    assert.equal(summaryName("read", { path: "a.ts" }), "read");
+    assert.equal(summaryName("goland__execute_tool", {}), "goland__execute_tool");
+    assert.equal(summaryName("mcp", { tool: "atlassian_search" }), "atlassian_search");
     assert.equal(
-      quietToolName("mcp__atlassian", { tool: "atlassian_getConfluencePage" }),
+      summaryName("mcp__atlassian", { tool: "atlassian_getConfluencePage" }),
       "atlassian_getConfluencePage @ atlassian",
     );
   });

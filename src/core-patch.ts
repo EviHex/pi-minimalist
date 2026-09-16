@@ -221,7 +221,7 @@ function thinkingRegions(children: Component[]): any[] {
 
 /**
  * PATCH 2 — collapsed preview, streaming expansion, all-purple expanded
- * Markdown, and the quiet chronology/spacer hooks.
+ * Markdown, and the run-grouping chronology/spacer hooks.
  *
  * Replaces five bundle rewrites inside `updateContent` with one wrapper:
  *
@@ -235,9 +235,10 @@ function thinkingRegions(children: Component[]): any[] {
  *  - collapsed preview: swap the hidden run's `Text` for our compact line.
  *  - expanded theme: recolor the run's `Markdown` in place (its private `theme`
  *    field is read at render time, and this runs before the first render).
- *  - quiet chronology: observe prose/thinking in transcript order.
- *  - quiet message spacer: replace the leading `Spacer` with one that asks quiet
- *    mode, at render time, whether it still belongs.
+ *  - chronology: observe prose/thinking in transcript order, which is what run
+ *    folding needs.
+ *  - message spacer: replace the leading `Spacer` with one that asks, at render
+ *    time, whether it still belongs.
  */
 export function patchAssistantMessage(proto: AssistantProto): void {
   once(proto, "assistantMessage", () => {
@@ -269,11 +270,11 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
   const purple = bridge<(base: Record<string, unknown>, theme: unknown) => Record<string, unknown>>(
     "thinkingMarkdownTheme",
   );
-  const quietThinking = bridge<(owner: object, run: number, streaming: boolean, hidden: boolean) => void>(
-    "quietThinking",
+  const observeThinking = bridge<(owner: object, run: number, streaming: boolean, hidden: boolean) => void>(
+    "observeThinking",
   );
-  const quietProse = bridge<(owner: object, contentIndex: number) => void>("quietProse");
-  const messageSpacer = bridge<(owner: object) => boolean>("quietMessageSpacer");
+  const observeProse = bridge<(owner: object, contentIndex: number) => void>("observeProse");
+  const messageSpacer = bridge<(owner: object) => boolean>("messageSpacer");
   const theme = liveTheme();
 
   const children = component.contentContainer.children;
@@ -281,12 +282,12 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
   const runs = thinkingRuns(message);
 
   // Transcript order: core interleaves prose and thinking while walking
-  // message.content, and quiet mode's run folding depends on that order.
+  // message.content, and run folding depends on that order.
   let run = 0;
   for (let i = 0; i < (message?.content?.length ?? 0); i++) {
     const content = message.content[i];
     if (content?.type === "text" && String(content.text ?? "").trim()) {
-      quietProse?.(component, i);
+      observeProse?.(component, i);
       continue;
     }
     if (content?.type !== "thinking") continue;
@@ -302,11 +303,11 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
     // Only Markdown carries a `theme` field, which is also the field the
     // all-purple recolor needs, so one check serves both branches.
     const hidden = inner?.theme === undefined;
-    // Pass `hidden`, NOT `!hidden`. The bridge itself negates it into `expanded`
-    // (bridge.ts), so negating here too inverted quiet folding: expanded
+    // Pass `hidden` THROUGH, never `!hidden`. bridge.ts negates it into
+    // `expanded` itself, so negating here too inverted all run folding: expanded
     // thinking became foldable (swallowing whole runs of tool rows into one
-    // summary) and collapsed thinking stopped folding.
-    quietThinking?.(component, runIndex, isStreaming, hidden);
+    // summary) and collapsed thinking stopped folding entirely.
+    observeThinking?.(component, runIndex, isStreaming, hidden);
 
     if (hidden) {
       if (!preview || !theme) continue;

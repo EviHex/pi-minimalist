@@ -3,9 +3,22 @@ import { describe, it } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { CompactLine, EmptyComponent, GutteredComponent } from "../src/components.ts";
 import { BUILT_INS } from "../src/tools.ts";
-import { QuietMode } from "../src/quiet-mode.ts";
+import type { Config } from "../src/config.ts";
+import type { RunGrouping } from "../src/run-grouping.ts";
 import { createToolRenderer, statusGlyph, timerBadge } from "../src/tool-renderer.ts";
-import { fakeClock, fakeTheme, fakeTimers, makeContext, plain, plainTheme } from "../test/test-support.ts";
+import {
+  fakeClock,
+  fakeTheme,
+  fakeTimers,
+  makeContext,
+  plain,
+  plainTheme,
+  testConfig,
+  testState,
+} from "../test/test-support.ts";
+
+/** Defaults for the statusGlyph/timerBadge unit tests. */
+const config = testConfig();
 
 const theme = fakeTheme();
 // Width/truncation assertions need a theme whose markup costs zero columns.
@@ -16,12 +29,21 @@ function renderer(
   options: {
     clock?: ReturnType<typeof fakeClock>;
     timers?: ReturnType<typeof fakeTimers>;
-    quiet?: QuietMode;
+    config?: Config;
+    grouping?: RunGrouping;
   } = {},
 ) {
   const clock = options.clock ?? fakeClock();
   const timers = options.timers ?? fakeTimers();
-  return { renderer: createToolRenderer({ now: clock.now, timers, quiet: options.quiet }), clock, timers };
+  const state = options.config && options.grouping
+    ? { config: options.config, grouping: options.grouping }
+    : testState();
+  return {
+    renderer: createToolRenderer({ ...state, now: clock.now, timers }),
+    clock,
+    timers,
+    ...state,
+  };
 }
 
 /** Native renderResult stand-in: multiline output, reuse-aware like the real ones. */
@@ -151,27 +173,25 @@ describe("renderCall", () => {
     }
   });
 
-  it("folds completed whitelisted runs only while quiet mode is enabled", () => {
-    const quiet = new QuietMode();
-    const { renderer: r } = renderer({ quiet });
+  it("folds completed runs only while groupToolRuns is enabled", () => {
+    const { renderer: r, config } = renderer();
     const first = r.renderCall("read", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "1" }));
     const second = r.renderCall("edit", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "2" }));
     const third = r.renderCall("read", { path: "b.ts" }, widthTheme, makeContext("completed", { toolCallId: "3" }));
 
-    assert.deepEqual(first.render(80).map(plain), [" ▌ ✓ read a.ts"], "quiet starts disabled");
-    quiet.toggle();
+    assert.deepEqual(first.render(80).map(plain), [" ▌ ✓ read a.ts"], "grouping starts disabled");
+    config.set("groupToolRuns", true);
     assert.deepEqual(first.render(80), []);
     assert.deepEqual(second.render(80), []);
     assert.deepEqual(third.render(80).map(plain), [" ▌ ✓ read ×2, edit ×1"]);
   });
 
   it("folds terminal failures into a trailing error summary", () => {
-    const quiet = new QuietMode();
-    const { renderer: r } = renderer({ quiet });
+    const { renderer: r, config } = renderer();
     const read = r.renderCall("read", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "1" }));
     const failed = r.renderCall("bash", { command: "false" }, widthTheme, makeContext("failed", { toolCallId: "2" }));
     const edit = r.renderCall("edit", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "3" }));
-    quiet.toggle();
+    config.set("groupToolRuns", true);
 
     assert.deepEqual(read.render(80), []);
     assert.deepEqual(failed.render(80), []);
@@ -179,15 +199,14 @@ describe("renderCall", () => {
   });
 
   it("folds tools under their actual names, but not across an expanded entry", () => {
-    const quiet = new QuietMode();
-    const { renderer: r } = renderer({ quiet });
+    const { renderer: r, config } = renderer();
     const read = r.renderCall("read", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "1" }));
     const bash = r.renderCall("bash", { command: "echo ok" }, widthTheme, makeContext("completed", { toolCallId: "2" }));
     const mcp = r.renderCall("mcp__atlassian", { tool: "atlassian_search" }, widthTheme, makeContext("completed", { toolCallId: "3" }));
     const mcpScript = r.renderCall("mcpScript", { code: "emit(1)" }, widthTheme, makeContext("completed", { toolCallId: "4" }));
     const edit = r.renderCall("edit", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "5", expanded: true }));
     const ls = r.renderCall("ls", {}, widthTheme, makeContext("completed", { toolCallId: "6" }));
-    quiet.toggle();
+    config.set("groupToolRuns", true);
 
     for (const component of [read, bash, mcp]) assert.deepEqual(component.render(80), []);
     assert.deepEqual(mcpScript.render(80).map(plain), [
@@ -348,12 +367,12 @@ describe("renderResult", () => {
 });
 
 describe("statusGlyph", () => {
-  it("maps every UI state to its glyph, color, and quiet outcome", () => {
-    assert.deepEqual(statusGlyph(makeContext("queued")), { glyph: "›", color: "success", outcome: "pending" });
-    assert.deepEqual(statusGlyph(makeContext("completed")), { glyph: "✓", color: "success", outcome: "success" });
-    assert.deepEqual(statusGlyph(makeContext("failed")), { glyph: "✗", color: "error", outcome: "failure" });
+  it("maps every UI state to its glyph, color, and grouping outcome", () => {
+    assert.deepEqual(statusGlyph(makeContext("queued"), config), { glyph: "›", color: "success", outcome: "pending" });
+    assert.deepEqual(statusGlyph(makeContext("completed"), config), { glyph: "✓", color: "success", outcome: "success" });
+    assert.deepEqual(statusGlyph(makeContext("failed"), config), { glyph: "✗", color: "error", outcome: "failure" });
 
-    const running = statusGlyph(makeContext("running"));
+    const running = statusGlyph(makeContext("running"), config);
     assert.equal(running.glyph, "•");
     assert.equal(running.color, "success");
     assert.equal(running.outcome, "pending");
@@ -364,25 +383,25 @@ describe("statusGlyph", () => {
     // Session replay never calls markExecutionStarted(); keying off
     // executionStarted would show the queued caret for every historical call.
     const replayed = { state: {}, isPartial: false, isError: false, executionStarted: false };
-    assert.equal(statusGlyph(replayed).glyph, "✓");
+    assert.equal(statusGlyph(replayed, config).glyph, "✓");
   });
 
   it("advances elapsed seconds with the injected clock", () => {
     const clock = fakeClock();
     const context = makeContext("running");
 
-    assert.equal(statusGlyph(context, clock.now).elapsed, 0);
+    assert.equal(statusGlyph(context, config, clock.now).elapsed, 0);
     clock.advance(2_400);
-    assert.equal(statusGlyph(context, clock.now).elapsed, 2);
+    assert.equal(statusGlyph(context, config, clock.now).elapsed, 2);
     clock.advance(600);
-    assert.equal(statusGlyph(context, clock.now).elapsed, 3);
+    assert.equal(statusGlyph(context, config, clock.now).elapsed, 3);
   });
 
   it("stops reporting elapsed once the result is final", () => {
-    assert.equal(statusGlyph(makeContext("completed")).elapsed, undefined);
-    assert.equal(timerBadge(undefined), "");
-    assert.equal(timerBadge(0), "", "no badge under one second (avoids 0s flicker)");
-    assert.equal(timerBadge(1), "[⏱ 1s]");
-    assert.equal(timerBadge(7), "[⏱ 7s]");
+    assert.equal(statusGlyph(makeContext("completed"), config).elapsed, undefined);
+    assert.equal(timerBadge(undefined, config), "");
+    assert.equal(timerBadge(0, config), "", "no badge under one second (avoids 0s flicker)");
+    assert.equal(timerBadge(1, config), "[⏱ 1s]");
+    assert.equal(timerBadge(7, config), "[⏱ 7s]");
   });
 });

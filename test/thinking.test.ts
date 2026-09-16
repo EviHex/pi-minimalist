@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { allPurpleThinkingTheme, createThinkingPreview } from "../src/thinking.ts";
-import { fakeTheme, fakeTimers, plain, plainTheme } from "../test/test-support.ts";
+import { createThinkingPreview, singleHueThinkingTheme } from "../src/thinking.ts";
+import { fakeTheme, fakeTimers, plain, plainTheme, testConfig, testState } from "../test/test-support.ts";
 
 // Token assertions use the naming theme; layout/width assertions use the
 // zero-width one, because fake markup would consume real columns.
 const theme = fakeTheme();
 const widthTheme = plainTheme();
-const preview = createThinkingPreview(fakeTimers());
+const preview = createThinkingPreview({ ...testState(), timers: fakeTimers() });
 
 describe("thinking preview", () => {
   it("shows a running dot while streaming and a check when complete", () => {
@@ -54,18 +54,19 @@ describe("thinking preview", () => {
     // The preview is repainted by streaming text, so it must never start the
     // 1s interval. This is a guard for a future change, not current logic.
     const timers = fakeTimers();
-    const line = createThinkingPreview(timers)("x", widthTheme, 0, true);
+    const line = createThinkingPreview({ ...testState(), timers })("x", widthTheme, 0, true);
     line.render(40);
     assert.equal(line.isTicking(), false);
     assert.equal(timers.pending(), 0);
   });
 });
 
-describe("allPurpleThinkingTheme", () => {
+describe("singleHueThinkingTheme", () => {
   it("overrides every color-bearing Markdown token and syntax highlighting", () => {
-    const themed = allPurpleThinkingTheme(
+    const themed = singleHueThinkingTheme(
       { bold: (text: string) => `*${text}*`, codeBlockIndent: "\x1b[38;2;128;128;128m│ \x1b[39m" },
       fakeTheme(),
+      testConfig(),
     ) as Record<string, any>;
 
     for (const key of ["heading", "link", "linkUrl", "code", "codeBlock", "codeBlockBorder", "quote", "quoteBorder", "hr", "listBullet"]) {

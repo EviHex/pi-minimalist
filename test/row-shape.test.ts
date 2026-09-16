@@ -10,9 +10,9 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { labeledRow, summaryRow, type ThemeLike } from "../src/row.ts";
+import { Painter, type ThemeLike } from "../src/row.ts";
 import { describeTool, BUILT_INS } from "../src/tools.ts";
-import { plain, plainTheme } from "./test-support.ts";
+import { plain, plainTheme, testConfig } from "./test-support.ts";
 
 /**
  * Cell-accurate model of what a terminal displays: one (glyph, activeColor) pair
@@ -40,9 +40,11 @@ const markup: ThemeLike = {
   bg: (token, text) => `<${token}>${text}</${token}>`,
 };
 
+const painter = new Painter(markup, testConfig());
+
 describe("painted row structure", () => {
   it("never colors a separator space", () => {
-    const row = labeledRow(markup, {
+    const row = painter.labeled({
       glyph: "✓",
       label: "bash",
       badge: "[⏱ 3s]",
@@ -54,7 +56,7 @@ describe("painted row structure", () => {
   });
 
   it("colors each segment independently, with no bleed across the boundary", () => {
-    const painted = cells(labeledRow(markup, { glyph: "✗", glyphColor: "error", label: "bash", details: "false" }).text);
+    const painted = cells(painter.labeled({ glyph: "✗", glyphColor: "error", label: "bash", details: "false" }).text);
     const colorOf = (char: string) => painted.find(([c]) => c === char)?.[1];
     assert.equal(colorOf("✗"), "error");
     assert.equal(colorOf("b"), "success", "the label keeps its own color");
@@ -64,7 +66,7 @@ describe("painted row structure", () => {
   it("emits no empty color span for an absent segment", () => {
     // `read` with streaming args that have not delivered `path` yet.
     const { label, details } = describeTool("read", {});
-    const row = labeledRow(markup, { glyph: "›", label, details });
+    const row = painter.labeled({ glyph: "›", label, details });
     assert.equal(row.text, "<success>›</success> <success>read</success>");
     assert.ok(!row.text.includes("<toolTitle></toolTitle>"), "no zero-width span");
     assert.ok(!plain(row.text).endsWith(" "), "and no trailing separator space");
@@ -76,14 +78,14 @@ describe("painted row structure", () => {
     for (const name of BUILT_INS) {
       for (const expanded of [false, true]) {
         const { label, details } = describeTool(name, args, { expanded });
-        const text = labeledRow(theme, { glyph: "✓", label, details }).text;
+        const text = new Painter(theme, testConfig()).labeled({ glyph: "✓", label, details }).text;
         assert.ok(!text.includes("\n"), `${name} exp=${expanded} must stay single-line`);
       }
     }
   });
 
   it("separates quiet summary groups without coloring the separator glyphs' spaces", () => {
-    const row = summaryRow(markup, [{ name: "read", count: 2 }], [{ name: "bash", count: 1 }]);
+    const row = painter.summary({ done: [{ name: "read", count: 2 }], failed: [{ name: "bash", count: 1 }], running: [] });
     assert.equal(plain(row.text), "✓ read ×2 · ✗ bash ×1");
     for (const [char, color] of cells(row.text)) {
       if (char === " ") assert.equal(color, "-");

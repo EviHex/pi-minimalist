@@ -10,7 +10,9 @@
  */
 
 import type { Timers } from "../src/components.ts";
-import type { ThemeLike } from "../src/row.ts";
+import { Config, type Settings } from "../src/config.ts";
+import { Painter, type ThemeLike } from "../src/row.ts";
+import { RunGrouping } from "../src/run-grouping.ts";
 import type { RenderState } from "../src/tool-renderer.ts";
 
 /**
@@ -38,6 +40,27 @@ export function plain(line: string): string {
   return line
     .replace(/\x1b\[[0-9;]*m/g, "")
     .replace(/<\/?[a-zA-Z]+>|\[\/?[a-zA-Z]+\]/g, "");
+}
+
+/**
+ * Settings for a test, on top of the real defaults.
+ *
+ * Tests name only the settings they care about, so adding a new setting does not
+ * touch every test, and each test still exercises the production defaults.
+ */
+export function testConfig(settings: Partial<Settings> = {}): Config {
+  return new Config(settings);
+}
+
+/** Config plus its grouping state, the pair every renderer needs. */
+export function testState(settings: Partial<Settings> = {}): { config: Config; grouping: RunGrouping } {
+  const config = testConfig(settings);
+  return { config, grouping: new RunGrouping(config) };
+}
+
+/** Painter over the token-naming fake theme. */
+export function testPainter(settings: Partial<Settings> = {}, theme: ThemeLike = fakeTheme()): Painter {
+  return new Painter(theme, testConfig(settings));
 }
 
 export type FakeClock = {

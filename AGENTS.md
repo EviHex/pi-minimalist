@@ -79,7 +79,9 @@ defaults  <  ~/.pi/agent/settings.json  <  <cwd>/.pi/settings.json
 - `/minimalist` opens an editor built on pi-tui's `SettingsList` — the same
   component `/settings` uses, so arrow keys, hover descriptions and Enter/Space
   cycling behave identically. `/minimalist config` remains an alias.
-- `/minimalist status` prints the current state.
+- `/minimalist status` prints the current state. The editor's Restore defaults
+  action resets only its eleven settings, including `glyphStyle`, leaving
+  hand-written advanced values and unrelated Pi settings untouched.
 
 ### Which settings are discoverable, and why
 

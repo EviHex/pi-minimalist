@@ -3,6 +3,7 @@
 import { truncateToWidth, type AutocompleteItem, type Component, type SettingItem, type SettingsList, type SettingsListTheme } from "@earendil-works/pi-tui";
 import {
   BASIC_KEYS,
+  DEFAULT_BASIC,
   type BasicKey,
   type BasicSettings,
   type Config,
@@ -103,21 +104,38 @@ export type ConfigScreenDeps = {
   theme: SettingsListTheme;
   config: Config;
   onChange: (key: BasicKey, value: BasicValue) => void;
+  onReset: () => void;
   onClose: () => void;
 };
 
 /** Build a live screen; toggling prose folding immediately adds/removes its two child rows. */
 export function createConfigScreen(deps: ConfigScreenDeps): InputComponent {
-  const { SettingsList, theme, config, onChange, onClose } = deps;
+  const { SettingsList, theme, config, onChange, onReset, onClose } = deps;
   let list: SettingsList;
 
   const build = () => {
-    const rows = items(config.all());
+    const rows = [
+      ...items(config.all()),
+      {
+        id: "restoreDefaults",
+        label: "Restore defaults",
+        description: "Reset the settings in this editor, including Symbols. Custom glyphs, colours, and excluded tools are kept.",
+        currentValue: "Enter to restore",
+        values: ["Restore"],
+      },
+    ];
     return new SettingsList(
       rows,
       rows.length,
       theme,
       (id, displayValue) => {
+        if (id === "restoreDefaults") {
+          for (const key of BASIC_KEYS) config.set(key, DEFAULT_BASIC[key]);
+          onReset();
+          list = build();
+          list.selectItem(id);
+          return;
+        }
         if (!isBasicKey(id)) return;
         if (id === "activitySummary") {
           const value = displayValue === "tools used" ? "tools" : "elapsed";

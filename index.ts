@@ -22,7 +22,7 @@ import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 // keybindings and colours, as Pi's own `/settings`.
 import { SettingsList } from "@earendil-works/pi-tui";
 import { installBridges, sharedState } from "./src/bridge.ts";
-import type { BasicKey, BasicSettings, Config } from "./src/config.ts";
+import { BASIC_KEYS, type BasicKey, type BasicSettings, type Config } from "./src/config.ts";
 import { loadSettings, migratedQuiet, saveBasicSettings } from "./src/config-file.ts";
 import { argumentCompletions, createConfigScreen, summary } from "./src/config-ui.ts";
 import { patchCore } from "./src/core-patch.ts";
@@ -82,6 +82,7 @@ export default function (pi: ExtensionAPI) {
           theme: getSettingsListTheme(),
           config,
           onChange: (key, value) => persist(ctx, config, key, value),
+          onReset: () => persistDefaults(ctx, config),
           onClose: () => done(),
         }),
       );
@@ -98,6 +99,17 @@ type NotifyContext = { ui: { notify(message: string, type?: "info" | "warning" |
  * the file disagreeing. Keeping it as a session override means the per-turn
  * re-read cannot revert what the message says was applied.
  */
+function persistDefaults(ctx: NotifyContext, config: Config): void {
+  const result = saveBasicSettings(config.all());
+  for (const key of BASIC_KEYS) {
+    if (result.ok) config.clearSessionOverride(key);
+    else config.setSessionOverride(key, config.get(key));
+  }
+  if (!result.ok) {
+    ctx.ui.notify(`Defaults applied for this session only; settings.json could not be written (${result.reason}).`, "warning");
+  }
+}
+
 function persist(
   ctx: NotifyContext,
   config: Config,

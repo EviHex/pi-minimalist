@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { BASIC_KEYS, Config, DEFAULTS } from "../src/config.ts";
+import { BASIC_KEYS, Config, DEFAULTS, DEFAULT_BASIC } from "../src/config.ts";
 import { FIELDS, argumentCompletions, createConfigScreen, items, summary } from "../src/config-ui.ts";
 
 type Item = { id: string; label: string; description?: string; currentValue: string; values?: string[] };
@@ -43,12 +43,13 @@ class FakeSettingsList {
   selectItem(): void {}
 }
 
-function screen(config: Config, onChange = (_k: string, _v: unknown) => {}, onClose = () => {}) {
+function screen(config: Config, onChange = (_k: string, _v: unknown) => {}, onClose = () => {}, onReset = () => {}) {
   createConfigScreen({
     SettingsList: FakeSettingsList as never,
     theme: {} as never,
     config,
     onChange: onChange as never,
+    onReset,
     onClose,
   });
   const list = FakeSettingsList.last;
@@ -126,6 +127,7 @@ describe("config screen contents", () => {
       theme: { hint: (text: string) => text } as never,
       config: new Config(DEFAULTS),
       onChange: () => {},
+      onReset: () => {},
       onClose: () => {},
     });
     assert.match(component.render(80).at(-1)!, /Changes apply live · Ctrl\+O reveals tool output/);
@@ -168,6 +170,23 @@ describe("config screen behaviour", () => {
     const before = config.all();
     screen(config).onChange("not-a-setting", "on");
     assert.deepEqual(config.all(), before);
+  });
+
+  it("restores editor-managed defaults live while retaining advanced values", () => {
+    const config = new Config({ ...DEFAULTS, groupToolRuns: true, glyphStyle: "ascii", foldIntermediateActivity: true,
+      glyphs: { done: "OK" }, tokens: { label: "accent" }, excludeTools: ["custom"] });
+    let reset = 0;
+    const list = screen(config, undefined, undefined, () => reset++);
+    assert.equal(list.items.at(-1)?.label, "Restore defaults");
+    assert.match(list.items.at(-1)?.description ?? "", /Custom glyphs/);
+    list.onChange("restoreDefaults", "Restore");
+    assert.equal(reset, 1);
+    for (const key of BASIC_KEYS) assert.equal(config.get(key), DEFAULT_BASIC[key]);
+    assert.deepEqual(config.get("glyphs"), { done: "OK" });
+    assert.deepEqual(config.get("tokens"), { label: "accent" });
+    assert.deepEqual(config.get("excludeTools"), ["custom"]);
+    assert.equal(FakeSettingsList.last?.items.some((item) => item.id === "foldActivityOnFinalAnswer"), false);
+    assert.equal(FakeSettingsList.last?.items.find((item) => item.id === "glyphStyle")?.currentValue, "Unicode");
   });
 
   it("closes through the cancel callback", () => {

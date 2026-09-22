@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { Config, DEFAULTS } from "../src/config.ts";
+import { BASIC_KEYS, Config, DEFAULTS, DEFAULT_BASIC } from "../src/config.ts";
 import {
   agentDir,
   hasComments,
@@ -123,6 +123,22 @@ describe("saveBasicSettings", () => {
     assert.equal(written.minimalist.timer, false);
   });
 
+  it("resets editable values without changing custom or unrelated settings", () => {
+    const { env, settingsPath } = sandbox();
+    writeFileSync(settingsPath, JSON.stringify({ theme: "dark", minimalist: {
+      groupToolRuns: true, glyphStyle: "ascii", glyphs: { done: "OK" }, tokens: { label: "accent" },
+      excludeTools: ["custom"], maxDetailChars: 99,
+    } }));
+    assert.deepEqual(saveBasicSettings(DEFAULTS, env), { ok: true });
+    const written = JSON.parse(readFileSync(settingsPath, "utf8"));
+    for (const key of BASIC_KEYS) assert.equal(written.minimalist[key], DEFAULT_BASIC[key]);
+    assert.deepEqual(written.minimalist.glyphs, { done: "OK" });
+    assert.deepEqual(written.minimalist.tokens, { label: "accent" });
+    assert.deepEqual(written.minimalist.excludeTools, ["custom"]);
+    assert.equal(written.minimalist.maxDetailChars, 99);
+    assert.equal(written.theme, "dark");
+  });
+
   it("REFUSES to write a file with comments instead of deleting them", () => {
     const { env, settingsPath } = sandbox();
     const original = '{\n  // keep me\n  "theme": "dark"\n}';
@@ -176,6 +192,19 @@ describe("Config", () => {
     assert.equal(new Config(DEFAULTS).isExcluded("subagent"), true);
     assert.equal(new Config(DEFAULTS).isExcluded("read"), false);
     assert.equal(new Config({ ...DEFAULTS, excludeTools: [] }).isExcluded("subagent"), false);
+  });
+
+  it("clears previous session overrides after a successful reset", () => {
+    const config = new Config(DEFAULTS);
+    config.setSessionOverride("groupToolRuns", true);
+    config.setSessionOverride("glyphStyle", "ascii");
+    for (const key of BASIC_KEYS) {
+      config.set(key, DEFAULT_BASIC[key]);
+      config.clearSessionOverride(key);
+    }
+    config.replace(DEFAULTS);
+    assert.equal(config.get("groupToolRuns"), false);
+    assert.equal(config.get("glyphStyle"), "unicode");
   });
 
   it("keeps session overrides across a settings re-read", () => {

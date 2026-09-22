@@ -76,10 +76,10 @@ defaults  <  ~/.pi/agent/settings.json  <  <cwd>/.pi/settings.json
 }
 ```
 
-- `/minimalist` prints the current state.
-- `/minimalist config` opens an editor built on pi-tui's `SettingsList` — the
-  same component `/settings` uses, so arrow keys, hover descriptions and
-  Enter/Space cycling behave identically.
+- `/minimalist` opens an editor built on pi-tui's `SettingsList` — the same
+  component `/settings` uses, so arrow keys, hover descriptions and Enter/Space
+  cycling behave identically. `/minimalist config` remains an alias.
+- `/minimalist status` prints the current state.
 
 ### Which settings are discoverable, and why
 
@@ -97,7 +97,7 @@ for exactly that, and every ASCII glyph is one column wide.
 
 ### Writing rules
 
-`/minimalist config` writes ONLY the ten basic keys inside the `minimalist`
+The `/minimalist` editor writes ONLY the ten basic keys inside the `minimalist`
 key, so a hand-written `glyphs`/`tokens`/`excludeTools` block is never touched.
 It REFUSES to write a settings.json containing comments — `JSON.stringify` would
 silently delete them — and says so, applying the change for the session instead.
@@ -283,7 +283,7 @@ Dependencies point one way, so no module needs to know about a layer above it.
 ```
 index.ts                 wiring only: shared state, bridges, /minimalist
   ├─ config-file.ts      settings.json I/O, migration
-  ├─ config-ui.ts        /minimalist config screen
+  ├─ config-ui.ts        /minimalist screen and status summary
   └─ bridge.ts           symbol table + installation
        ├─ core-patch.ts  prototype wrappers
        ├─ tool-renderer.ts  ─┐
@@ -299,7 +299,7 @@ index.ts                 wiring only: shared state, bridges, /minimalist
 | --- | --- |
 | `src/config.ts` | setting schema, defaults, `Config` (no filesystem access) |
 | `src/config-file.ts` | settings.json paths, load/merge/save, comment handling, migration |
-| `src/config-ui.ts` | `/minimalist config` field list + `SettingsList` wiring |
+| `src/config-ui.ts` | `/minimalist` field list + `SettingsList` wiring |
 | `src/bridge.ts` | `BRIDGE_SYMBOLS`, `sharedState()`, `installBridges()` |
 | `src/core-patch.ts` | the two runtime prototype wrappers |
 | `src/row.ts` | `Row`/`RunSummary` model and `Painter`, the only thing that colors text |
@@ -415,10 +415,10 @@ MCP adapter interplay, and how the glyphs look in a given font. After a restart:
 8. An error: red `✗`.
 9. `Ctrl+T`: `• think …` while streaming, `✓ think <preview>` when done. Streaming
    stays COLLAPSED by default; `keepActiveThinkingExpanded` shows it in full.
-10. `/minimalist`: one line per setting.
-11. `/minimalist config`: arrow keys, a description line for the hovered setting,
-    Enter/Space cycling — and the transcript behind the overlay changing as you
-    toggle.
+10. `/minimalist status`: one line per setting.
+11. `/minimalist` (or `/minimalist config`): arrow keys, a description line for
+    the hovered setting, Enter/Space cycling, a visible live-change/Ctrl+O hint —
+    and the transcript behind the overlay changing as you toggle.
 12. `"glyphStyle": "ascii"`: `+ bash …` with a `|` gutter, still aligned.
 13. A long command with `groupToolRuns` on: counted in the summary's `•` group,
     not vanished.

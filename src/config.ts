@@ -83,7 +83,7 @@ export const DEFAULT_TOKENS: Tokens = {
 // Settings
 // ---------------------------------------------------------------------------
 
-/** Settings `/minimalist config` can edit: visible effect, no vocabulary needed. */
+/** Settings `/minimalist` can edit: visible effect, no vocabulary needed. */
 export type ActivitySummary = "elapsed" | "tools";
 
 export type BasicSettings = {
@@ -154,7 +154,7 @@ export const DEFAULT_ADVANCED: AdvancedSettings = {
 export const DEFAULTS: Settings = { ...DEFAULT_BASIC, ...DEFAULT_ADVANCED };
 
 /**
- * Keys `/minimalist config` may write.
+ * Keys `/minimalist` may write.
  *
  * Derived from DEFAULT_BASIC, so adding a basic setting cannot forget to expose
  * it, and the command can never clobber a hand-written advanced key.

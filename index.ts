@@ -18,7 +18,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as core from "@earendil-works/pi-coding-agent";
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 // SettingsList lives in pi-tui; its Pi-styled theme comes from pi-coding-agent.
-// Using both means `/minimalist config` is the same component, with the same
+// Using both means `/minimalist` is the same component, with the same
 // keybindings and colours, as Pi's own `/settings`.
 import { SettingsList } from "@earendil-works/pi-tui";
 import { installBridges, sharedState } from "./src/bridge.ts";
@@ -59,18 +59,20 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_settled", () => grouping.agentSettled());
 
   pi.registerCommand("minimalist", {
-    description: "Show pi-minimalist settings; `config` opens the editor",
+    description: "Open pi-minimalist settings; `status` shows current state",
     getArgumentCompletions: argumentCompletions,
     handler: async (args, ctx) => {
-      if (args.trim().toLowerCase() !== "config") {
-        // Bare `/minimalist` prints current state instead of opening a chooser:
-        // "what is on right now" is the more common question and needs no
-        // navigation.
+      const command = args.trim().toLowerCase();
+      if (command && command !== "config" && command !== "status") {
+        ctx.ui.notify("Usage: /minimalist [config|status]", "warning");
+        return;
+      }
+      if (command === "status") {
         ctx.ui.notify(`pi-minimalist\n${summary(config.all())}`, "info");
         return;
       }
-      if (!ctx.hasUI) {
-        ctx.ui.notify("/minimalist config needs the interactive TUI", "warning");
+      if (!ctx.hasUI || ctx.mode !== "tui") {
+        ctx.ui.notify("/minimalist needs the interactive TUI; use /minimalist status for current settings", "warning");
         return;
       }
 

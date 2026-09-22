@@ -33,6 +33,54 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
     assert.equal(typeof (globalThis as any)[Symbol.for("pi.thinkingPreview")], "function");
   });
 
+  it("opens settings by default, keeps config as alias, and reports status without a TUI", async () => {
+    const { loadExtensions } = await import(`${PI_ROOT}/dist/core/extensions/loader.js`);
+    const loaded = await loadExtensions([EXTENSION], EXTENSION_DIR);
+    assert.deepEqual(loaded.errors, []);
+    const command = loaded.extensions[0].commands.get("minimalist");
+    assert.ok(command);
+    assert.match(command.description, /Open pi-minimalist settings/);
+    const { initTheme } = await import(`${PI_ROOT}/dist/modes/interactive/theme/theme.js`);
+    initTheme("dark", false);
+
+    const notices: [string, string][] = [];
+    const screens: { render(width: number): string[] }[] = [];
+    const ctx = {
+      hasUI: true,
+      mode: "tui",
+      ui: {
+        notify: (message: string, level: string) => notices.push([message, level]),
+        custom: async (factory: (tui: unknown, theme: unknown, keys: unknown, done: () => void) => { render(width: number): string[] }) => {
+          screens.push(factory(undefined, undefined, undefined, () => {}));
+        },
+      },
+    };
+
+    await command.handler("", ctx as never);
+    await command.handler("config", ctx as never);
+    assert.equal(screens.length, 2);
+    assert.match(screens[0].render(80).at(-1)!, /Changes apply live · Ctrl\+O reveals tool output/);
+    assert.deepEqual(notices, []);
+
+    await command.handler("status", ctx as never);
+    assert.equal(screens.length, 2);
+    assert.match(notices.at(-1)![0], /pi-minimalist\n/);
+    assert.match(notices.at(-1)![0], /\/minimalist\s+change these/);
+
+    ctx.hasUI = false;
+    ctx.mode = "print";
+    await command.handler("", ctx as never);
+    await command.handler("config", ctx as never);
+    await command.handler("status", ctx as never);
+    assert.equal(screens.length, 2, "never open the custom TUI in print mode");
+    assert.equal(notices.at(-1)![1], "info", "status remains available without a TUI");
+
+    ctx.hasUI = true;
+    ctx.mode = "rpc";
+    await command.handler("", ctx as never);
+    assert.equal(screens.length, 2, "RPC has UI notifications but no custom TUI");
+  });
+
   it("keeps the built-in name list aligned with Pi", async () => {
     const tools = await import(`${PI_ROOT}/dist/core/tools/index.js`);
     for (const name of BUILT_INS) {

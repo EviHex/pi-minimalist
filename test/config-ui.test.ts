@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { BASIC_KEYS, Config, DEFAULTS } from "../src/config.ts";
 import { FIELDS, argumentCompletions, createConfigScreen, items, summary } from "../src/config-ui.ts";
 
@@ -103,6 +104,18 @@ describe("config screen contents", () => {
     const list = screen(new Config(DEFAULTS));
     assert.equal(list.maxVisible, list.items.length);
   });
+
+  it("shows a live-change and output hint under the settings list", () => {
+    const component = createConfigScreen({
+      SettingsList: FakeSettingsList as never,
+      theme: { hint: (text: string) => text } as never,
+      config: new Config(DEFAULTS),
+      onChange: () => {},
+      onClose: () => {},
+    });
+    assert.match(component.render(80).at(-1)!, /Changes apply live · Ctrl\+O reveals tool output/);
+    assert.ok(visibleWidth(component.render(20).at(-1)!) <= 20);
+  });
 });
 
 describe("config screen behaviour", () => {
@@ -160,21 +173,20 @@ describe("summary", () => {
     assert.ok(!text.includes("Wait for OpenAI final answer"));
     assert.match(text, /Group tool runs\s+on/);
     assert.match(text, /Elapsed timer\s+on/);
-    // Bare `/minimalist` should point at both the editor and the JSON-only keys.
-    assert.ok(text.includes("/minimalist config"));
+    // `/minimalist status` should point at both the editor and the JSON-only keys.
+    assert.ok(text.includes("/minimalist          change these"));
     assert.ok(text.includes("settings.json"));
   });
 });
 
 describe("argumentCompletions", () => {
-  it("suggests `config` after `/minimalist ` and filters by the typed prefix", () => {
+  it("suggests `config` and `status`, filtered by prefix", () => {
     const empty = argumentCompletions("");
-    assert.ok(empty && empty.length === 1 && empty[0].value === "config");
-    assert.ok(empty?.[0].description, "the suggestion menu shows the description");
+    assert.deepEqual(empty?.map(({ value }) => value), ["config", "status"]);
+    assert.ok(empty?.every((item) => item.description), "the suggestion menu shows descriptions");
 
-    const typed = argumentCompletions("con");
-    assert.ok(typed && typed.length === 1 && typed[0].value === "config");
-
+    assert.deepEqual(argumentCompletions("con")?.map(({ value }) => value), ["config"]);
+    assert.deepEqual(argumentCompletions("sta")?.map(({ value }) => value), ["status"]);
     assert.equal(argumentCompletions("x"), null, "no match means no menu");
   });
 });

@@ -1,6 +1,6 @@
-/** `/minimalist config` — Pi's own SettingsList with live, conditional rows. */
+/** `/minimalist` (also `/minimalist config`) — Pi's SettingsList with live, conditional rows. */
 
-import type { AutocompleteItem, Component, SettingItem, SettingsList, SettingsListTheme } from "@earendil-works/pi-tui";
+import { truncateToWidth, type AutocompleteItem, type Component, type SettingItem, type SettingsList, type SettingsListTheme } from "@earendil-works/pi-tui";
 import {
   BASIC_KEYS,
   type BasicKey,
@@ -134,7 +134,10 @@ export function createConfigScreen(deps: ConfigScreenDeps): InputComponent {
 
   list = build();
   return {
-    render: (width) => list.render(width),
+    render: (width) => [
+      ...list.render(width),
+      truncateToWidth(theme.hint("  Changes apply live · Ctrl+O reveals tool output"), width),
+    ],
     handleInput: (data) => list.handleInput(data),
     handleMouse: (event) => list.handleMouse?.(event),
     invalidate: () => list.invalidate?.(),
@@ -155,12 +158,13 @@ function displayValue(value: BasicValue): string {
 export function argumentCompletions(prefix: string): AutocompleteItem[] | null {
   const items: AutocompleteItem[] = [
     { value: "config", label: "config", description: "Open the settings editor" },
+    { value: "status", label: "status", description: "Show current settings" },
   ];
   const filtered = items.filter((item) => item.value.startsWith(prefix));
   return filtered.length > 0 ? filtered : null;
 }
 
-/** One-line-per-visible-setting summary for `/minimalist` with no arguments. */
+/** One-line-per-visible-setting summary for `/minimalist status`. */
 export function summary(settings: Settings): string {
   const visible = FIELDS.filter((field) => !field.activityOption || settings.foldIntermediateActivity);
   const width = Math.max(...visible.map((field) => field.label.length));
@@ -169,7 +173,7 @@ export function summary(settings: Settings): string {
       return `  ${label.padEnd(width)}  ${displayValue(settings[key])}`;
     }),
     "",
-    "  /minimalist config   change these",
+    "  /minimalist          change these",
     "  settings.json        glyphs, colours, excluded tools",
   ].join("\n");
 }

@@ -76,6 +76,14 @@ type ToolExecutionProto = {
   toolName: string;
   toolCallId: string;
   toolDefinition?: { renderCall?: unknown; renderResult?: unknown; renderShell?: string };
+  children: Component[];
+  contentBox: Component;
+  contentTextRegion: Component;
+  selfRenderContainer: Component;
+  callRendererComponent?: Component;
+  resultRendererComponent?: Component;
+  rendererState: { callLine?: unknown; originalResult?: unknown };
+  updateDisplay(): void;
   getCallRenderer(): unknown;
   getResultRenderer(): unknown;
   hasRendererDefinition(): boolean;
@@ -103,6 +111,7 @@ type ToolExecutionProto = {
 export function patchToolExecution(proto: ToolExecutionProto): void {
   const nativeResultFallback = proto.createResultFallback;
   const nativeRender = proto.render;
+  const nativeUpdateDisplay = proto.updateDisplay;
 
   /**
    * "Ours" when the bridge claims this tool name — and ONLY then.
@@ -123,6 +132,38 @@ export function patchToolExecution(proto: ToolExecutionProto): void {
   }
 
   once(proto, "toolExecution", () => {
+    // Pi attaches exactly one shell after its leading spacer in the constructor.
+    // Its getters change live, but updateDisplay() never replaces that child.
+    const ownership = new WeakMap<ToolExecutionProto, boolean>();
+    function syncShell(this: ToolExecutionProto): boolean {
+      const claimed = claims.call(this) !== undefined;
+      const shell = this.hasRendererDefinition()
+        ? this.getRenderShell() === "self" ? this.selfRenderContainer : this.contentBox
+        : this.contentTextRegion;
+      const previous = ownership.get(this);
+      ownership.set(this, claimed);
+      if (previous === claimed && this.children[1] === shell) return false;
+
+      if (previous !== undefined) {
+        // /reload can replace the CompactLine class while this wrapper survives.
+        const callLine = this.rendererState.callLine as { stopTicker?: () => void } | undefined;
+        if (typeof callLine?.stopTicker === "function") callLine.stopTicker();
+        delete this.rendererState.callLine;
+        delete this.rendererState.originalResult;
+        this.callRendererComponent = undefined;
+        this.resultRendererComponent = undefined;
+      }
+      // Keep the spacer first and Pi's existing image/spacer children after the
+      // shell; native updateDisplay() refreshes their content on this same pass.
+      this.children[1] = shell;
+      return true;
+    }
+
+    proto.updateDisplay = function () {
+      syncShell.call(this);
+      nativeUpdateDisplay.call(this);
+    };
+
     proto.getCallRenderer = function () {
       const renderer = claims.call(this);
       if (!renderer?.renderCall) return this.toolDefinition?.renderCall;
@@ -157,6 +198,9 @@ export function patchToolExecution(proto: ToolExecutionProto): void {
     };
 
     proto.render = function (width: number) {
+      // A settings toggle may only request a repaint, not an updateDisplay().
+      // Rebuild once on transition, never on every render (or during a renderer).
+      if (syncShell.call(this)) nativeUpdateDisplay.call(this);
       const lines = nativeRender.call(this, width);
       const ownsSummary = bridge<(id: string) => boolean>("activitySummaryRow")?.(this.toolCallId);
       // The summary must have the same one-line separation regardless of which

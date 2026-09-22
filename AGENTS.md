@@ -248,6 +248,17 @@ that answer, so every historical user interaction keeps its own final prose. →
 `core-patch.test.ts`, "preserves each historical interaction's final prose during
 session replay".
 
+### Live renderer switches must replace the attached tool shell
+
+Pi attaches one shell in `ToolExecutionComponent`'s constructor. Changing the live
+renderer getters alone leaves existing rows displaying the old shell. The runtime
+wrapper synchronizes `children[1]` (after the leading spacer), rebuilds only on
+ownership/shell transitions, and drops stale renderer components/tickers. Keep
+native self-shell tools in mind: ownership may change without a shell change. →
+`core-patch.test.ts`, "switches an existing built-in row between compact and
+native shells", "rebuilds the renderer when ownership changes but a native
+self shell stays attached".
+
 ### No generic tool-row spacer bridge
 
 A compact row uses `renderShell: "self"`, and core's self-shell branch returns

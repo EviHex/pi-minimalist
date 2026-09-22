@@ -117,6 +117,7 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
       "hasRendererDefinition",
       "getRenderShell",
       "createResultFallback",
+      "updateDisplay",
     ]) {
       assert.equal(
         typeof (components.ToolExecutionComponent.prototype as any)[method],
@@ -125,6 +126,15 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
       );
     }
     assert.equal(typeof components.AssistantMessageComponent.prototype.updateContent, "function");
+    const tool = new components.ToolExecutionComponent(
+      "seam", "seam-1", {}, {}, undefined, { requestRender() {} }, process.cwd(),
+    );
+    assert.ok(
+      [tool.contentTextRegion, tool.contentBox, tool.selfRenderContainer].includes(tool.children[1]),
+      "one known shell must follow the leading spacer",
+    );
+    assert.ok(tool.contentBox && tool.selfRenderContainer && tool.rendererState);
+    assert.ok("callRendererComponent" in tool && "resultRendererComponent" in tool);
 
     // Structural signals the thinking wrapper matches on (see core-patch.ts:
     // instanceof is unreliable because the bundle inlines its own pi-tui copy).

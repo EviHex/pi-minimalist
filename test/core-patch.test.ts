@@ -17,6 +17,7 @@ import { installBridges } from "../src/bridge.ts";
 import { Config } from "../src/config.ts";
 import { patchAssistantMessage, patchToolExecution } from "../src/core-patch.ts";
 import { RunGrouping } from "../src/run-grouping.ts";
+import { fakeTimers } from "./test-support.ts";
 
 const PI_ROOT = process.env.PI_ROOT;
 
@@ -531,6 +532,153 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // A lone foldable row is left alone, and thinking was never counted into it.
     assert.ok(text.includes("✓ read a.ts"), text);
     assert.ok(!text.includes("think ×1"), `expanded thinking must not fold: ${text}`);
+  });
+
+  it("switches an existing built-in row between compact and native shells in both directions", async () => {
+    const { components, withBuiltInRenderers } = await loadPi();
+    const shared = state();
+    installBridges(shared);
+    patchToolExecution(components.ToolExecutionComponent.prototype);
+    const definition = withBuiltInRenderers("read", undefined);
+    const makeRow = (id: string) => {
+      const row = new components.ToolExecutionComponent(
+        "read", id, { path: "src/a.ts" }, {}, definition, fakeUi(), process.cwd(),
+      );
+      row.updateResult({
+        content: [{ type: "text", text: "file body" }],
+        details: { path: "src/a.ts", content: "file body", truncated: false },
+      });
+      row.setExpanded(true);
+      return row;
+    };
+    const row = makeRow("live-read");
+    const compact = row.render(80).map(plain);
+    assert.ok(compact.join("\n").includes("▌ ✓ read src/a.ts"));
+    assert.ok(compact.join("\n").includes("file body"), "expanded content must survive");
+
+    shared.config.set("compactToolRows", false);
+    const nativeRow = makeRow("native-read");
+    assert.deepEqual(row.render(80).map(plain), nativeRow.render(80).map(plain));
+    assert.ok(!row.render(80).map(plain).join("\n").includes("▌ ✓ read"));
+    assert.equal(row.expanded, true);
+
+    shared.config.set("compactToolRows", true);
+    assert.deepEqual(row.render(80).map(plain), compact);
+    assert.deepEqual(nativeRow.render(80).map(plain), compact, "a row first built native must also switch live");
+    assert.equal(row.expanded, true);
+    assert.equal(row.children.length, 2, "swapping shells must not retain detached containers");
+  });
+
+  it("switches rendererless rows through Pi's fallback, including excludeTools", async () => {
+    const { components } = await loadPi();
+    const shared = state({ excludeTools: [] });
+    installBridges(shared);
+    patchToolExecution(components.ToolExecutionComponent.prototype);
+    const row = new components.ToolExecutionComponent(
+      "mystery_tool", "live-fallback", { command: "run" }, {}, undefined, fakeUi(), process.cwd(),
+    );
+    row.updateResult({ content: [{ type: "text", text: "raw result" }], details: {} });
+    assert.ok(row.render(80).map(plain).join("\n").includes("▌ ✓ mystery_tool run"));
+
+    shared.config.set("excludeTools", ["mystery_tool"]);
+    const native = row.render(80).map(plain).join("\n");
+    assert.ok(native.includes("raw result"), native);
+    assert.ok(!native.includes("▌ ✓ mystery_tool"), native);
+    assert.equal(row.children[1], row.contentTextRegion);
+
+    shared.config.set("excludeTools", []);
+    assert.ok(row.render(80).map(plain).join("\n").includes("▌ ✓ mystery_tool run"));
+    shared.config.set("compactToolRows", false);
+    assert.ok(row.render(80).map(plain).join("\n").includes("raw result"));
+    assert.equal(row.children.length, 2);
+  });
+
+  it("rebuilds the renderer when ownership changes but a native self shell stays attached", async () => {
+    const { components } = await loadPi();
+    const shared = state({ excludeTools: [] });
+    installBridges(shared);
+    patchToolExecution(components.ToolExecutionComponent.prototype);
+    const firstNativeComponents: unknown[] = [];
+    const firstNativeResults: unknown[] = [];
+    const definition = {
+      renderShell: "self",
+      renderCall: (_args: unknown, _theme: unknown, context: { lastComponent?: unknown }) => {
+        firstNativeComponents.push(context.lastComponent);
+        return { render: () => ["native self call"], invalidate() {} };
+      },
+      renderResult: (_result: unknown, _options: unknown, _theme: unknown, context: { lastComponent?: unknown }) => {
+        firstNativeResults.push(context.lastComponent);
+        return { render: () => ["native self result"], invalidate() {} };
+      },
+    };
+    const row = new components.ToolExecutionComponent(
+      "custom_self", "live-self", { command: "run" }, {}, definition, fakeUi(), process.cwd(),
+    );
+    row.updateResult({ content: [{ type: "text", text: "raw result" }], details: {} });
+    assert.ok(row.render(80).map(plain).join("\n").includes("▌ ✓ custom_self run"));
+
+    shared.config.set("excludeTools", ["custom_self"]);
+    assert.deepEqual(row.render(80).map(plain), ["", "native self call", "native self result"]);
+    assert.equal(row.children[1], row.selfRenderContainer);
+    shared.config.set("excludeTools", []);
+    assert.ok(row.render(80).map(plain).join("\n").includes("▌ ✓ custom_self run"));
+    shared.config.set("excludeTools", ["custom_self"]);
+    assert.deepEqual(row.render(80).map(plain), ["", "native self call", "native self result"]);
+    assert.deepEqual(firstNativeComponents, [undefined, undefined], "native call cache must not reuse a compact row");
+    assert.deepEqual(firstNativeResults, [undefined, undefined], "native result cache must not reuse a compact row");
+    assert.equal(row.children.length, 2);
+  });
+
+  it("keeps image children after switching shells", async () => {
+    const { components, withBuiltInRenderers } = await loadPi();
+    const { getCapabilities, setCapabilities } = await import(`${PI_ROOT}/node_modules/@earendil-works/pi-tui/dist/index.js`);
+    const caps = getCapabilities();
+    setCapabilities({ ...caps, images: "iterm2" });
+    try {
+      const shared = state();
+      installBridges(shared);
+      patchToolExecution(components.ToolExecutionComponent.prototype);
+      const row = new components.ToolExecutionComponent(
+        "read", "live-image", { path: "tiny.png" }, {},
+        withBuiltInRenderers("read", undefined), fakeUi(), process.cwd(),
+      );
+      row.updateResult({
+        content: [{ type: "image", mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9N+xNioAAAAASUVORK5CYII=" }],
+        details: {},
+      });
+      for (const compact of [true, false, true]) {
+        shared.config.set("compactToolRows", compact);
+        const lines = row.render(80).join("\n");
+        assert.ok(lines.includes("\x1b]1337;File="), "the image remains visible after switching shells");
+        assert.equal(row.imageComponents.length, 1);
+        assert.equal(row.children[2], row.imageSpacers[0]);
+        assert.equal(row.children[3], row.imageComponents[0]);
+      }
+    } finally {
+      setCapabilities(caps);
+    }
+  });
+
+  it("stops a running compact row's ticker when switching to Pi's renderer", async () => {
+    const { components, withBuiltInRenderers } = await loadPi();
+    const shared = state();
+    const timers = fakeTimers();
+    installBridges({ ...shared, timers });
+    patchToolExecution(components.ToolExecutionComponent.prototype);
+    const row = new components.ToolExecutionComponent(
+      "read", "live-timer", { path: "src/a.ts" }, {},
+      withBuiltInRenderers("read", undefined), fakeUi(), process.cwd(),
+    );
+    row.markExecutionStarted();
+    assert.equal(timers.pending(), 1);
+    shared.config.set("compactToolRows", false);
+    row.render(80);
+    assert.equal(timers.pending(), 0);
+    shared.config.set("compactToolRows", true);
+    row.render(80);
+    assert.equal(timers.pending(), 1, "the new compact row owns exactly one ticker");
+    row.updateResult({ content: [{ type: "text", text: "done" }], details: {} });
+    assert.equal(timers.pending(), 0);
   });
 
   it("obeys the master switch even for a tool with no renderer", async () => {

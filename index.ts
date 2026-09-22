@@ -22,7 +22,7 @@ import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 // keybindings and colours, as Pi's own `/settings`.
 import { SettingsList } from "@earendil-works/pi-tui";
 import { installBridges, sharedState } from "./src/bridge.ts";
-import { BASIC_KEYS, type BasicKey, type BasicSettings, type Config } from "./src/config.ts";
+import { BASIC_KEYS, DEFAULT_BASIC, type BasicKey, type BasicSettings, type Config } from "./src/config.ts";
 import { loadSettings, migratedQuiet, saveBasicSettings } from "./src/config-file.ts";
 import { argumentCompletions, createConfigScreen, summary } from "./src/config-ui.ts";
 import { patchCore } from "./src/core-patch.ts";
@@ -93,14 +93,14 @@ export default function (pi: ExtensionAPI) {
 type NotifyContext = { ui: { notify(message: string, type?: "info" | "warning" | "error"): void } };
 
 /**
- * Write the change to settings.json, and be honest when that is impossible.
+ * Write only the changed key to the global agent settings, and be honest when that is impossible.
  *
  * The live value has already changed, so a silent failure would leave the UI and
  * the file disagreeing. Keeping it as a session override means the per-turn
  * re-read cannot revert what the message says was applied.
  */
 function persistDefaults(ctx: NotifyContext, config: Config): void {
-  const result = saveBasicSettings(config.all());
+  const result = saveBasicSettings(DEFAULT_BASIC);
   for (const key of BASIC_KEYS) {
     if (result.ok) config.clearSessionOverride(key);
     else config.setSessionOverride(key, config.get(key));
@@ -116,7 +116,7 @@ function persist(
   key: BasicKey,
   value: BasicSettings[BasicKey],
 ): void {
-  const result = saveBasicSettings(config.all());
+  const result = saveBasicSettings({ [key]: value });
   if (result.ok) {
     // The file now agrees, so it becomes the source of truth again.
     config.clearSessionOverride(key);

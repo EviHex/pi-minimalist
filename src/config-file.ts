@@ -10,8 +10,9 @@
  * `pi-env` reads, and Pi tolerates unknown top-level keys (the published
  * `pi-powerline-footer` extension does exactly this with its `powerline` key).
  *
- * LAYERING
- *   defaults  <  global ~/.pi/agent/settings.json  <  <cwd>/.pi/settings.json
+ * SCOPE
+ *   defaults  <  global agent settings.json (PI_CODING_AGENT_DIR if set).
+ *   Project-local `minimalist` blocks are deliberately ignored.
  *
  * FAILURE POLICY
  * This file is hand-edited by a human, so a syntax error must never take the UI
@@ -29,6 +30,7 @@ import {
   DEFAULT_TOKENS,
   GLYPH_PRESETS,
   SETTINGS_KEY,
+  type BasicSettings,
   type Glyphs,
   type Settings,
   type Tokens,
@@ -48,10 +50,6 @@ export function agentDir(env = process.env): string {
 
 export function globalSettingsPath(env = process.env): string {
   return join(agentDir(env), "settings.json");
-}
-
-export function projectSettingsPath(cwd: string): string {
-  return join(cwd, ".pi", "settings.json");
 }
 
 /** Legacy state file written by the removed `/quiet` command. */
@@ -200,11 +198,10 @@ function pickStrings<K extends string>(raw: Json, keys: K[]): Partial<Record<K, 
   return out;
 }
 
-/** Read defaults < global < project. */
-export function loadSettings(cwd = process.cwd(), env = process.env): Settings {
+/** Read only the global agent settings, never project-local preferences. */
+export function loadSettings(env = process.env): Settings {
   const global = readSettingsFile(globalSettingsPath(env));
-  const project = readSettingsFile(projectSettingsPath(cwd));
-  return coerce(project[SETTINGS_KEY], coerce(global[SETTINGS_KEY], DEFAULTS));
+  return coerce(global[SETTINGS_KEY], DEFAULTS);
 }
 
 /**
@@ -234,16 +231,15 @@ export type SaveResult =
   | { ok: false; reason: "comments" | "unparsable" | "write"; detail?: string };
 
 /**
- * Persist the basic settings into the GLOBAL settings.json.
- *
- * Only the `minimalist` key is touched, and only its basic keys, so a
- * hand-written `glyphs`/`tokens`/`excludeTools` block survives untouched.
+ * Persist only the supplied editor-managed settings into the global agent file.
+ * A normal edit passes one key; Restore defaults intentionally passes all.
+ * Hand-written `glyphs`/`tokens`/`excludeTools` values survive untouched.
  *
  * REFUSES to write a file containing comments. `JSON.stringify` would silently
  * delete them, and quietly destroying an annotated config is far worse than
  * asking the user to edit one line by hand.
  */
-export function saveBasicSettings(settings: Settings, env = process.env): SaveResult {
+export function saveBasicSettings(settings: Partial<BasicSettings>, env = process.env): SaveResult {
   const path = globalSettingsPath(env);
 
   let raw = "";
@@ -262,9 +258,14 @@ export function saveBasicSettings(settings: Settings, env = process.env): SaveRe
   }
   if (!isRecord(root)) return { ok: false, reason: "unparsable", detail: path };
 
-  const existing = isRecord(root[SETTINGS_KEY]) ? (root[SETTINGS_KEY] as Json) : {};
+  if (root[SETTINGS_KEY] !== undefined && !isRecord(root[SETTINGS_KEY])) {
+    return { ok: false, reason: "unparsable", detail: path };
+  }
+  const existing = isRecord(root[SETTINGS_KEY]) ? root[SETTINGS_KEY] : {};
   const merged: Json = { ...existing };
-  for (const key of BASIC_KEYS) merged[key] = settings[key];
+  for (const key of BASIC_KEYS) {
+    if (settings[key] !== undefined) merged[key] = settings[key];
+  }
 
   try {
     mkdirSync(dirname(path), { recursive: true });

@@ -42,7 +42,7 @@ Requires an existing Pi installation. This is a local extension, **not** a publi
 
 ## Use and undo
 
-- `/minimalist` — open the settings editor; `/minimalist config` is an alias. Edit settings live with arrow keys and Enter/Space; Escape closes the editor. The editor saves basic settings to your **global** Pi `settings.json` (project settings can override them). If that file has comments or cannot be written, changes apply only to this session and Pi warns you.
+- `/minimalist` — open the settings editor; `/minimalist config` is an alias. Edit settings live with arrow keys and Enter/Space; Escape closes the editor. The editor saves only the changed setting to your **global** Pi `settings.json` (or `PI_CODING_AGENT_DIR/settings.json` when configured). Project-local `minimalist` blocks are ignored; existing project files are not modified. If the global file has comments or cannot be written, changes apply only to this session and Pi warns you.
 - Select **Restore defaults** in the editor to reset its display settings (including Symbols). This does not erase hand-written custom glyphs, colours, excluded tools, or other Pi settings. If saving fails, the defaults still apply for this session and Pi warns you.
 - `/minimalist status` — show the current settings without opening the editor.
 - `Ctrl+O` — expand/collapse tool output. `Ctrl+T` — expand/collapse thinking blocks. These are Pi's default keybindings and may be customized in `keybindings.json`.

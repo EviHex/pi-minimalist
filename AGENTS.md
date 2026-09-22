@@ -52,7 +52,7 @@ and any other settings tooling sees them. Pi tolerates unknown top-level keys;
 the published `pi-powerline-footer` extension uses the same pattern.
 
 ```
-defaults  <  ~/.pi/agent/settings.json  <  <cwd>/.pi/settings.json
+defaults  <  global agent settings.json (PI_CODING_AGENT_DIR respected)
 ```
 
 ```json
@@ -97,8 +97,10 @@ misaligns it, the `ascii` preset uses only one-column symbols.
 
 ### Writing rules
 
-The `/minimalist` editor writes ONLY the eleven basic keys inside the `minimalist`
-key, so a hand-written `glyphs`/`tokens`/`excludeTools` block is never touched.
+The `/minimalist` editor writes only the changed basic key in the global
+`minimalist` block; Restore defaults intentionally writes all eleven editor keys.
+Project-local `minimalist` blocks are ignored, not migrated or deleted.
+Hand-written `glyphs`/`tokens`/`excludeTools` survive either operation.
 It REFUSES to write a settings.json containing comments — `JSON.stringify` would
 silently delete them — and says so, applying the change for the session instead.
 
@@ -309,7 +311,7 @@ index.ts                 wiring only: shared state, bridges, /minimalist
 | File | Contents |
 | --- | --- |
 | `src/config.ts` | setting schema, defaults, `Config` (no filesystem access) |
-| `src/config-file.ts` | settings.json paths, load/merge/save, comment handling, migration |
+| `src/config-file.ts` | global settings.json path, read/save, comment handling, legacy migration |
 | `src/config-ui.ts` | `/minimalist` field list + `SettingsList` wiring |
 | `src/bridge.ts` | `BRIDGE_SYMBOLS`, `sharedState()`, `installBridges()` |
 | `src/core-patch.ts` | the two runtime prototype wrappers |

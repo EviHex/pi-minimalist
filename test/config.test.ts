@@ -58,45 +58,49 @@ describe("stripJsonComments", () => {
 
 describe("loadSettings", () => {
   it("returns defaults when nothing is configured", () => {
-    const { env, cwd } = sandbox();
-    assert.deepEqual(loadSettings(cwd, env), DEFAULTS);
+    const { env } = sandbox();
+    assert.deepEqual(loadSettings(env), DEFAULTS);
   });
 
-  it("reads the minimalist key and lets project settings win", () => {
+  it("reads global settings and ignores project-local minimalist blocks", () => {
     const { env, cwd, settingsPath } = sandbox();
     writeFileSync(settingsPath, JSON.stringify({ minimalist: { gutter: false, timer: false } }));
-    writeFileSync(join(cwd, ".pi", "settings.json"), JSON.stringify({ minimalist: { timer: true } }));
+    const project = join(cwd, ".pi", "settings.json");
+    const original = JSON.stringify({ minimalist: { timer: true, groupToolRuns: true } });
+    writeFileSync(project, original);
 
-    const settings = loadSettings(cwd, env);
-    assert.equal(settings.gutter, false, "global value applies");
-    assert.equal(settings.timer, true, "project overrides global");
+    const settings = loadSettings(env);
+    assert.equal(settings.gutter, false);
+    assert.equal(settings.timer, false, "project does not override global");
+    assert.equal(settings.groupToolRuns, false, "project-only values do not apply");
+    assert.equal(readFileSync(project, "utf8"), original, "project settings are not migrated or deleted");
   });
 
   it("survives malformed JSON and ignores wrongly-typed fields", () => {
-    const { env, cwd, settingsPath } = sandbox();
+    const { env, settingsPath } = sandbox();
     writeFileSync(settingsPath, "{ this is not json");
-    assert.deepEqual(loadSettings(cwd, env), DEFAULTS, "a syntax error must never break the UI");
+    assert.deepEqual(loadSettings(env), DEFAULTS, "a syntax error must never break the UI");
 
     // One bad value must not discard the whole block: this file is hand-edited.
     writeFileSync(settingsPath, JSON.stringify({ minimalist: { gutter: "yes", timer: false } }));
-    const settings = loadSettings(cwd, env);
+    const settings = loadSettings(env);
     assert.equal(settings.gutter, true, "bad type falls back to the default");
     assert.equal(settings.timer, false, "good value in the same block still applies");
   });
 
   it("accepts the prose summary enum and rejects unknown values", () => {
-    const { env, cwd, settingsPath } = sandbox();
+    const { env, settingsPath } = sandbox();
     writeFileSync(settingsPath, JSON.stringify({ minimalist: { activitySummary: "tools" } }));
-    assert.equal(loadSettings(cwd, env).activitySummary, "tools");
+    assert.equal(loadSettings(env).activitySummary, "tools");
 
     writeFileSync(settingsPath, JSON.stringify({ minimalist: { activitySummary: "verbose" } }));
-    assert.equal(loadSettings(cwd, env).activitySummary, "elapsed");
+    assert.equal(loadSettings(env).activitySummary, "elapsed");
   });
 
   it("accepts a settings.json containing comments", () => {
-    const { env, cwd, settingsPath } = sandbox();
+    const { env, settingsPath } = sandbox();
     writeFileSync(settingsPath, '{\n  // my preference\n  "minimalist": { "gutter": false }\n}');
-    assert.equal(loadSettings(cwd, env).gutter, false);
+    assert.equal(loadSettings(env).gutter, false);
   });
 });
 
@@ -105,22 +109,27 @@ describe("saveBasicSettings", () => {
     const { env, settingsPath } = sandbox();
     writeFileSync(settingsPath, JSON.stringify({ theme: "dark", extensions: ["a"] }, null, 2));
 
-    assert.deepEqual(saveBasicSettings({ ...DEFAULTS, groupToolRuns: true }, env), { ok: true });
+    assert.deepEqual(saveBasicSettings({ groupToolRuns: true }, env), { ok: true });
     const written = JSON.parse(readFileSync(settingsPath, "utf8"));
     assert.equal(written.theme, "dark", "unrelated keys survive");
     assert.deepEqual(written.extensions, ["a"]);
-    assert.equal(written.minimalist.groupToolRuns, true);
+    assert.deepEqual(written.minimalist, { groupToolRuns: true }, "one toggle writes only its key");
+    assert.equal(loadSettings(env).groupToolRuns, true, "the custom agent dir is read back");
   });
 
   it("never writes advanced keys, so a hand-edited glyph map survives", () => {
     const { env, settingsPath } = sandbox();
-    writeFileSync(settingsPath, JSON.stringify({ minimalist: { glyphs: { done: "OK" }, excludeTools: ["x"] } }));
+    writeFileSync(settingsPath, JSON.stringify({ minimalist: {
+      glyphs: { done: "OK" }, excludeTools: ["x"], glyphStyle: "ascii", groupToolRuns: true,
+    } }));
 
-    saveBasicSettings({ ...DEFAULTS, timer: false }, env);
+    saveBasicSettings({ timer: false }, env);
     const written = JSON.parse(readFileSync(settingsPath, "utf8"));
     assert.deepEqual(written.minimalist.glyphs, { done: "OK" }, "glyphs are JSON-only and untouched");
     assert.deepEqual(written.minimalist.excludeTools, ["x"]);
     assert.equal(written.minimalist.timer, false);
+    assert.equal(written.minimalist.groupToolRuns, true, "unrelated basic value remains unchanged");
+    assert.equal(written.minimalist.glyphStyle, "ascii", "Symbols remains unchanged");
   });
 
   it("resets editable values without changing custom or unrelated settings", () => {
@@ -139,12 +148,38 @@ describe("saveBasicSettings", () => {
     assert.equal(written.theme, "dark");
   });
 
+  it("refuses malformed global settings rather than overwriting them", () => {
+    const { env, settingsPath } = sandbox();
+    for (const original of ['{"minimalist":', '{"minimalist": false}']) {
+      writeFileSync(settingsPath, original);
+      const result = saveBasicSettings({ timer: false }, env);
+      assert.equal(result.ok, false);
+      assert.equal(result.ok ? undefined : result.reason, "unparsable");
+      assert.equal(readFileSync(settingsPath, "utf8"), original);
+    }
+  });
+
+  it("keeps failed reset defaults live across re-reads without reviving old overrides", () => {
+    const { env, settingsPath } = sandbox();
+    const original = '{ // keep this\n "minimalist": { "groupToolRuns": true, "glyphStyle": "ascii" }\n}';
+    writeFileSync(settingsPath, original);
+    const config = new Config(loadSettings(env));
+    config.setSessionOverride("groupToolRuns", true);
+    for (const key of BASIC_KEYS) config.set(key, DEFAULT_BASIC[key]);
+    assert.equal(saveBasicSettings(DEFAULT_BASIC, env).ok, false);
+    for (const key of BASIC_KEYS) config.setSessionOverride(key, config.get(key));
+    config.replace(loadSettings(env));
+    assert.equal(config.get("groupToolRuns"), false);
+    assert.equal(config.get("glyphStyle"), "unicode");
+    assert.equal(readFileSync(settingsPath, "utf8"), original);
+  });
+
   it("REFUSES to write a file with comments instead of deleting them", () => {
     const { env, settingsPath } = sandbox();
     const original = '{\n  // keep me\n  "theme": "dark"\n}';
     writeFileSync(settingsPath, original);
 
-    const result = saveBasicSettings({ ...DEFAULTS, timer: false }, env);
+    const result = saveBasicSettings({ timer: false }, env);
     assert.deepEqual(
       { ok: result.ok, reason: result.ok ? undefined : result.reason },
       { ok: false, reason: "comments" },

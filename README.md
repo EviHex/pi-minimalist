@@ -53,4 +53,4 @@ Turning off **Compact tool rows** only restores native tool cards; it does not d
 
 Tested against locally installed `@earendil-works/pi-coding-agent` **0.86.1** with `./run-tests.sh` and `./run-tests.sh --typecheck`. This extension wraps Pi's runtime component prototypes (it does not modify Pi's installed files), so future Pi releases may change the internal methods it relies on. Run both checks after updating Pi, and restart Pi after changing or disabling the extension. Terminal appearance and keyboard delivery still need a manual check; the automated tests do not cover them.
 
-If the default symbols render as boxes in your font, set `"minimalist": { "glyphStyle": "ascii" }` in `settings.json` and start a new turn. More implementation and configuration details are in [AGENTS.md](AGENTS.md).
+If a default symbol is missing or misaligned, set **Symbols** to **ASCII** in `/minimalist`. The default symbols are ordinary Unicode; a Nerd Font is not required. Custom glyphs set in `settings.json` still take precedence over either style. More implementation and configuration details are in [AGENTS.md](AGENTS.md).

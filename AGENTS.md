@@ -67,9 +67,9 @@ defaults  <  ~/.pi/agent/settings.json  <  <cwd>/.pi/settings.json
   "thinkingAsToolCall": false,
   "keepActiveToolsExpanded": false,
   "keepActiveThinkingExpanded": false,
+  "glyphStyle": "unicode",
 
   "excludeTools": ["subagent"],
-  "glyphStyle": "unicode",
   "glyphs": {},
   "tokens": {},
   "maxDetailChars": 4000
@@ -83,21 +83,19 @@ defaults  <  ~/.pi/agent/settings.json  <  <cwd>/.pi/settings.json
 
 ### Which settings are discoverable, and why
 
-The ten keys above the blank line are in the command: their effect is visible
-immediately and needs no vocabulary. The two prose sub-options appear only while
-`foldIntermediateActivity` is on. The five below are JSON-only: they need
+The eleven keys above the blank line are in the command, including `glyphStyle`
+(Unicode / ASCII). The two prose sub-options appear only while
+`foldIntermediateActivity` is on. The four below are JSON-only: they need
 exact tool names or knowledge of Pi's theme palette, and putting them in a
 chooser would imply they are casual choices.
 
-`glyphStyle` is the interesting exception — JSON-only, but it is the one setting
-that decides whether the extension is USABLE rather than merely pretty. Outside
-a Nerd Font the Unicode glyphs render as boxes, and rows truncate by visible
-column, so a mis-measured glyph shifts the whole line. The `ascii` preset exists
-for exactly that, and every ASCII glyph is one column wide.
+The default symbols are ordinary Unicode, not Nerd Font private-use glyphs:
+no Nerd Font is required. If a font lacks a glyph or terminal width handling
+misaligns it, the `ascii` preset uses only one-column symbols.
 
 ### Writing rules
 
-The `/minimalist` editor writes ONLY the ten basic keys inside the `minimalist`
+The `/minimalist` editor writes ONLY the eleven basic keys inside the `minimalist`
 key, so a hand-written `glyphs`/`tokens`/`excludeTools` block is never touched.
 It REFUSES to write a settings.json containing comments — `JSON.stringify` would
 silently delete them — and says so, applying the change for the session instead.
@@ -430,7 +428,7 @@ MCP adapter interplay, and how the glyphs look in a given font. After a restart:
 11. `/minimalist` (or `/minimalist config`): arrow keys, a description line for
     the hovered setting, Enter/Space cycling, a visible live-change/Ctrl+O hint —
     and the transcript behind the overlay changing as you toggle.
-12. `"glyphStyle": "ascii"`: `+ bash …` with a `|` gutter, still aligned.
+12. Set Symbols to ASCII: `+ bash …` with a `|` gutter, still aligned.
 13. A long command with `groupToolRuns` on: counted in the summary's `•` group,
     not vanished.
 14. `foldIntermediateActivity`: each new prose block folds every preceding prose,

@@ -81,7 +81,22 @@ describe("config screen contents", () => {
     const byId = new Map(rendered.map((item) => [item.id, item]));
     assert.equal(byId.get("groupToolRuns")?.currentValue, "on");
     assert.equal(byId.get("timer")?.currentValue, "off");
-    for (const item of rendered) assert.deepEqual(item.values, ["on", "off"]);
+    for (const item of rendered.filter((item) => !["activitySummary", "glyphStyle"].includes(item.id))) {
+      assert.deepEqual(item.values, ["on", "off"]);
+    }
+  });
+
+  it("offers Unicode and ASCII while keeping custom glyph overrides", () => {
+    const config = new Config({ ...DEFAULTS, glyphs: { done: "OK" } });
+    const symbols = items(config.all()).find((item) => item.id === "glyphStyle");
+    assert.deepEqual(symbols?.values, ["Unicode", "ASCII"]);
+    assert.equal(symbols?.currentValue, "Unicode");
+    screen(config).onChange("glyphStyle", "ASCII");
+    assert.equal(config.get("glyphStyle"), "ascii");
+    assert.equal(config.glyphs().done, "OK");
+    assert.equal(config.glyphs().failed, "x");
+    screen(config).onChange("glyphStyle", "Unicode");
+    assert.equal(config.get("glyphStyle"), "unicode");
   });
 
   it("indents prose subsettings under their master setting", () => {
@@ -170,9 +185,10 @@ describe("summary", () => {
     for (const field of FIELDS.filter((field) => !field.activityOption)) {
       assert.ok(text.includes(field.label), field.key);
     }
-    assert.ok(!text.includes("Wait for OpenAI final answer"));
-    assert.match(text, /Group tool runs\s+on/);
+    assert.ok(!text.includes("Collapse when final answer starts"));
+    assert.match(text, /Combine consecutive tool calls\s+on/);
     assert.match(text, /Elapsed timer\s+on/);
+    assert.match(text, /Symbols\s+Unicode/);
     // `/minimalist status` should point at both the editor and the JSON-only keys.
     assert.ok(text.includes("/minimalist          change these"));
     assert.ok(text.includes("settings.json"));

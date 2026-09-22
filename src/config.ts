@@ -23,10 +23,9 @@ export const SETTINGS_KEY = "minimalist";
 /**
  * Status and decoration characters.
  *
- * Configurable because they decide whether this extension is USABLE, not merely
- * pretty: outside a Nerd Font (plain Windows Terminal, some SSH/tmux setups) the
- * Unicode set renders as boxes, and since rows truncate by VISIBLE COLUMN a
- * mis-measured glyph shifts the whole line.
+ * Configurable for fonts or terminals that lack one of the ordinary Unicode
+ * characters below, or measure its width differently. A Nerd Font is not
+ * required; the ASCII fallback keeps each glyph within one column.
  */
 export type Glyphs = {
   done: string;
@@ -107,13 +106,14 @@ export type BasicSettings = {
   keepActiveToolsExpanded: boolean;
   /** Keep a STREAMING thinking block expanded instead of collapsed. */
   keepActiveThinkingExpanded: boolean;
+  /** Choose ordinary Unicode symbols or a one-column ASCII fallback. */
+  glyphStyle: GlyphStyle;
 };
 
 /** Settings only reachable by editing settings.json by hand. */
 export type AdvancedSettings = {
   /** Tool names left to their own renderer. Everything else is compacted. */
   excludeTools: string[];
-  glyphStyle: GlyphStyle;
   glyphs: Partial<Glyphs>;
   tokens: Partial<Tokens>;
   /**
@@ -137,6 +137,7 @@ export const DEFAULT_BASIC: BasicSettings = {
   thinkingAsToolCall: false,
   keepActiveToolsExpanded: false,
   keepActiveThinkingExpanded: false,
+  glyphStyle: "unicode",
 };
 
 export const DEFAULT_ADVANCED: AdvancedSettings = {
@@ -145,7 +146,6 @@ export const DEFAULT_ADVANCED: AdvancedSettings = {
   // have its own renderer?" rule, which silently exempted every third-party tool
   // and made the behavior impossible to discover from the UI.
   excludeTools: ["subagent"],
-  glyphStyle: "unicode",
   glyphs: {},
   tokens: {},
   maxDetailChars: 4000,

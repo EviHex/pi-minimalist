@@ -26,18 +26,18 @@ export const FIELDS: Field[] = [
   },
   {
     key: "groupToolRuns",
-    label: "Group tool runs",
-    description: "Fold a run of finished rows into one summary line, e.g. 'read ×2, edit ×1'.",
+    label: "Combine consecutive tool calls",
+    description: "Replace consecutive finished tool calls with a single count, e.g. 'read ×2, edit ×1'.",
   },
   {
     key: "foldIntermediateActivity",
-    label: "Fold intermediate activity",
-    description: "Keep the latest assistant prose and replace all preceding prose, thinking, and tool rows with one summary.",
+    label: "Collapse earlier activity",
+    description: "Keep the latest assistant reply visible; replace earlier text, thinking, and tool calls with one summary.",
   },
   {
     key: "foldActivityOnFinalAnswer",
-    label: "  Wait for OpenAI final answer",
-    description: "Keep commentary visible while the agent works, then fold it as soon as OpenAI starts its final answer.",
+    label: "  Collapse when final answer starts",
+    description: "Keep work visible until OpenAI starts its final answer, then collapse the earlier activity.",
     activityOption: true,
   },
   {
@@ -48,8 +48,8 @@ export const FIELDS: Field[] = [
   },
   {
     key: "gutter",
-    label: "Gutter",
-    description: "Draw the coloured bar at the left of each row, so tool output reads as an indented block.",
+    label: "Left border",
+    description: "Show a coloured bar to the left of each row, making tool calls easier to spot.",
   },
   {
     key: "timer",
@@ -58,8 +58,8 @@ export const FIELDS: Field[] = [
   },
   {
     key: "thinkingAsToolCall",
-    label: "Thinking as tool call",
-    description: "Render a collapsed thinking block exactly like a tool row, instead of in its own colour.",
+    label: "Compact thinking rows",
+    description: "Show collapsed thinking in the same one-line style as tool calls, rather than a separate block.",
   },
   {
     key: "keepActiveToolsExpanded",
@@ -68,8 +68,13 @@ export const FIELDS: Field[] = [
   },
   {
     key: "keepActiveThinkingExpanded",
-    label: "Keep streaming thinking expanded",
-    description: "Show a thinking block in full while it streams, instead of its one-line preview.",
+    label: "Show thinking while generating",
+    description: "Show the full thinking block as it arrives, instead of a one-line preview.",
+  },
+  {
+    key: "glyphStyle",
+    label: "Symbols",
+    description: "Use ordinary Unicode symbols, or switch to ASCII if some symbols are missing or misaligned. A Nerd Font is not required.",
   },
 ];
 
@@ -87,7 +92,7 @@ export function items(settings: Settings): SettingItem[] {
         label,
         description,
         currentValue: displayValue(value),
-        values: key === "activitySummary" ? ["elapsed time", "tools used"] : ["on", "off"],
+        values: key === "activitySummary" ? ["elapsed time", "tools used"] : key === "glyphStyle" ? ["Unicode", "ASCII"] : ["on", "off"],
       };
     },
   );
@@ -116,6 +121,10 @@ export function createConfigScreen(deps: ConfigScreenDeps): InputComponent {
         if (!isBasicKey(id)) return;
         if (id === "activitySummary") {
           const value = displayValue === "tools used" ? "tools" : "elapsed";
+          config.set(id, value);
+          onChange(id, value);
+        } else if (id === "glyphStyle") {
+          const value = displayValue === "ASCII" ? "ascii" : "unicode";
           config.set(id, value);
           onChange(id, value);
         } else {
@@ -151,6 +160,8 @@ function isBasicKey(id: string): id is BasicKey {
 function displayValue(value: BasicValue): string {
   if (value === "elapsed") return "elapsed time";
   if (value === "tools") return "tools used";
+  if (value === "unicode") return "Unicode";
+  if (value === "ascii") return "ASCII";
   return value ? "on" : "off";
 }
 
@@ -174,6 +185,6 @@ export function summary(settings: Settings): string {
     }),
     "",
     "  /minimalist          change these",
-    "  settings.json        glyphs, colours, excluded tools",
+    "  settings.json        custom glyphs, colours, excluded tools",
   ].join("\n");
 }

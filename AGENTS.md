@@ -457,16 +457,17 @@ MCP adapter interplay, and how the glyphs look in a given font. After a restart:
 
 ## 8. Scope
 
-No config format, package.json, runtime dependency or abstraction layer unless a
-real requirement appears. Only Pi's installed packages and the Node standard
+No config format, runtime dependency or abstraction layer unless a real
+requirement appears. Only Pi's installed packages and the Node standard
 library, including for tests.
 
 When adding or changing a renderer, add or update its test in the same commit:
 this UI has regressed silently more than once, and these tests exist to name the
 broken behavior instead of showing a large snapshot diff.
 
-Why no `package.json`: this folder is a nested jj/git repo loaded by explicit path
-(`"extensions/pi-minimalist/index.ts"`, no `+` prefix — Pi's resource scanner
-skips nested `.git` directories, and an explicit file path bypasses scanning).
-Adding a manifest risks changing how Pi discovers it, so `tsconfig.json` uses
-`module: esnext` + `moduleResolution: bundler` instead of `nodenext`.
+`package.json` exists only as the Pi package manifest (`pi.extensions` points at
+`index.ts`). Pi's own packages are `peerDependencies` with `*`, as Pi's package
+docs require: Pi provides them at runtime, so they must never be bundled. There
+are no `dependencies` and no build step; keep it that way. A development
+checkout can still be loaded by its explicit `index.ts` path, which bypasses
+package discovery.

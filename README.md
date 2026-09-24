@@ -37,7 +37,7 @@ Requires an existing Pi installation. This is a local extension, **not** a publi
    }
    ```
 
-   If you already have extensions, append the string instead of replacing their entries. When installing elsewhere, use `"/absolute/path/to/pi-minimalist/index.ts"`. The explicit path is necessary for this local nested repository; it is not automatically discovered. No build or package manifest is needed.
+   If you already have extensions, append the string instead of replacing their entries. When installing elsewhere, use `"/absolute/path/to/pi-minimalist/index.ts"`. The explicit path is necessary for this local nested repository; it is not automatically discovered. No build step is needed.
 3. Restart Pi. Run `/minimalist` to open the settings editor.
 
 ## Use and undo

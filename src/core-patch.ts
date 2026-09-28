@@ -28,6 +28,7 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { BRIDGE_SYMBOLS } from "./bridge.ts";
 import { FoldableProse } from "./components.ts";
+import type { Config } from "./config.ts";
 import type { Row, ThemeLike } from "./row.ts";
 
 type Globals = Record<symbol, unknown>;
@@ -233,6 +234,7 @@ type AssistantProto = {
   markdownTheme: Record<string, unknown>;
   outputPad: number;
   isStreaming: boolean;
+  lastMessage?: any;
   updateContent(message: any, isStreaming?: boolean): void;
   render(width: number): string[];
 };
@@ -301,6 +303,7 @@ export function patchAssistantMessage(proto: AssistantProto): void {
   once(proto, "assistantMessage", () => {
     const nativeUpdateContent = proto.updateContent;
     const nativeRender = proto.render;
+    const compactState = new WeakMap<AssistantProto, boolean>();
 
     proto.updateContent = function (this: AssistantProto, message: any, isStreaming = this.isStreaming) {
       const savedHide = this.hideThinkingBlock;
@@ -318,10 +321,18 @@ export function patchAssistantMessage(proto: AssistantProto): void {
         this.hideThinkingBlock = savedHide;
         this.thinkingVisibilityOverrides = savedOverrides;
       }
-      decorateThinking(this, message, isStreaming);
+      const compact = compactThinking();
+      decorateThinking(this, message, isStreaming, compact);
+      compactState.set(this, compact);
     };
 
     proto.render = function (width: number) {
+      // A settings toggle requests a repaint, not necessarily updateContent().
+      // Rebuild from Pi's original components only on an ownership transition;
+      // this also restores native Markdown colors and preserves click overrides.
+      if (this.lastMessage && compactState.get(this) !== compactThinking()) {
+        this.updateContent(this.lastMessage, this.isStreaming);
+      }
       const lines = nativeRender.call(this, width);
       const view = bridge<(owner: object) => "normal" | "hidden" | "summary">("activityMessageView")?.(this);
       if (view === "hidden") return [];
@@ -330,12 +341,16 @@ export function patchAssistantMessage(proto: AssistantProto): void {
   });
 }
 
-function decorateThinking(component: AssistantProto, message: any, isStreaming: boolean): void {
+function compactThinking(): boolean {
+  return bridge<Config>("config")?.get("thinkingAsToolCall") === true;
+}
+
+function decorateThinking(component: AssistantProto, message: any, isStreaming: boolean, compact: boolean): void {
   const preview = bridge<ThinkingBridge>("thinkingPreview");
   const purple = bridge<(base: Record<string, unknown>, theme: unknown) => Record<string, unknown>>(
     "thinkingMarkdownTheme",
   );
-  const observeThinking = bridge<(owner: object, run: number, streaming: boolean, hidden: boolean) => void>(
+  const observeThinking = bridge<(owner: object, run: number, streaming: boolean, hidden: boolean) => string>(
     "observeThinking",
   );
   const observeProse = bridge<(
@@ -399,7 +414,16 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
     // `expanded` itself, so negating here too inverted all run folding: expanded
     // thinking became foldable (swallowing whole runs of tool rows into one
     // summary) and collapsed thinking stopped folding entirely.
-    observeThinking?.(component, runIndex, isStreaming, hidden);
+    const id = observeThinking?.(component, runIndex, isStreaming, hidden);
+
+    if (!compact) {
+      // Native thinking still participates in the separately enabled activity
+      // fold, just like native prose. Otherwise keep Pi's component untouched.
+      if (id && proseView && theme) {
+        entry.child = new FoldableProse(inner, () => proseView(id, theme as ThemeLike));
+      }
+      continue;
+    }
 
     if (hidden) {
       if (!preview || !theme) continue;

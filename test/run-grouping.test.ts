@@ -99,7 +99,7 @@ describe("run grouping", () => {
   });
 
   it("unifies completed thinking and tool rows in transcript order", () => {
-    const grouping = grouped();
+    const grouping = grouped({ thinkingAsToolCall: true });
     const owner = {};
     observe(grouping, "bash", "bash");
     grouping.observeThinking(owner, 0, true, false);
@@ -118,7 +118,7 @@ describe("run grouping", () => {
   });
 
   it("uses expanded thinking and prose as run boundaries", () => {
-    const grouping = grouped();
+    const grouping = grouped({ thinkingAsToolCall: true });
     const owner = {};
     observe(grouping, "read", "read");
     grouping.observeThinking(owner, 0, true, true);
@@ -132,7 +132,7 @@ describe("run grouping", () => {
   });
 
   it("hides a message spacer only when every row of that message is hidden", () => {
-    const grouping = grouped();
+    const grouping = grouped({ thinkingAsToolCall: true });
     const first = {};
     const last = {};
     grouping.observeThinking(first, 0, true, false);
@@ -140,6 +140,23 @@ describe("run grouping", () => {
 
     assert.equal(grouping.showsMessageSpacer(first), false);
     assert.equal(grouping.showsMessageSpacer(last), true);
+  });
+
+  it("keeps native thinking out of tool groups and recomputes on live toggles", () => {
+    const config = new Config({ groupToolRuns: true });
+    const grouping = new RunGrouping(config);
+    const owner = {};
+    observe(grouping, "read", "read");
+    grouping.observeThinking(owner, 0, true, false);
+    observe(grouping, "edit", "edit");
+    const thinking = grouping.thinkingId(owner, 0);
+    for (const compact of [false, true, false]) {
+      config.set("thinkingAsToolCall", compact);
+      assert.equal(grouping.view("read"), compact ? "hide" : "show");
+      assert.equal(grouping.view(thinking), compact ? "hide" : "show");
+      assert.deepEqual(grouping.view("edit"), compact ? summary({ done: ["read", "think", "edit"] }) : "show");
+      assert.equal(grouping.showsMessageSpacer(owner), !compact);
+    }
   });
 
   it("restores individual rows when the setting is turned back off", () => {

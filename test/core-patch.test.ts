@@ -197,9 +197,128 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     assert.deepEqual(tail, ["", " ▌ ✓ read ×2"]);
   });
 
+  it("restores exact native thinking rendering and switches existing messages live", async () => {
+    const { components, markdownTheme } = await loadPi();
+    // Capture the actual native methods BEFORE installing the thinking patch.
+    // Compare ANSI output too: off must restore colors, padding and Markdown,
+    // not merely remove the gutter from our own renderer.
+    const nativeUpdate = components.AssistantMessageComponent.prototype.updateContent;
+    const nativeRender = components.AssistantMessageComponent.prototype.render;
+    class NativeAssistant extends components.AssistantMessageComponent {
+      constructor(...args: any[]) { super(...args); }
+      updateContent(message: unknown, streaming = this.isStreaming) {
+        nativeUpdate.call(this, message, streaming);
+      }
+      render(width: number) { return nativeRender.call(this, width); }
+    }
+    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+
+    for (const initiallyCompact of [false, true]) {
+      for (const hidden of [false, true]) {
+        for (const streaming of [false, true]) {
+          const shared = state({ thinkingAsToolCall: initiallyCompact });
+          installBridges(shared);
+          const message = assistantMessage([
+            { type: "thinking", thinking: "# Heading\n\n**reasoning** with `code`" },
+            { type: "text", text: "visible prose" },
+            { type: "thinking", thinking: "second thought" },
+          ]);
+          const args = [message, hidden, markdownTheme, "Native thinking label", 3, []];
+          const native = new NativeAssistant(...args);
+          const row = new components.AssistantMessageComponent(...args);
+          native.updateContent(message, streaming);
+          row.updateContent(message, streaming);
+          for (const compact of [initiallyCompact, !initiallyCompact, initiallyCompact]) {
+            shared.config.set("thinkingAsToolCall", compact);
+            for (const width of [32, 100]) {
+              const actual = row.render(width);
+              if (!compact) {
+                assert.deepEqual(actual, native.render(width), `native: hidden=${hidden}, streaming=${streaming}`);
+              } else if (hidden) {
+                assert.match(actual.map(plain).join("\n"), /▌ [✓•] think/);
+                assert.ok(!actual.map(plain).join("\n").includes("Native thinking label"));
+              }
+            }
+          }
+          // Click expansion must still work after swapping renderers.
+          shared.config.set("thinkingAsToolCall", false);
+          row.render(80);
+          const region = row.contentContainer.children.find((child: any) => typeof child.onMouse === "function");
+          region.onMouse({ type: "click", button: "left" });
+          assert.equal(row.thinkingVisibilityOverrides.get(0), !hidden);
+          shared.config.set("thinkingAsToolCall", true);
+          row.render(80);
+          shared.config.set("thinkingAsToolCall", false);
+          row.render(80);
+          assert.equal(row.thinkingVisibilityOverrides.get(0), !hidden, "live toggles preserve click overrides");
+          row.setHideThinkingBlock(false);
+          native.setHideThinkingBlock(false);
+          assert.deepEqual(row.render(80), native.render(80), "Ctrl+T expansion remains native");
+        }
+      }
+    }
+  });
+
+  it("keeps streaming expansion independent from compact thinking", async () => {
+    const { components, markdownTheme } = await loadPi();
+    installBridges(state({ thinkingAsToolCall: false, keepActiveThinkingExpanded: true }));
+    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    const message = assistantMessage([{ type: "thinking", thinking: "full reasoning" }]);
+    const row = new components.AssistantMessageComponent(message, true, markdownTheme, "Thinking...", 1, []);
+    row.updateContent(message, true);
+    const streaming = row.render(80).map(plain).join("\n");
+    assert.match(streaming, /full reasoning/);
+    assert.doesNotMatch(streaming, /▌|[✓•] think/);
+    row.updateContent(message, false);
+    const done = row.render(80).map(plain).join("\n");
+    assert.match(done, /Thinking\.\.\./);
+    assert.doesNotMatch(done, /▌|✓ think|full reasoning/);
+    assert.equal(row.hideThinkingBlock, true);
+  });
+
+  it("restores native thinking rows and spacers when switching off grouped previews", async () => {
+    const { components, markdownTheme } = await loadPi();
+    const shared = state({ groupToolRuns: true });
+    installBridges(shared);
+    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    const rows = ["one", "two"].map((thinking) => new components.AssistantMessageComponent(
+      assistantMessage([{ type: "thinking", thinking }]), true, markdownTheme, "Thinking...", 1, [],
+    ));
+    const render = () => rows.flatMap((row) => row.render(80)).map(plain).map((line: string) => line.trimEnd());
+    const native = render();
+    assert.deepEqual(native, ["", " Thinking...", "", " Thinking..."]);
+    shared.config.set("thinkingAsToolCall", true);
+    assert.deepEqual(render(), ["", " ▌ ✓ think ×2"]);
+    shared.config.set("thinkingAsToolCall", false);
+    assert.deepEqual(render(), native);
+  });
+
+  it("lets native thinking host an independently enabled activity summary", async () => {
+    const { components, markdownTheme } = await loadPi();
+    const shared = state({ foldIntermediateActivity: true, activitySummary: "tools" });
+    shared.grouping.agentStarted(0);
+    installBridges(shared);
+    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    const make = (content: unknown[], reason = "toolUse") => new components.AssistantMessageComponent(
+      assistantMessage(content, reason), true, markdownTheme, "Thinking...", 1, [],
+    );
+    const progress = make([{ type: "text", text: "progress" }]);
+    const thinking = make([{ type: "thinking", thinking: "reasoning" }]);
+    const final = make([{ type: "text", text: "final" }], "stop");
+    for (const compact of [false, true, false]) {
+      shared.config.set("thinkingAsToolCall", compact);
+      assert.deepEqual(progress.render(80), []);
+      assert.deepEqual(thinking.render(80).map(plain).map((line: string) => line.trimEnd()), ["", " ▌ ✓ think ×1"]);
+      assert.match(final.render(80).map(plain).join("\n"), /final/);
+    }
+    shared.config.set("foldIntermediateActivity", false);
+    assert.match(progress.render(80).map(plain).join("\n"), /progress/);
+    assert.deepEqual(thinking.render(80).map(plain).map((line: string) => line.trimEnd()), ["", " Thinking..."]);
+  });
+
   it("shows a compact preview instead of the bare Thinking... label", async () => {
     const { components, markdownTheme } = await loadPi();
-    installBridges(state());
+    installBridges(state({ thinkingAsToolCall: true }));
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
     const message = assistantMessage([{ type: "thinking", thinking: "The user wants a preview" }]);
@@ -217,9 +336,9 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     assert.ok(!text.includes("Thinking..."), text);
   });
 
-  it("keeps a STREAMING thinking block collapsed by default", async () => {
+  it("keeps a STREAMING compact thinking block collapsed by default", async () => {
     const { components, markdownTheme } = await loadPi();
-    installBridges(state());
+    installBridges(state({ thinkingAsToolCall: true }));
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
     const message = assistantMessage([{ type: "thinking", thinking: "partial reasoning" }]);
@@ -240,7 +359,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("expands a STREAMING thinking block when configured, restoring the override after", async () => {
     const { components, markdownTheme } = await loadPi();
-    installBridges(state({ keepActiveThinkingExpanded: true }));
+    installBridges(state({ thinkingAsToolCall: true, keepActiveThinkingExpanded: true }));
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
     const message = assistantMessage([{ type: "thinking", thinking: "partial reasoning" }]);
@@ -258,9 +377,9 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     assert.equal(component.hideThinkingBlock, true);
   });
 
-  it("recolors expanded thinking to a single purple hue", async () => {
+  it("recolors expanded thinking to a single purple hue when compact thinking is enabled", async () => {
     const { components, markdownTheme } = await loadPi();
-    installBridges(state());
+    installBridges(state({ thinkingAsToolCall: true }));
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
     const message = assistantMessage([{ type: "thinking", thinking: "# Heading\n\nplain text" }]);
@@ -285,7 +404,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("keeps thinking and prose in transcript order for quiet folding", async () => {
     const { components, markdownTheme } = await loadPi();
-    installBridges(state({ groupToolRuns: true }));
+    installBridges(state({ groupToolRuns: true, thinkingAsToolCall: true }));
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
     const message = assistantMessage([
@@ -453,7 +572,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // summary. Expanded thinking got the mirror-image bug: it became foldable and
     // swallowed whole runs of visible tool rows into a single summary line.
     const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
-    installBridges(state({ groupToolRuns: true }));
+    installBridges(state({ groupToolRuns: true, thinkingAsToolCall: true }));
     patchToolExecution(components.ToolExecutionComponent.prototype);
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
@@ -502,7 +621,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // The other half of the same inversion: expanded thinking must stay visible
     // and act as a run boundary, never fold neighbouring tool rows away.
     const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
-    installBridges(state({ groupToolRuns: true }));
+    installBridges(state({ groupToolRuns: true, thinkingAsToolCall: true }));
     patchToolExecution(components.ToolExecutionComponent.prototype);
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
 

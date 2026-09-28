@@ -47,17 +47,13 @@ export function createThinkingPreview(deps: ThinkingDeps): ThinkingPreview {
     const paint = () => {
       const glyphs = config.glyphs();
       const tokens = config.tokens();
-      // `thinkingAsToolCall` makes a collapsed thinking row indistinguishable
-      // from a tool row: same label color and gutter, no streaming highlight.
-      // Off (the default) it keeps the thinking hue, so collapsed and expanded
-      // thinking share one visual language.
-      const asTool = config.get("thinkingAsToolCall");
+      // Core only installs this preview when thinkingAsToolCall is enabled.
+      // Match tool-row styling; off keeps Pi's original thinking component.
       return new Painter(theme, config).labeled({
         glyph: streaming ? glyphs.running : glyphs.done,
         label: "think",
-        labelColor: asTool ? tokens.label : tokens.thinking,
+        labelColor: tokens.label,
         details: text.replace(/\s+/g, " ").trim(),
-        highlight: asTool ? false : streaming,
       });
     };
 

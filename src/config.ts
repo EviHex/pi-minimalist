@@ -100,7 +100,7 @@ export type BasicSettings = {
   gutter: boolean;
   /** Show the elapsed badge while a tool runs. */
   timer: boolean;
-  /** Render collapsed thinking exactly like a tool row (folds with them). */
+  /** Render collapsed thinking like a tool row. Off restores Pi's native thinking. */
   thinkingAsToolCall: boolean;
   /** Keep a RUNNING tool out of a fold so its progress stays visible. */
   keepActiveToolsExpanded: boolean;

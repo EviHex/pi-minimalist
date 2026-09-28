@@ -48,7 +48,7 @@ Requires an existing Pi installation. This is a local extension, **not** a publi
 - `Ctrl+O` — expand/collapse tool output. `Ctrl+T` — expand/collapse thinking blocks. These are Pi's default keybindings and may be customized in `keybindings.json`.
 - To disable the extension completely, remove its path from the `extensions` array and **restart Pi** (not just `/reload`). To remove it, delete the local directory after disabling it. Existing `minimalist` preferences in `settings.json` are inert without the extension; you can remove that key if desired.
 
-Turning off **Compact tool rows** only restores native tool cards; it does not disable other enabled minimalist options. Optional folding changes what is shown in the transcript, not the underlying session or tool results.
+Turning off **Compact tool rows** restores native tool cards. Turning off **Compact thinking rows** restores Pi's native thinking rendering, including its collapsed label and expanded Markdown, with no custom gutter or `✓ think` preview. Both switches apply to existing messages. **Show thinking while generating** and **Collapse earlier activity** remain independent options; turning off compact rendering does not disable them. Optional folding changes what is shown in the transcript, not the underlying session or tool results.
 
 ## Compatibility
 

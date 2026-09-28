@@ -126,6 +126,9 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
       );
     }
     assert.equal(typeof components.AssistantMessageComponent.prototype.updateContent, "function");
+    const message = { content: [{ type: "thinking", thinking: "reasoning" }], stopReason: "stop" };
+    const assistant = new components.AssistantMessageComponent(message);
+    assert.equal(assistant.lastMessage, message, "live thinking switches rebuild from the original message");
     const tool = new components.ToolExecutionComponent(
       "seam", "seam-1", {}, {}, undefined, { requestRender() {} }, process.cwd(),
     );

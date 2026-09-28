@@ -103,8 +103,10 @@ export function installBridges({ config, grouping, timers }: InstallOptions): vo
 
   // Chronology: core walks message content in transcript order, and run folding
   // depends on that order.
-  globals[slot("observeThinking")] = (owner: object, runIndex: number, streaming: boolean, hidden: boolean) =>
+  globals[slot("observeThinking")] = (owner: object, runIndex: number, streaming: boolean, hidden: boolean) => {
     grouping.observeThinking(owner, runIndex, !streaming, !hidden);
+    return grouping.thinkingId(owner, runIndex);
+  };
   globals[slot("observeProse")] = (
     owner: object,
     contentIndex: number,

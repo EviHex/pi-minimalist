@@ -60,7 +60,7 @@ export const FIELDS: Field[] = [
   {
     key: "thinkingAsToolCall",
     label: "Compact thinking rows",
-    description: "Show collapsed thinking in the same one-line style as tool calls, rather than a separate block.",
+    description: "Show collapsed thinking as a compact tool-style row. Off restores Pi's native thinking rendering.",
   },
   {
     key: "keepActiveToolsExpanded",

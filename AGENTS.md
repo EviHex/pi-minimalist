@@ -261,6 +261,16 @@ native self-shell tools in mind: ownership may change without a shell change. �
 native shells", "rebuilds the renderer when ownership changes but a native
 self shell stays attached".
 
+### Thinking off means native rendering, not a different compact-row color
+
+`thinkingAsToolCall` controls ownership of BOTH collapsed previews and expanded
+Markdown recoloring. Off keeps Pi's original components, without the gutter or
+`think` label. `patchAssistantMessage` rebuilds from `lastMessage` only when that
+setting changes, so existing rows switch live without losing click overrides.
+Native thinking breaks tool-run groups; the separately enabled activity fold and
+streaming expansion still apply. → `core-patch.test.ts`, "restores exact native
+thinking rendering and switches existing messages live".
+
 ### No generic tool-row spacer bridge
 
 A compact row uses `renderShell: "self"`, and core's self-shell branch returns
@@ -426,8 +436,10 @@ MCP adapter interplay, and how the glyphs look in a given font. After a restart:
    once per second even for a silent command.
 7. `Ctrl+O`: full original output, with diffs and syntax highlighting intact.
 8. An error: red `✗`.
-9. `Ctrl+T`: `• think …` while streaming, `✓ think <preview>` when done. Streaming
-   stays COLLAPSED by default; `keepActiveThinkingExpanded` shows it in full.
+9. With **Compact thinking rows** on: `• think …` while streaming,
+   `✓ think <preview>` when done; `Ctrl+T` expands it. Off restores Pi's native
+   thinking label and Markdown, including on existing messages. Streaming follows
+   Pi's visibility setting; `keepActiveThinkingExpanded` shows it in full.
 10. `/minimalist status`: one line per setting.
 11. `/minimalist` (or `/minimalist config`): arrow keys, a description line for
     the hovered setting, Enter/Space cycling, a visible live-change/Ctrl+O hint —

@@ -257,6 +257,7 @@ export class RunGrouping {
     const key = [
       this.version,
       this.config.get("groupToolRuns"),
+      this.config.get("thinkingAsToolCall"),
       this.config.get("foldIntermediateActivity"),
       this.config.get("foldActivityOnFinalAnswer"),
       this.config.get("keepActiveToolsExpanded"),
@@ -328,6 +329,7 @@ export class RunGrouping {
 
   private foldable(entry: Entry | undefined): boolean {
     if (!entry?.foldable || entry.expanded) return false;
+    if (entry.kind === "thinking" && !this.config.get("thinkingAsToolCall")) return false;
     if (entry.outcome === "pending" && this.config.get("keepActiveToolsExpanded")) return false;
     return true;
   }

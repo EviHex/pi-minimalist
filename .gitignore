@@ -1,3 +1,21 @@
 # Local state, not extension source
 hidden.json
 node_modules/
+
+# Editors and IDEs
+.idea/
+.vscode/
+.fleet/
+.history/
+*.iml
+*.code-workspace
+*.sublime-workspace
+
+# Editor temporary files
+*.swp
+*.swo
+*~
+
+# macOS metadata
+.DS_Store
+._*

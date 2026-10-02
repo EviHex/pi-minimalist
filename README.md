@@ -53,14 +53,8 @@ Turn off **Compact tool rows** to restore native tool cards. Other folding optio
 
 To disable the extension completely, run `pi config`, disable pi-minimalist, and restart Pi. To uninstall:
 
-```bash
-pi remove npm:pi-minimalist
-```
-
-Restart after disabling or removing it; `/reload` is not enough to remove its rendering hooks.
-
 ## Compatibility
 
-Tested with Pi **0.86.1**. Pi updates can affect rendering compatibility; [report a problem](https://github.com/EviHex/pi-minimalist/issues) with your Pi version, terminal, and a screenshot.
+Tested with Pi **1.0.0**. Pi updates can affect rendering compatibility; [report a problem](https://github.com/EviHex/pi-minimalist/issues) with your Pi version, terminal, and a screenshot.
 
 [MIT licensed](LICENSE).

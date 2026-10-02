@@ -60,19 +60,26 @@ describe("loadSettings", () => {
   it("returns defaults when nothing is configured", () => {
     const { env } = sandbox();
     assert.deepEqual(loadSettings(env), DEFAULTS);
+    assert.equal(loadSettings(env).groupToolRuns, true, "consecutive calls combine by default");
+  });
+
+  it("preserves an explicit preference to keep tool calls separate", () => {
+    const { env, settingsPath } = sandbox();
+    writeFileSync(settingsPath, JSON.stringify({ minimalist: { groupToolRuns: false } }));
+    assert.equal(loadSettings(env).groupToolRuns, false);
   });
 
   it("reads global settings and ignores project-local minimalist blocks", () => {
     const { env, cwd, settingsPath } = sandbox();
     writeFileSync(settingsPath, JSON.stringify({ minimalist: { gutter: false, timer: false } }));
     const project = join(cwd, ".pi", "settings.json");
-    const original = JSON.stringify({ minimalist: { timer: true, groupToolRuns: true } });
+    const original = JSON.stringify({ minimalist: { timer: true, groupToolRuns: false } });
     writeFileSync(project, original);
 
     const settings = loadSettings(env);
     assert.equal(settings.gutter, false);
     assert.equal(settings.timer, false, "project does not override global");
-    assert.equal(settings.groupToolRuns, false, "project-only values do not apply");
+    assert.equal(settings.groupToolRuns, true, "project-only values do not apply");
     assert.equal(readFileSync(project, "utf8"), original, "project settings are not migrated or deleted");
   });
 
@@ -169,7 +176,7 @@ describe("saveBasicSettings", () => {
     assert.equal(saveBasicSettings(DEFAULT_BASIC, env).ok, false);
     for (const key of BASIC_KEYS) config.setSessionOverride(key, config.get(key));
     config.replace(loadSettings(env));
-    assert.equal(config.get("groupToolRuns"), false);
+    assert.equal(config.get("groupToolRuns"), DEFAULT_BASIC.groupToolRuns);
     assert.equal(config.get("glyphStyle"), "unicode");
     assert.equal(readFileSync(settingsPath, "utf8"), original);
   });
@@ -238,7 +245,7 @@ describe("Config", () => {
       config.clearSessionOverride(key);
     }
     config.replace(DEFAULTS);
-    assert.equal(config.get("groupToolRuns"), false);
+    assert.equal(config.get("groupToolRuns"), DEFAULT_BASIC.groupToolRuns);
     assert.equal(config.get("glyphStyle"), "unicode");
   });
 
@@ -255,6 +262,6 @@ describe("Config", () => {
 
     config.clearSessionOverride("groupToolRuns");
     config.replace(DEFAULTS);
-    assert.equal(config.get("groupToolRuns"), false, "cleared override yields to the file");
+    assert.equal(config.get("groupToolRuns"), DEFAULT_BASIC.groupToolRuns, "cleared override yields to the file");
   });
 });

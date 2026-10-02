@@ -175,6 +175,7 @@ describe("renderCall", () => {
 
   it("folds completed runs only while groupToolRuns is enabled", () => {
     const { renderer: r, config } = renderer();
+    config.set("groupToolRuns", false);
     const first = r.renderCall("read", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "1" }));
     const second = r.renderCall("edit", { path: "a.ts" }, widthTheme, makeContext("completed", { toolCallId: "2" }));
     const third = r.renderCall("read", { path: "b.ts" }, widthTheme, makeContext("completed", { toolCallId: "3" }));

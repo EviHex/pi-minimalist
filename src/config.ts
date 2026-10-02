@@ -128,7 +128,7 @@ export type Settings = BasicSettings & AdvancedSettings;
 
 export const DEFAULT_BASIC: BasicSettings = {
   compactToolRows: true,
-  groupToolRuns: false,
+  groupToolRuns: true,
   foldIntermediateActivity: false,
   foldActivityOnFinalAnswer: false,
   activitySummary: "elapsed",

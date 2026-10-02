@@ -10,7 +10,7 @@ function observe(grouping: RunGrouping, id: string, name: string, outcome: Outco
 
 /** Grouping with folding OFF, to assert the disabled baseline. */
 function ungrouped(): RunGrouping {
-  return new RunGrouping(testConfig());
+  return new RunGrouping(testConfig({ groupToolRuns: false }));
 }
 
 /** Grouping with folding ON, which is what most of these tests need. */
@@ -341,7 +341,7 @@ describe("rowFor", () => {
   const base = () => ({ gutter: "|", text: "BASE" });
 
   it("is the ONE place grouping state becomes a drawable row", () => {
-    const config = new Config();
+    const config = new Config({ groupToolRuns: false });
     const grouping = new RunGrouping(config);
     observe(grouping, "1", "read");
     observe(grouping, "2", "edit");

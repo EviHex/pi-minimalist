@@ -22,7 +22,7 @@ rewrote Pi's compiled bundle with perl and is gone.
 | Feature | Default | Setting |
 | --- | --- | --- |
 | One-line tool rows, output hidden until `Ctrl+O` | on | `compactToolRows` |
-| Fold adjacent finished rows into one summary | off | `groupToolRuns` |
+| Fold adjacent finished rows into one summary | on | `groupToolRuns` |
 | Fold activity before the latest assistant prose into one summary | off | `foldIntermediateActivity` |
 | Wait for OpenAI's final answer before folding prose | off | `foldActivityOnFinalAnswer` |
 | Folded activity replacement | elapsed time | `activitySummary` |
@@ -58,7 +58,7 @@ defaults  <  global agent settings.json (PI_CODING_AGENT_DIR respected)
 ```json
 "minimalist": {
   "compactToolRows": true,
-  "groupToolRuns": false,
+  "groupToolRuns": true,
   "foldIntermediateActivity": false,
   "foldActivityOnFinalAnswer": false,
   "activitySummary": "elapsed",

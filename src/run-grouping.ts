@@ -55,6 +55,8 @@ export class RunGrouping {
   private cycle = 0;
   private cycles = new Map<number, Cycle>();
   private agentActive = false;
+  /** Rows the user opened out of a summary by clicking it. Never fold again. */
+  private opened = new Set<string>();
   private version = 0;
   private cache?: ViewCache;
 
@@ -226,6 +228,33 @@ export class RunGrouping {
     return painter.summary(view);
   }
 
+  /**
+   * Open the summary this row draws back into separate rows, after a click.
+   *
+   * Needed because the summary is drawn by ONE member (the tail) and the others
+   * draw zero lines: Pi's own click handler would expand only the tail.
+   * Returns false when the row draws no summary, so Pi's click still applies.
+   */
+  open(id: string): boolean {
+    const entry = this.byId.get(id);
+    if (!entry) return false;
+    const { activity, grouped } = this.views();
+    const members = [entry];
+    if (activity.get(id) === "summary") {
+      members.push(...this.entries.filter((e) => e.cycle === entry.cycle && activity.get(e.id) === "hide"));
+    } else if (typeof grouped.get(id) === "object") {
+      // A run's hidden members are the contiguous "hide" rows before its tail.
+      for (let i = this.entries.indexOf(entry) - 1; i >= 0 && grouped.get(this.entries[i].id) === "hide"; i--) {
+        members.push(this.entries[i]);
+      }
+    } else {
+      return false;
+    }
+    for (const member of members) this.opened.add(member.id);
+    this.invalidateViews();
+    return true;
+  }
+
   view(id: string): RowView {
     return this.views().grouped.get(id) ?? "show";
   }
@@ -320,7 +349,7 @@ export class RunGrouping {
   }
 
   private activityFoldable(entry: Entry): boolean {
-    if (entry.expanded) return false;
+    if (entry.expanded || this.opened.has(entry.id)) return false;
     if (entry.outcome === "pending" && entry.kind !== "prose" && this.config.get("keepActiveToolsExpanded")) {
       return false;
     }
@@ -328,7 +357,7 @@ export class RunGrouping {
   }
 
   private foldable(entry: Entry | undefined): boolean {
-    if (!entry?.foldable || entry.expanded) return false;
+    if (!entry?.foldable || entry.expanded || this.opened.has(entry.id)) return false;
     if (entry.kind === "thinking" && !this.config.get("thinkingAsToolCall")) return false;
     if (entry.outcome === "pending" && this.config.get("keepActiveToolsExpanded")) return false;
     return true;

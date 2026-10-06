@@ -7,7 +7,7 @@
  */
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import type { Component } from "@earendil-works/pi-tui";
+import type { Component, TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { gutterWidth, type Row } from "./row.ts";
 
 /**
@@ -50,6 +50,7 @@ export type ResolveRow = (width: number) => Row | null;
  */
 export class CompactLine implements Component {
   private resolve: ResolveRow = () => null;
+  private click?: () => boolean;
   private ticker: unknown;
   private timers: Timers;
 
@@ -57,9 +58,20 @@ export class CompactLine implements Component {
     this.timers = timers;
   }
 
-  /** Install the row resolver. Called on every updateDisplay with fresh state. */
-  setRow(resolve: ResolveRow): void {
+  /**
+   * Install the row resolver. Called on every updateDisplay with fresh state.
+   * `click` returning true stops Pi's own left-click (expand) handler.
+   */
+  setRow(resolve: ResolveRow, click?: () => boolean): void {
     this.resolve = resolve;
+    this.click = click;
+  }
+
+  // Pi's MouseRegion asks its child first, so a handled click never reaches
+  // the region's own expand/collapse toggle.
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (event.type !== "click" || event.button !== "left") return undefined;
+    return this.click?.() ? { handled: true } : undefined;
   }
 
   /**

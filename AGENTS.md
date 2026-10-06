@@ -288,6 +288,18 @@ one blank separator before a tool-hosted activity summary", "removes interstitia
 spacers left by fully hidden mixed assistant messages", and "folds commentary as
 soon as OpenAI's final answer starts streaming".
 
+### A click on a summary opens the run; it must not reach Pi's toggle
+
+A summary is drawn by ONE member (the tail); the others draw zero lines, so
+every click lands in the tail's `MouseRegion` and Pi expanded only that row.
+`CompactLine.handleMouse` asks `RunGrouping.open()` first (MouseRegion consults
+its child before `onMouse`); a handled click opens every member for the session.
+One `opened` set stops BOTH folds on purpose: a row the user opened stays
+visible, even when later prose starts a new "Worked for" summary.
+Known gap: a summary hosted by `FoldableProse` (prose, or native thinking) is
+not clickable. → `core-patch.test.ts`, "opens a clicked run summary instead of
+expanding only its last row".
+
 ### Do not call runtime actions during extension load
 
 `pi.getActiveTools()` and friends throw "Extension runtime not initialized".
@@ -453,6 +465,8 @@ MCP adapter interplay, and how the glyphs look in a given font. After a restart:
     first final-answer text appears, then collapses immediately.
 16. `activitySummary`: `Worked for 2m 7s` replaces prior tool rows rather than
     appearing after them; tool-count mode likewise emits one combined summary.
+17. Click a folded run: it opens into separate rows. Click one row: only that
+    row expands.
 
 ---
 

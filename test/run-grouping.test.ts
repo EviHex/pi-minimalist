@@ -200,6 +200,23 @@ describe("run grouping", () => {
     grouping.view(ids[0]);
     assert.ok(checks > firstRenderChecks, "an outcome change must invalidate the views");
   });
+
+  it("opens a clicked activity summary into separate rows for good", () => {
+    const grouping = grouped({ foldIntermediateActivity: true, groupToolRuns: true });
+    grouping.agentStarted(0);
+    const first = grouping.observeProse({}, 0);
+    observe(grouping, "a", "read");
+    observe(grouping, "b", "edit");
+    grouping.observeProse({}, 0);
+    assert.equal(grouping.isActivitySummary("b"), true);
+
+    assert.equal(grouping.open("a"), false, "a hidden member draws no summary");
+    assert.equal(grouping.open("b"), true);
+    assert.equal(grouping.isActivitySummary("b"), false);
+    // Opened rows must not fall back into the tool-run fold either.
+    assert.deepEqual([grouping.view("a"), grouping.view("b")], ["show", "show"]);
+    assert.equal(grouping.proseView(first, testPainter({}, plainTheme())), undefined);
+  });
 });
 
 describe("countNames", () => {

@@ -194,7 +194,10 @@ export function createToolRenderer(deps: RendererDeps): ToolRenderer {
         return component;
       }
       grouping.observe(id, summaryName(name, args), status.outcome, context.expanded === true);
-      component.setRow((width) => grouping.rowFor(id, new Painter(theme, config), () => paint(width)));
+      component.setRow(
+        (width) => grouping.rowFor(id, new Painter(theme, config), () => paint(width)),
+        () => grouping.open(id),
+      );
       return component;
     },
 

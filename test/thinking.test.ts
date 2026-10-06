@@ -46,6 +46,20 @@ describe("thinking preview", () => {
     }
   });
 
+  it("opens a run summary it hosts on a left click", () => {
+    const state = testState({ thinkingAsToolCall: true, groupToolRuns: true });
+    const owner = {};
+    state.grouping.observe("r1", "read", "success", false);
+    state.grouping.observeThinking(owner, 0, true, false);
+    const line = createThinkingPreview({ ...state, timers: fakeTimers() })("why", widthTheme, 0, false, owner, 0);
+    const click = { type: "click", button: "left" } as Parameters<typeof line.handleMouse>[0];
+
+    assert.equal(plain(line.render(80)[0]), " ▌ ✓ read ×1, think ×1");
+    assert.deepEqual(line.handleMouse(click), { handled: true });
+    assert.equal(plain(line.render(80)[0]), " ▌ ✓ think why");
+    assert.equal(line.handleMouse(click), undefined, "an opened row leaves the click to Pi");
+  });
+
   it("ignores the core pad argument (the gutter already positions the row)", () => {
     assert.deepEqual(preview("x", widthTheme, 0, false).render(40), preview("x", widthTheme, 8, false).render(40));
   });

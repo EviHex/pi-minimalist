@@ -617,6 +617,36 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     assert.deepEqual(visible, [" ▌ ✓ think ×2, read ×2, bash ×1"]);
   });
 
+  it("opens a clicked run summary instead of expanding only its last row", async () => {
+    // REGRESSION: the summary is drawn by the run's LAST row and the others draw
+    // zero lines, so Pi's MouseRegion click expanded only that last tool.
+    const { components, withBuiltInRenderers } = await loadPi();
+    installBridges(state({ groupToolRuns: true }));
+    patchToolExecution(components.ToolExecutionComponent.prototype);
+
+    const rows = ["a.ts", "b.ts"].map((path, index) => {
+      const row = new components.ToolExecutionComponent(
+        "read", `click-${index}`, { path }, {}, withBuiltInRenderers("read", undefined), fakeUi(), process.cwd(),
+      );
+      row.updateResult({ content: [{ type: "text", text: "out" }], details: {} });
+      return row;
+    });
+    const visible = () =>
+      rows.flatMap((row) => row.render(80)).map(plain).map((line: string) => line.trimEnd()).filter(Boolean);
+    visible(); // first pass registers both rows
+    assert.deepEqual(visible(), [" ▌ ✓ read ×2"]);
+
+    const click = { type: "click", button: "left", x: 5, y: 1, screenX: 5, screenY: 1, width: 80, height: 2 };
+    assert.equal(rows[1].handleMouse(click)?.handled, true);
+    assert.equal(rows[1].expanded, false, "the click must not reach Pi's expand toggle");
+    assert.deepEqual(visible(), [" ▌ ✓ read a.ts", " ▌ ✓ read b.ts"]);
+
+    // Opened rows keep Pi's own per-row click: expand exactly the one clicked.
+    rows[0].handleMouse(click);
+    assert.equal(rows[0].expanded, true);
+    assert.equal(rows[1].expanded, false);
+  });
+
   it("lets EXPANDED thinking break a quiet run instead of folding it", async () => {
     // The other half of the same inversion: expanded thinking must stay visible
     // and act as a run boundary, never fold neighbouring tool rows away.

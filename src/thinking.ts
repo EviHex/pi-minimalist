@@ -59,7 +59,7 @@ export function createThinkingPreview(deps: ThinkingDeps): ThinkingPreview {
 
     if (owner && runIndex !== undefined) {
       const id = grouping.thinkingId(owner, runIndex);
-      line.setRow(() => grouping.rowFor(id, new Painter(theme, config), paint));
+      line.setRow(() => grouping.rowFor(id, new Painter(theme, config), paint), () => grouping.open(id));
     } else {
       line.setRow(paint);
     }

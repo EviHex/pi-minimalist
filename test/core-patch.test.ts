@@ -425,9 +425,9 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     assert.ok(text.includes("think second"), text);
   });
 
-  it("folds commentary as soon as OpenAI's final answer starts streaming", async () => {
+  it("folds earlier prose into one summary with a single leading blank when a final answer streams in", async () => {
     const { components, markdownTheme } = await loadPi();
-    const shared = state({ foldIntermediateActivity: true, foldActivityOnFinalAnswer: true });
+    const shared = state({ foldIntermediateActivity: true });
     shared.grouping.agentStarted(0);
     installBridges(shared);
     patchAssistantMessage(components.AssistantMessageComponent.prototype);
@@ -444,12 +444,9 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // A thinking block is activity; a cycle of prose alone is never folded.
     const first = prose("first progress note", "commentary", "toolUse", [{ type: "thinking", thinking: "thought" }]);
     const second = prose("second progress note", "commentary", "toolUse");
-    assert.ok(first.render(80).map(plain).join("\n").includes("first progress note"));
-    assert.ok(second.render(80).map(plain).join("\n").includes("second progress note"));
 
-    // Pi sets stopReason=stop on response.output_item.added, before the first
-    // final-answer text delta. A non-empty first delta is enough to create the
-    // Markdown child and fold every earlier prose component on the same repaint.
+    // A non-empty first delta of the final answer creates its Markdown child
+    // and folds every earlier prose component on the same repaint.
     const finalMessage = assistantMessage([{ type: "text", text: "final answer starts" }], "stop");
     const final = new components.AssistantMessageComponent(finalMessage, true, markdownTheme, "Thinking...", 1, []);
     final.updateContent(finalMessage, true);

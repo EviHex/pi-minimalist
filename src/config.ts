@@ -116,8 +116,6 @@ export type BasicSettings = {
   groupToolRuns: boolean;
   /** Replace all but the latest assistant prose block with one summary row. */
   foldIntermediateActivity: boolean;
-  /** Keep commentary visible until OpenAI starts its final-answer message. */
-  foldActivityOnFinalAnswer: boolean;
   /** What replaces the activity hidden before the latest prose block. */
   activitySummary: ActivitySummary;
   /** Draw the left gutter bar. */
@@ -149,7 +147,6 @@ export const DEFAULT_BASIC: BasicSettings = {
   compactToolRows: true,
   groupToolRuns: true,
   foldIntermediateActivity: false,
-  foldActivityOnFinalAnswer: false,
   activitySummary: "elapsed",
   gutter: true,
   timer: true,

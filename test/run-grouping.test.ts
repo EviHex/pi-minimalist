@@ -379,31 +379,25 @@ describe("prose folding", () => {
   });
 
   for (const activitySummary of ["elapsed", "tools"] as const) {
-    for (const foldActivityOnFinalAnswer of [false, true]) {
-      it(`never folds a cycle of prose only (${activitySummary}, final-answer wait ${foldActivityOnFinalAnswer})`, () => {
-        const grouping = new RunGrouping(testConfig({
-          foldIntermediateActivity: true,
-          activitySummary,
-          foldActivityOnFinalAnswer,
-        }));
-        grouping.agentStarted(0);
-        const owners = [{}, {}, {}];
-        const ids = [
-          grouping.observeProse(owners[0], 0, { phase: "commentary" }),
-          grouping.observeProse(owners[1], 0, { phase: "commentary" }),
-          grouping.observeProse(owners[2], 0, { phase: "final_answer" }),
-        ];
-        grouping.agentSettled(5_000);
-        for (const id of ids) {
-          assert.equal(grouping.proseView(id, painter, 5_000), undefined);
-          assert.equal(grouping.isActivitySummary(id), false);
-        }
-        for (const owner of owners) {
-          assert.equal(grouping.activityMessageView(owner), "normal");
-          assert.equal(grouping.showsMessageSpacer(owner), true);
-        }
-      });
-    }
+    it(`never folds a cycle of prose only (${activitySummary})`, () => {
+      const grouping = new RunGrouping(testConfig({ foldIntermediateActivity: true, activitySummary }));
+      grouping.agentStarted(0);
+      const owners = [{}, {}, {}];
+      const ids = [
+        grouping.observeProse(owners[0], 0),
+        grouping.observeProse(owners[1], 0),
+        grouping.observeProse(owners[2], 0, { stopReason: "stop" }),
+      ];
+      grouping.agentSettled(5_000);
+      for (const id of ids) {
+        assert.equal(grouping.proseView(id, painter, 5_000), undefined);
+        assert.equal(grouping.isActivitySummary(id), false);
+      }
+      for (const owner of owners) {
+        assert.equal(grouping.activityMessageView(owner), "normal");
+        assert.equal(grouping.showsMessageSpacer(owner), true);
+      }
+    });
   }
 
   it("treats cycles independently: a prose-only cycle stays open, a later mixed one folds", () => {
@@ -424,22 +418,6 @@ describe("prose folding", () => {
       plain(grouping.rowFor("read", painter, () => ({ gutter: "", text: "read" }))!.text),
       "Worked for 3s",
     );
-  });
-
-  it("waits for OpenAI's final-answer signal before folding commentary", () => {
-    const grouping = new RunGrouping(testConfig({
-      foldIntermediateActivity: true,
-      foldActivityOnFinalAnswer: true,
-    }));
-    grouping.agentStarted(0);
-    const commentary = grouping.observeProse({}, 0, { phase: "commentary" });
-    observe(grouping, "read", "read");
-    grouping.observeProse({}, 0, { phase: "commentary" });
-    assert.equal(grouping.proseView(commentary, painter, 2_000), undefined, "commentary remains visible");
-
-    const final = grouping.observeProse({}, 0, { phase: "final_answer" });
-    assert.equal(grouping.proseView(commentary, painter, 2_000), null, "folds on explicit final phase");
-    assert.equal(grouping.proseView(final, painter, 2_000), undefined);
   });
 
   it("collapses prose, tools, and thinking into one tool summary", () => {
@@ -505,15 +483,14 @@ describe("prose folding", () => {
       activitySummary: "tools",
     }));
 
-    const progress1 = grouping.observeProse({}, 0, { phase: "commentary", timestamp: 0 });
+    const progress1 = grouping.observeProse({}, 0, { timestamp: 0 });
     observe(grouping, "read", "read");
     const final1 = grouping.observeProse({}, 0, {
-      phase: "final_answer",
       stopReason: "stop",
       streaming: false,
       timestamp: 1_000,
     });
-    const progress2 = grouping.observeProse({}, 0, { phase: "commentary", timestamp: 2_000 });
+    const progress2 = grouping.observeProse({}, 0, { timestamp: 2_000 });
     observe(grouping, "bash", "bash");
     const final2 = grouping.observeProse({}, 0, {
       stopReason: "stop",

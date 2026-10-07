@@ -101,16 +101,15 @@ describe("config screen contents", () => {
 
   it("indents prose subsettings under their master setting", () => {
     const dependent = FIELDS.filter((field) => field.activityOption);
-    assert.equal(dependent.length, 2);
+    assert.equal(dependent.length, 1);
     for (const field of dependent) assert.match(field.label, /^  \S/, field.key);
     assert.doesNotMatch(FIELDS.find((field) => field.key === "foldIntermediateActivity")!.label, /^\s/);
   });
 
   it("shows prose options only while prose folding is active", () => {
-    assert.equal(items(DEFAULTS).some((item) => item.id === "foldActivityOnFinalAnswer"), false);
+    assert.equal(items(DEFAULTS).some((item) => item.id === "activitySummary"), false);
     const rendered = items({ ...DEFAULTS, foldIntermediateActivity: true, activitySummary: "tools" });
     const byId = new Map(rendered.map((item) => [item.id, item]));
-    assert.equal(byId.get("foldActivityOnFinalAnswer")?.currentValue, "off");
     assert.equal(byId.get("activitySummary")?.currentValue, "tools used");
     assert.deepEqual(byId.get("activitySummary")?.values, ["elapsed time", "tools used"]);
   });
@@ -213,7 +212,7 @@ describe("config screen behaviour", () => {
     const config = new Config(DEFAULTS);
     screen(config).onChange("foldIntermediateActivity", "on");
     assert.equal(config.get("foldIntermediateActivity"), true);
-    assert.ok(FakeSettingsList.last?.items.some((item) => item.id === "foldActivityOnFinalAnswer"));
+    assert.ok(FakeSettingsList.last?.items.some((item) => item.id === "activitySummary"));
   });
 
   it("ignores unknown ids instead of writing junk into settings", () => {

@@ -43,12 +43,6 @@ export const FIELDS: Field[] = [
     description: "Keep the latest assistant reply visible; replace earlier text, thinking, and tool calls with one summary.",
   },
   {
-    key: "foldActivityOnFinalAnswer",
-    label: "  Collapse when final answer starts",
-    description: "Keep work visible until OpenAI starts its final answer, then collapse the earlier activity.",
-    activityOption: true,
-  },
-  {
     key: "activitySummary",
     label: "  Activity summary",
     description: "Show either elapsed work time or the tools used in place of folded activity.",

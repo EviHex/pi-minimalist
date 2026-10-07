@@ -34,7 +34,7 @@ type Entry = {
   foldable: boolean;
 };
 
-type Cycle = { startedAt: number; settledAt?: number; finalAnswerStarted: boolean };
+type Cycle = { startedAt: number; settledAt?: number };
 
 /** "show" keeps the row as-is, "hide" draws nothing, a summary folds a whole run. */
 export type RowView = "show" | "hide" | RunSummary;
@@ -78,7 +78,7 @@ export class RunGrouping {
     // Replay leaves `cycle` pointing at the next empty slot. A subsequent live
     // interaction can use it directly; consecutive live interactions advance.
     if (this.entries.some((entry) => entry.cycle === this.cycle)) this.cycle++;
-    this.cycles.set(this.cycle, { startedAt: now, finalAnswerStarted: false });
+    this.cycles.set(this.cycle, { startedAt: now });
     this.agentActive = true;
     this.invalidateViews();
   }
@@ -137,16 +137,11 @@ export class RunGrouping {
     this.observe(id, "think", done ? "success" : "pending", expanded, true, "thinking");
   }
 
-  /**
-   * Record prose and return its stable id. `stopReason=stop` is available on the
-   * first empty final-answer update, before OpenAI streams its first text delta;
-   * the finalized block later confirms the same fact through `phase`.
-   */
+  /** Record prose and return its stable id. `stopReason=stop` marks a final answer. */
   observeProse(
     owner: object,
     contentIndex: number,
     signal: {
-      phase?: "commentary" | "final_answer";
       stopReason?: string;
       streaming?: boolean;
       timestamp?: number;
@@ -157,24 +152,18 @@ export class RunGrouping {
     const isNew = !this.byId.has(id);
     const timestamp = signal.timestamp ?? Date.now();
     if (!this.cycles.has(this.cycle)) {
-      this.cycles.set(this.cycle, { startedAt: timestamp, finalAnswerStarted: false });
+      this.cycles.set(this.cycle, { startedAt: timestamp });
     }
     this.rememberOwnerEntry(owner, id);
     this.observe(id, "prose", "pending", false, false, "prose");
 
-    const isFinal = signal.phase === "final_answer" || signal.stopReason === "stop";
-    const cycle = this.cycles.get(this.byId.get(id)!.cycle)!;
-    if (isFinal && !cycle.finalAnswerStarted) {
-      cycle.finalAnswerStarted = true;
-      this.invalidateViews();
-    }
-
+    const isFinal = signal.stopReason === "stop";
     // session replay has no agent_start/agent_settled events. A newly observed,
     // finalized answer is therefore the only reliable boundary between old user
     // interactions. Advance AFTER assigning the answer so it remains the latest
     // prose of its own cycle; stable ids prevent re-renders from advancing twice.
     if (!this.agentActive && isNew && isFinal && !signal.streaming) {
-      cycle.settledAt = timestamp;
+      this.cycles.get(this.byId.get(id)!.cycle)!.settledAt = timestamp;
       this.cycle++;
     }
     return id;
@@ -328,7 +317,6 @@ export class RunGrouping {
       this.config.get("groupToolRuns"),
       this.config.get("thinkingAsToolCall"),
       this.config.get("foldIntermediateActivity"),
-      this.config.get("foldActivityOnFinalAnswer"),
       this.config.get("keepActiveToolsExpanded"),
     ].join(":");
     if (this.cache?.key === key) return this.cache;
@@ -367,11 +355,7 @@ export class RunGrouping {
       }
       for (const [cycleId, entries] of byCycle) {
         const prose = entries.filter((entry) => entry.kind === "prose");
-        const cycle = this.cycles.get(cycleId);
-        if (
-          prose.length < 2 ||
-          (this.config.get("foldActivityOnFinalAnswer") && !cycle?.finalAnswerStarted)
-        ) continue;
+        if (prose.length < 2) continue;
 
         const beforeLatest = entries.slice(0, entries.indexOf(prose.at(-1)!));
         // A cycle of consecutive prose only (no tool, no thinking) has nothing to fold.

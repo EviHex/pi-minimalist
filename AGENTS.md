@@ -25,7 +25,6 @@ rewrote Pi's compiled bundle with perl and is gone.
 | One-line tool rows, output hidden until `Ctrl+O` | on | `compactToolRows` |
 | Fold adjacent finished rows into one summary | on | `groupToolRuns` |
 | Fold activity before the latest assistant prose into one summary | off | `foldIntermediateActivity` |
-| Wait for OpenAI's final answer before folding prose | off | `foldActivityOnFinalAnswer` |
 | Folded activity replacement | elapsed time | `activitySummary` |
 | Left gutter bar | on | `gutter` |
 | Elapsed timer on running tools | on | `timer` |
@@ -62,7 +61,6 @@ defaults  <  global agent settings.json (PI_CODING_AGENT_DIR respected)
   "compactToolRows": true,
   "groupToolRuns": true,
   "foldIntermediateActivity": false,
-  "foldActivityOnFinalAnswer": false,
   "activitySummary": "elapsed",
   "gutter": true,
   "timer": true,
@@ -283,16 +281,6 @@ Running rows fold by default. Counting only success and failure meant a folded
 running row was counted nowhere and vanished from the transcript until it
 finished. → `row.test.ts`, "counts a still-running row instead of dropping it".
 
-### OpenAI final-answer folding starts from `stopReason`, then confirms with `textSignature`
-
-OpenAI Responses labels message items `commentary` or `final_answer`. Pi preserves
-the finalized phase inside the text block's JSON `textSignature`, but only writes
-that signature at `text_end`. For immediate folding, the streaming path therefore
-uses Pi's `stopReason === "stop"`, which Pi sets on
-`response.output_item.added` before the first final-answer text delta; the later
-`final_answer` signature is the stable confirmation. → `core-patch.test.ts`,
-"folds commentary as soon as OpenAI's final answer starts streaming".
-
 ### A cycle of prose only never folds
 
 `foldIntermediateActivity` folds a cycle only when something before its latest prose is not prose (a tool row or a thinking row); consecutive assistant text alone stays fully visible, with no "Worked for" summary and normal spacing, in both `activitySummary` modes. The check is in `RunGrouping.views()`. → `run-grouping.test.ts`, "never folds a cycle of prose only", `core-patch.test.ts`, "leaves a prose-only cycle fully visible".
@@ -319,7 +307,7 @@ session are never dropped on a session switch.
 Replayed history emits no `agent_start` / `agent_settled` events. Without a
 fallback, every old message lands in cycle 0 and activity folding preserves only
 the final prose of the entire session. A newly observed, non-streaming
-`final_answer` or `stopReason === "stop"` closes the replay cycle AFTER assigning
+message with `stopReason === "stop"` (one that continues with tools ends in `toolUse`) closes the replay cycle AFTER assigning
 that answer, so every historical user interaction keeps its own final prose. →
 `core-patch.test.ts`, "preserves each historical interaction's final prose during
 session replay".
@@ -359,8 +347,8 @@ interstitial spacers. The `activitySummaryRow` / `activityMessageView` bridges
 let the render wrappers normalize every host to EXACTLY one leading blank while
 fully hidden messages return zero lines. → `core-patch.test.ts`, "keeps exactly
 one blank separator before a tool-hosted activity summary", "removes interstitial
-spacers left by fully hidden mixed assistant messages", and "folds commentary as
-soon as OpenAI's final answer starts streaming".
+spacers left by fully hidden mixed assistant messages", and "folds earlier prose
+into one summary with a single leading blank when a final answer streams in".
 
 ### A click on a summary opens the run; it must not reach Pi's toggle
 
@@ -610,11 +598,9 @@ MCP adapter interplay, and how the glyphs look in a given font. After a restart:
     not vanished.
 14. `foldIntermediateActivity`: each new prose block folds every preceding prose,
     thinking and tool row into ONE summary; switching it off restores them all.
-15. With `foldActivityOnFinalAnswer`, OpenAI commentary remains visible until the
-    first final-answer text appears, then collapses immediately.
-16. `activitySummary`: `Worked for 2m 7s` replaces prior tool rows rather than
+15. `activitySummary`: `Worked for 2m 7s` replaces prior tool rows rather than
     appearing after them; tool-count mode likewise emits one combined summary.
-17. Click a folded run: it opens into separate rows under a muted
+16. Click a folded run: it opens into separate rows under a muted
     `▾ Expanded · click to fold` header, then one blank line. Click
     one row: only that row expands. Click the header: the run folds back; click
     the summary again: it reopens. Same for a "Worked for …" summary, including one

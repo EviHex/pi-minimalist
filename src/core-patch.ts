@@ -396,7 +396,6 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
     owner: object,
     contentIndex: number,
     signal: {
-      phase?: "commentary" | "final_answer";
       stopReason?: string;
       streaming?: boolean;
       timestamp?: number;
@@ -431,9 +430,7 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
   for (let i = 0; i < (message?.content?.length ?? 0); i++) {
     const content = message.content[i];
     if (content?.type === "text" && String(content.text ?? "").trim()) {
-      const phase = textPhase(content.textSignature);
       const id = observeProse?.(component, i, {
-        phase,
         stopReason: message.stopReason,
         streaming: isStreaming,
         timestamp: message.timestamp,
@@ -521,16 +518,6 @@ function visiblyBlank(line: string): boolean {
     .replace(/\x1b\[[0-9;]*m/g, "")
     .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
     .trim() === "";
-}
-
-function textPhase(signature: unknown): "commentary" | "final_answer" | undefined {
-  if (typeof signature !== "string" || !signature.startsWith("{")) return undefined;
-  try {
-    const phase = JSON.parse(signature).phase;
-    return phase === "commentary" || phase === "final_answer" ? phase : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /** Pi's live Theme instance, shared through globalThis by its theme module. */

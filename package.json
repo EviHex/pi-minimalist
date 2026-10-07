@@ -1,6 +1,6 @@
 {
   "name": "pi-minimalist",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Compact one-line tool and thinking rows for Pi's interactive transcript",
   "keywords": ["pi-package"],
   "license": "MIT",

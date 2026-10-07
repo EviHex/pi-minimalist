@@ -184,9 +184,10 @@ describe("Config", () => {
   });
 
   it("treats the exclusion list as the only exemption", () => {
-    assert.equal(new Config(DEFAULTS).isExcluded("subagent"), true);
-    assert.equal(new Config(DEFAULTS).isExcluded("read"), false);
-    assert.equal(new Config({ ...DEFAULTS, excludeTools: [] }).isExcluded("subagent"), false);
+    assert.equal(new Config(DEFAULTS).compacts("subagent"), false);
+    assert.equal(new Config(DEFAULTS).compacts("read"), true);
+    assert.equal(new Config({ ...DEFAULTS, excludeTools: [] }).compacts("subagent"), true);
+    assert.equal(new Config({ ...DEFAULTS, compactToolRows: false }).compacts("read"), false);
   });
 
   it("clears previous session overrides after a successful reset", () => {

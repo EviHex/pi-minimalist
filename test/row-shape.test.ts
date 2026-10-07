@@ -37,7 +37,6 @@ function cells(line: string): Array<[string, string]> {
 /** Theme whose markup is parseable by cells() and costs zero visible columns. */
 const markup: ThemeLike = {
   fg: (token, text) => `<${token}>${text}</${token}>`,
-  bg: (token, text) => `<${token}>${text}</${token}>`,
 };
 
 const painter = new Painter(markup, testConfig());

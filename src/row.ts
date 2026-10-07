@@ -20,12 +20,8 @@
 
 // Type-only: erased at runtime, but makes a mistyped token ("succes") a compile
 // error instead of a theme.fg() throw that core turns into a verbose card.
-import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import { OPEN_MARKER, type Config } from "./config.ts";
-
-// ThemeBg is not exported publicly, so recover it from Theme.bg's own signature
-// rather than importing a deep dist path (which is not a package export).
-type ThemeBg = Parameters<Theme["bg"]>[0];
 
 /**
  * Minimal theme surface. Pi's real Theme satisfies it; tests pass a fake that
@@ -37,7 +33,6 @@ type ThemeBg = Parameters<Theme["bg"]>[0];
  */
 export type ThemeLike = {
   fg(token: ThemeColor, text: string): string;
-  bg(token: ThemeBg, text: string): string;
 };
 
 /** One painted row. `text` is already colored; truncation happens at render. */
@@ -46,8 +41,6 @@ export type Row = {
   gutter: string;
   /** Fully colored row content. */
   text: string;
-  /** Full-width background, applied after truncation. */
-  highlight?: (text: string) => string;
   /**
    * Set on an expanded row: wrap instead of truncating. `head` is the colored
    * `glyph label` prefix (no timer badge, whose width changes) and `body` the
@@ -86,8 +79,6 @@ export type Labeled = {
   badge?: string;
   /** Path, command, or preview text. */
   details?: string;
-  /** Highlight the row background (streaming thinking only). */
-  highlight?: boolean;
   /** Wrap long details onto more lines instead of truncating (expanded tool rows). */
   wrap?: boolean;
 };
@@ -169,7 +160,6 @@ export class Painter {
       // rows stay green without either caller naming a gutter color.
       gutter: this.gutter(labelColor),
       text: [head, ...rest].join(" "),
-      highlight: spec.highlight ? (text) => this.theme.bg(tokens.activeBg, text) : undefined,
       wrap: spec.wrap && spec.details ? { head, body: wrapBody.join(" ") } : undefined,
     };
   }

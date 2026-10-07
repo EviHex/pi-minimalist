@@ -152,7 +152,6 @@ describe("renderCall", () => {
       state: running.state,
     });
     assert.equal(timers.pending(), 0, "completion must stop the ticker");
-    assert.equal(first.isTicking(), false);
   });
 
   it("stops the ticker when the row reaches a final state", () => {
@@ -168,7 +167,6 @@ describe("renderCall", () => {
       lastComponent: line,
     });
     assert.equal(timers.pending(), 0, "no interval may survive completion");
-    assert.equal(line.isTicking(), false);
   });
 
   it("keeps an expanded command's lines under the hanging indent; a collapsed one stays one clipped row", () => {

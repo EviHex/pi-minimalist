@@ -68,7 +68,7 @@ function wrapped({ head, body }: { head: string; body: string }, room: number): 
 function renderRow(row: Row | null, width: number): string[] {
   if (row === null) return [];
   const room = Math.max(1, width - gutterWidth(row.gutter));
-  const paint = (line: string) => row.gutter + (row.highlight ? row.highlight(line) : line);
+  const paint = (line: string) => row.gutter + line;
   const lines = row.wrap ? wrapped(row.wrap, room) : undefined;
   if (lines) return lines.map(paint);
   return [paint(truncateToWidth(row.text, room, "…"))];
@@ -131,11 +131,6 @@ export class CompactLine implements Component {
       this.timers.clearInterval(this.ticker);
       this.ticker = undefined;
     }
-  }
-
-  /** Test/inspection helper: is a repaint interval currently registered? */
-  isTicking(): boolean {
-    return this.ticker !== undefined;
   }
 
   render(width: number): string[] {

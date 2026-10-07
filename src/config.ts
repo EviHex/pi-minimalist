@@ -7,11 +7,7 @@
  * are readable on their own.
  */
 
-import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-
-// ThemeBg is not exported publicly, so recover it from Theme.bg's own signature
-// rather than importing a deep dist path (which is not a package export).
-type ThemeBg = Parameters<Theme["bg"]>[0];
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 
 /** Top-level key inside Pi's settings.json. */
 export const SETTINGS_KEY = "minimalist";
@@ -69,7 +65,6 @@ export type Tokens = {
   thinking: ThemeColor;
   error: ThemeColor;
   outputGutter: ThemeColor;
-  activeBg: ThemeBg;
 };
 
 export const DEFAULT_TOKENS: Tokens = {
@@ -78,7 +73,6 @@ export const DEFAULT_TOKENS: Tokens = {
   thinking: "thinkingText",
   error: "error",
   outputGutter: "borderMuted",
-  activeBg: "toolPendingBg",
 };
 
 // ---------------------------------------------------------------------------
@@ -267,17 +261,10 @@ export class Config {
   }
 
   /**
-   * Should this tool keep Pi's own rendering?
-   *
-   * The exclusion list is the ONLY exemption, so the master switch is checked
-   * alongside it wherever claiming happens.
+   * True when this tool should be drawn as a compact row. The exclusion list is
+   * the ONLY exemption, so the master switch is checked alongside it.
    */
-  isExcluded(toolName: string): boolean {
-    return this.view.excludeTools.includes(toolName);
-  }
-
-  /** True when this tool should be drawn as a compact row. */
   compacts(toolName: string): boolean {
-    return this.view.compactToolRows && !this.isExcluded(toolName);
+    return this.view.compactToolRows && !this.view.excludeTools.includes(toolName);
   }
 }

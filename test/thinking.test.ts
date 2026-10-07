@@ -12,35 +12,30 @@ const preview = createThinkingPreview({ ...testState({ thinkingAsToolCall: true 
 
 describe("thinking preview", () => {
   it("shows a running dot while streaming and a check when complete", () => {
-    assert.deepEqual(preview("The user wants X", widthTheme, 0, true).render(80).map(plain), [
+    assert.deepEqual(preview("The user wants X", widthTheme, true).render(80).map(plain), [
       " ▌ • think The user wants X",
     ]);
-    assert.deepEqual(preview("The user wants X", widthTheme, 0, false).render(80).map(plain), [
+    assert.deepEqual(preview("The user wants X", widthTheme, false).render(80).map(plain), [
       " ▌ ✓ think The user wants X",
     ]);
   });
 
   it("uses success for the glyph and label, toolTitle for the preview text", () => {
     assert.equal(
-      preview("why", theme, 0, false).render(500)[0],
+      preview("why", theme, false).render(500)[0],
       " <success>▌</success> <success>✓</success> <success>think</success> <toolTitle>why</toolTitle>",
     );
   });
 
-  it("matches tool-row styling without a streaming background", () => {
-    assert.doesNotMatch(preview("x", theme, 0, true).render(500)[0], /\[toolPendingBg\]/);
-    assert.doesNotMatch(preview("x", theme, 0, false).render(500)[0], /\[toolPendingBg\]/);
-  });
-
   it("collapses multiline thinking into one line inside the width", () => {
     const text = "First thought.\n\nSecond thought.\n  Third.";
-    const rendered = preview(text, widthTheme, 0, false).render(80);
+    const rendered = preview(text, widthTheme, false).render(80);
 
     assert.equal(rendered.length, 1);
     assert.equal(plain(rendered[0]), " ▌ ✓ think First thought. Second thought. Third.");
 
     for (const width of [12, 40, 100]) {
-      const line = preview("z".repeat(500), widthTheme, 0, false).render(width);
+      const line = preview("z".repeat(500), widthTheme, false).render(width);
       assert.equal(line.length, 1, `width ${width}`);
       assert.ok(visibleWidth(line[0]) <= width, `width ${width}`);
     }
@@ -51,7 +46,7 @@ describe("thinking preview", () => {
     const owner = {};
     state.grouping.observe("r1", "read", "success", false);
     state.grouping.observeThinking(owner, 0, true, false);
-    const line = createThinkingPreview({ ...state, timers: fakeTimers() })("why", widthTheme, 0, false, owner, 0);
+    const line = createThinkingPreview({ ...state, timers: fakeTimers() })("why", widthTheme, false, owner, 0);
     const click = { type: "click", button: "left" } as Parameters<typeof line.handleMouse>[0];
 
     assert.equal(plain(line.render(80)[0]), " ▌ ✓ read ×1, think ×1");
@@ -60,17 +55,12 @@ describe("thinking preview", () => {
     assert.equal(line.handleMouse(click), undefined, "an opened row leaves the click to Pi");
   });
 
-  it("ignores the core pad argument (the gutter already positions the row)", () => {
-    assert.deepEqual(preview("x", widthTheme, 0, false).render(40), preview("x", widthTheme, 8, false).render(40));
-  });
-
   it("registers no ticker (defensive: the preview has no elapsed timer)", () => {
     // The preview is repainted by streaming text, so it must never start the
     // 1s interval. This is a guard for a future change, not current logic.
     const timers = fakeTimers();
-    const line = createThinkingPreview({ ...testState({ thinkingAsToolCall: true }), timers })("x", widthTheme, 0, true);
+    const line = createThinkingPreview({ ...testState({ thinkingAsToolCall: true }), timers })("x", widthTheme, true);
     line.render(40);
-    assert.equal(line.isTicking(), false);
     assert.equal(timers.pending(), 0);
   });
 });

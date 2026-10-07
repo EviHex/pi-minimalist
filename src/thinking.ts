@@ -20,7 +20,6 @@ import type { Config } from "./config.ts";
 export type ThinkingPreview = (
   text: string,
   theme: ThemeLike,
-  pad: number,
   streaming?: boolean,
   owner?: object,
   runIndex?: number,
@@ -36,9 +35,7 @@ export function createThinkingPreview(deps: ThinkingDeps): ThinkingPreview {
   const { config, grouping } = deps;
   const timers = deps.timers ?? realTimers;
 
-  // `pad` is part of the core bridge signature but unused: the gutter already
-  // positions the row, so honoring pad too would double-indent it.
-  return (text, theme, _pad, streaming, owner, runIndex) => {
+  return (text, theme, streaming, owner, runIndex) => {
     const line = new CompactLine(timers);
 
     // Takes no width: thinking has a single detail field, so CompactLine's

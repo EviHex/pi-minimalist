@@ -27,7 +27,7 @@
 
 import type { Component } from "@earendil-works/pi-tui";
 import { BRIDGE_SYMBOLS } from "./bridge.ts";
-import { FoldableProse } from "./components.ts";
+import { EmptyComponent, FoldableProse } from "./components.ts";
 import type { Config } from "./config.ts";
 import type { Row, ThemeLike } from "./row.ts";
 import type { RunGrouping } from "./run-grouping.ts";
@@ -38,6 +38,7 @@ function bridge<T>(key: keyof typeof BRIDGE_SYMBOLS): T | undefined {
   return (globalThis as Globals)[Symbol.for(BRIDGE_SYMBOLS[key])] as T | undefined;
 }
 
+const EMPTY = new EmptyComponent();
 const barrier = (id: string) => bridge<(id: string) => void>("observeBarrier")?.(id);
 
 /** Applied-once marker per prototype, so /reload never double-wraps. */
@@ -232,9 +233,6 @@ export function patchUserMessage(proto: { rebuild(): void }): void {
   });
 }
 
-/** Renders nothing, for the "no result content at all" case. */
-const EMPTY: Component = { render: () => [], invalidate: () => {} };
-
 // ---------------------------------------------------------------------------
 // PATCH 2 — thinking blocks
 // ---------------------------------------------------------------------------
@@ -242,7 +240,6 @@ const EMPTY: Component = { render: () => [], invalidate: () => {} };
 type ThinkingBridge = (
   text: string,
   theme: unknown,
-  pad: number,
   streaming?: boolean,
   owner?: object,
   runIndex?: number,
@@ -253,7 +250,6 @@ type AssistantProto = {
   hideThinkingBlock: boolean;
   thinkingVisibilityOverrides: Map<number, boolean>;
   markdownTheme: Record<string, unknown>;
-  outputPad: number;
   isStreaming: boolean;
   lastMessage?: any;
   updateContent(message: any, isStreaming?: boolean): void;
@@ -296,10 +292,6 @@ function thinkingRuns(message: any): string[][] {
  */
 function isMouseRegion(value: any): boolean {
   return typeof value?.onMouse === "function" && value.child !== undefined;
-}
-
-function thinkingRegions(children: Component[]): any[] {
-  return children.filter(isMouseRegion);
 }
 
 /**
@@ -414,7 +406,7 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
     );
 
   const children = component.contentContainer.children;
-  const regions = thinkingRegions(children);
+  const regions: any[] = children.filter(isMouseRegion);
   const runs = thinkingRuns(message);
 
   // Direct Markdown children correspond one-for-one with non-empty text blocks;
@@ -476,7 +468,6 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
       entry.child = preview(
         blocks.join("\n"),
         theme,
-        component.outputPad,
         isStreaming,
         component,
         runIndex,

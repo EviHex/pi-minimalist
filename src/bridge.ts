@@ -20,7 +20,7 @@ import type { Timers } from "./components.ts";
 export const BRIDGE_SYMBOLS = {
   /** `{ renderShell, handles, renderCall, renderResult }` for every tool row. */
   toolRenderer: "pi.defaultToolRenderer",
-  /** `(text, theme, pad, streaming, owner, runIndex) => Component`. */
+  /** `(text, theme, streaming, owner, runIndex) => Component`. */
   thinkingPreview: "pi.thinkingPreview",
   /** `(markdownTheme, theme) => markdownTheme` for expanded thinking. */
   thinkingMarkdownTheme: "pi.thinkingMarkdownTheme",

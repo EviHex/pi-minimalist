@@ -79,15 +79,6 @@ describe("CompactLine", () => {
     assert.equal(plain(line.render(80)[0]), " ▌ ✓ read ×1, think ×1");
   });
 
-  it("applies the row highlight only when the row supplies one", () => {
-    const line = new CompactLine(fakeTimers());
-    line.setRow(() => ({ gutter: "", text: "row" }));
-    assert.equal(line.render(20)[0], "row");
-
-    line.setRow(() => ({ gutter: "", text: "row", highlight: (text) => theme.bg("toolPendingBg", text) }));
-    assert.equal(line.render(20)[0], "[toolPendingBg]row[/toolPendingBg]");
-  });
-
   it("starts at most one ticker and stops it on completion", () => {
     const timers = fakeTimers();
     const line = new CompactLine(timers);
@@ -96,14 +87,12 @@ describe("CompactLine", () => {
     line.startTicker(() => repaints++);
     line.startTicker(() => repaints++); // must not register a second interval
     assert.equal(timers.pending(), 1);
-    assert.equal(line.isTicking(), true);
 
     timers.fire();
     assert.equal(repaints, 1);
 
     line.stopTicker();
     assert.equal(timers.pending(), 0, "a finished row must leave no interval behind");
-    assert.equal(line.isTicking(), false);
 
     timers.fire();
     assert.equal(repaints, 1, "stopped ticker must not repaint again");

@@ -38,7 +38,6 @@ describe("labeled rows", () => {
     const row = painter.labeled({ glyph: "✓", label: "read", details: "a.ts" });
     assert.equal(row.text, "<success>✓</success> <success>read</success> <toolTitle>a.ts</toolTitle>");
     assert.equal(row.gutter, " <success>▌</success> ", "gutter follows the label color");
-    assert.equal(row.highlight, undefined);
   });
 
   it("places the badge between the label and the details", () => {
@@ -62,14 +61,6 @@ describe("labeled rows", () => {
     const row = painter.labeled({ glyph: "✓", label: "think", labelColor: "thinkingText", details: "why" });
     assert.equal(row.gutter, " <thinkingText>▌</thinkingText> ");
     assert.equal(row.text, "<success>✓</success> <thinkingText>think</thinkingText> <toolTitle>why</toolTitle>");
-  });
-
-  it("supplies a background wrapper only when highlighted", () => {
-    assert.equal(painter.labeled({ label: "think", highlight: false }).highlight, undefined);
-    assert.equal(
-      painter.labeled({ label: "think", highlight: true }).highlight?.("x"),
-      "[toolPendingBg]x[/toolPendingBg]",
-    );
   });
 
   it("honours overridden theme tokens", () => {

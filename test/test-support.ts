@@ -23,7 +23,6 @@ import type { RenderState } from "../src/tool-renderer.ts";
 export function fakeTheme(): ThemeLike {
   return {
     fg: (token, text) => `<${token}>${text}</${token}>`,
-    bg: (token, text) => `[${token}]${text}[/${token}]`,
   };
 }
 
@@ -32,7 +31,7 @@ export function fakeTheme(): ThemeLike {
  * occupy no visible columns. Use it for layout, truncation, and width tests.
  */
 export function plainTheme(): ThemeLike {
-  return { fg: (_token, text) => text, bg: (_token, text) => text };
+  return { fg: (_token, text) => text };
 }
 
 /** Strip fake-theme markup AND real ANSI codes to assert on visible text. */

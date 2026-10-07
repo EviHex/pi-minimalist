@@ -30,12 +30,15 @@ import { BRIDGE_SYMBOLS } from "./bridge.ts";
 import { FoldableProse } from "./components.ts";
 import type { Config } from "./config.ts";
 import type { Row, ThemeLike } from "./row.ts";
+import type { RunGrouping } from "./run-grouping.ts";
 
 type Globals = Record<symbol, unknown>;
 
 function bridge<T>(key: keyof typeof BRIDGE_SYMBOLS): T | undefined {
   return (globalThis as Globals)[Symbol.for(BRIDGE_SYMBOLS[key])] as T | undefined;
 }
+
+const barrier = (id: string) => bridge<(id: string) => void>("observeBarrier")?.(id);
 
 /** Applied-once marker per prototype, so /reload never double-wraps. */
 const PATCHED = Symbol.for("pi.minimalist.corePatched");
@@ -138,6 +141,8 @@ export function patchToolExecution(proto: ToolExecutionProto): void {
     const ownership = new WeakMap<ToolExecutionProto, boolean>();
     function syncShell(this: ToolExecutionProto): boolean {
       const claimed = claims.call(this) !== undefined;
+      // A card we do not draw is still visible: let it cut folded runs.
+      if (!claimed && this.toolCallId) barrier(this.toolCallId);
       const shell = this.hasRendererDefinition()
         ? this.getRenderShell() === "self" ? this.selfRenderContainer : this.contentBox
         : this.contentTextRegion;
@@ -211,6 +216,22 @@ export function patchToolExecution(proto: ToolExecutionProto): void {
   });
 }
 
+/**
+ * A user message is visible but never observed otherwise, so without this a
+ * folded run could jump over it. It is a barrier: it only cuts runs.
+ */
+export function patchUserMessage(proto: { rebuild(): void }): void {
+  once(proto, "userMessage", () => {
+    const nativeRebuild = proto.rebuild;
+    // Keyed on the text: Pi builds NEW components for the same messages on every
+    // chat rebuild, and a per-component id would append a fresh barrier each time.
+    proto.rebuild = function (this: { rebuild(): void; text: string }) {
+      nativeRebuild.call(this);
+      barrier("user:" + this.text);
+    };
+  });
+}
+
 /** Renders nothing, for the "no result content at all" case. */
 const EMPTY: Component = { render: () => [], invalidate: () => {} };
 
@@ -237,7 +258,10 @@ type AssistantProto = {
   lastMessage?: any;
   updateContent(message: any, isStreaming?: boolean): void;
   render(width: number): string[];
+  handleMouse(event: MouseLike): unknown;
 };
+
+type MouseLike = { y: number; height: number };
 
 /** One thinking run: consecutive `thinking` blocks, exactly as core groups them. */
 function thinkingRuns(message: any): string[][] {
@@ -303,7 +327,12 @@ export function patchAssistantMessage(proto: AssistantProto): void {
   once(proto, "assistantMessage", () => {
     const nativeUpdateContent = proto.updateContent;
     const nativeRender = proto.render;
+    const nativeHandleMouse = proto.handleMouse;
     const compactState = new WeakMap<AssistantProto, boolean>();
+    // withOneLeadingBlank() changes the lines AFTER Container.render() recorded
+    // its mouse layout, so Pi's y (relative to the lines we returned) would
+    // miss the summary by that shift. Remember it to translate clicks back.
+    const mouseShift = new WeakMap<AssistantProto, { shift: number; height: number }>();
 
     proto.updateContent = function (this: AssistantProto, message: any, isStreaming = this.isStreaming) {
       const savedHide = this.hideThinkingBlock;
@@ -336,7 +365,17 @@ export function patchAssistantMessage(proto: AssistantProto): void {
       const lines = nativeRender.call(this, width);
       const view = bridge<(owner: object) => "normal" | "hidden" | "summary">("activityMessageView")?.(this);
       if (view === "hidden") return [];
-      return view === "summary" ? withOneLeadingBlank(lines) : lines;
+      if (view !== "summary") {
+        mouseShift.delete(this);
+        return lines;
+      }
+      mouseShift.set(this, { shift: lines.findIndex((line) => !visiblyBlank(line)) - 1, height: lines.length });
+      return withOneLeadingBlank(lines);
+    };
+
+    proto.handleMouse = function (this: AssistantProto, event: MouseLike) {
+      const moved = mouseShift.get(this);
+      return nativeHandleMouse.call(this, moved ? { ...event, y: event.y + moved.shift, height: moved.height } : event);
     };
   });
 }
@@ -350,7 +389,7 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
   const purple = bridge<(base: Record<string, unknown>, theme: unknown) => Record<string, unknown>>(
     "thinkingMarkdownTheme",
   );
-  const observeThinking = bridge<(owner: object, run: number, streaming: boolean, hidden: boolean) => string>(
+  const observeThinking = bridge<(owner: object, run: number, streaming: boolean, hidden: boolean, timestamp?: number) => string>(
     "observeThinking",
   );
   const observeProse = bridge<(
@@ -364,8 +403,16 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
     },
   ) => string>("observeProse");
   const proseView = bridge<(id: string, theme: ThemeLike) => Row | null | undefined>("proseView");
+  const proseHeader = bridge<(id: string, theme: ThemeLike) => Row | undefined>("proseHeader");
   const messageSpacer = bridge<(owner: object) => boolean>("messageSpacer");
   const theme = liveTheme();
+  const foldable = (inner: Component, id: string) =>
+    new FoldableProse(
+      inner,
+      () => proseView!(id, theme as ThemeLike),
+      () => proseHeader?.(id, theme as ThemeLike),
+      (onHeader) => bridge<RunGrouping>("grouping")?.click(id, onHeader) ?? false,
+    );
 
   const children = component.contentContainer.children;
   const regions = thinkingRegions(children);
@@ -393,7 +440,7 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
       });
       const target = proseChildren[prose++];
       if (id && target && proseView && theme) {
-        children[target.index] = new FoldableProse(target.child, () => proseView(id, theme as ThemeLike));
+        children[target.index] = foldable(target.child, id);
       }
       continue;
     }
@@ -414,13 +461,13 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
     // `expanded` itself, so negating here too inverted all run folding: expanded
     // thinking became foldable (swallowing whole runs of tool rows into one
     // summary) and collapsed thinking stopped folding entirely.
-    const id = observeThinking?.(component, runIndex, isStreaming, hidden);
+    const id = observeThinking?.(component, runIndex, isStreaming, hidden, message.timestamp);
 
     if (!compact) {
       // Native thinking still participates in the separately enabled activity
       // fold, just like native prose. Otherwise keep Pi's component untouched.
       if (id && proseView && theme) {
-        entry.child = new FoldableProse(inner, () => proseView(id, theme as ThemeLike));
+        entry.child = foldable(inner, id);
       }
       continue;
     }
@@ -441,6 +488,9 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
       // Markdown reads its (TS-private) theme at render time, and this runs
       // before the first render, so recoloring in place needs no reconstruction.
       inner.theme = purple(component.markdownTheme, theme);
+      // Host the header like native thinking does, so an opened run's header
+      // can sit above this row too.
+      if (id && proseView && theme) entry.child = foldable(inner, id);
     }
   }
 
@@ -499,6 +549,7 @@ function liveTheme(): unknown {
 export function patchCore(core: {
   ToolExecutionComponent?: new (...args: never[]) => unknown;
   AssistantMessageComponent?: new (...args: never[]) => unknown;
+  UserMessageComponent?: new (...args: never[]) => unknown;
 }): void {
   // Pi's `private` members make these classes structurally unassignable to the
   // interfaces above, so cross the boundary once, here, explicitly.
@@ -507,4 +558,6 @@ export function patchCore(core: {
   const assistant = proto(core.AssistantMessageComponent);
   if (tool) patchToolExecution(tool);
   if (assistant) patchAssistantMessage(assistant);
+  const user = proto(core.UserMessageComponent);
+  if (user) patchUserMessage(user);
 }

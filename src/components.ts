@@ -88,7 +88,9 @@ function renderRow(row: Row | null, width: number): string[] {
  */
 export class CompactLine implements Component {
   private resolve: ResolveRow = () => null;
-  private click?: () => boolean;
+  private click?: (onHeader: boolean) => boolean;
+  /** Did the last render draw a header line at y=0? */
+  private headed = false;
   private ticker: unknown;
   private timers: Timers;
 
@@ -98,9 +100,10 @@ export class CompactLine implements Component {
 
   /**
    * Install the row resolver. Called on every updateDisplay with fresh state.
-   * `click` returning true stops Pi's own left-click (expand) handler.
+   * `click` returning true stops Pi's own left-click (expand) handler; its
+   * argument says whether the click landed on the row's header line.
    */
-  setRow(resolve: ResolveRow, click?: () => boolean): void {
+  setRow(resolve: ResolveRow, click?: (onHeader: boolean) => boolean): void {
     this.resolve = resolve;
     this.click = click;
   }
@@ -109,7 +112,8 @@ export class CompactLine implements Component {
   // the region's own expand/collapse toggle.
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     if (event.type !== "click" || event.button !== "left") return undefined;
-    return this.click?.() ? { handled: true } : undefined;
+    // `y` is local to THIS component (Container subtracts earlier siblings).
+    return this.click?.(this.headed && event.y === 0) ? { handled: true } : undefined;
   }
 
   /**
@@ -135,7 +139,9 @@ export class CompactLine implements Component {
   }
 
   render(width: number): string[] {
-    return renderRow(this.resolve(width), width);
+    const row = this.resolve(width);
+    this.headed = row?.header !== undefined;
+    return [...(row?.header ? [...renderRow(row.header, width), ""] : []), ...renderRow(row, width)];
   }
 
   // Component contract allows cached components to be invalidated. This class
@@ -146,20 +152,53 @@ export class CompactLine implements Component {
 /**
  * Assistant prose or native thinking that a fold may take over: the resolver
  * returns a Row to draw it instead, `null` to hide it (zero lines), or
- * `undefined` to leave `inner` untouched.
+ * `undefined` to leave `inner` untouched (with an opened run's header line
+ * above it, when `header` supplies one). The header is followed by one blank line. Clicks on the summary or header go to
+ * `click`.
  */
 export class FoldableProse implements Component {
   private inner: Component;
   private resolve: (width: number) => Row | null | undefined;
+  private header: () => Row | undefined;
+  private click: (onHeader: boolean) => boolean;
+  /** What the last render drew: a folded summary, or a header line above native output. */
+  private summary = false;
+  private headed = false;
 
-  constructor(inner: Component, resolve: (width: number) => Row | null | undefined) {
+  /**
+   * `header` is the opened-run header to draw above the native output; `click`
+   * has the same contract as `CompactLine.setRow`'s: it gets whether the click
+   * landed on that header line.
+   */
+  constructor(
+    inner: Component,
+    resolve: (width: number) => Row | null | undefined,
+    header: () => Row | undefined,
+    click: (onHeader: boolean) => boolean,
+  ) {
     this.inner = inner;
     this.resolve = resolve;
+    this.header = header;
+    this.click = click;
   }
 
   render(width: number): string[] {
     const row = this.resolve(width);
-    return row === undefined ? this.inner.render(width) : renderRow(row, width);
+    this.summary = row !== undefined && row !== null;
+    const header = row === undefined ? this.header() : undefined;
+    this.headed = header !== undefined;
+    if (row !== undefined) return renderRow(row, width);
+    return header ? [...renderRow(header, width), "", ...this.inner.render(width)] : this.inner.render(width);
+  }
+
+  // Only the summary or the header line is clickable; the native output below
+  // keeps whatever click behavior its own host (e.g. a thinking MouseRegion) has.
+  // `y` is local to THIS component, like CompactLine's.
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (event.type !== "click" || event.button !== "left") return undefined;
+    const onHeader = this.headed && event.y === 0;
+    if (!this.summary && !onHeader) return undefined;
+    return this.click(onHeader) ? { handled: true } : undefined;
   }
 
   invalidate(): void {

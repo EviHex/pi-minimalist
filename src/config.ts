@@ -41,6 +41,9 @@ export type Glyphs = {
 
 export type GlyphStyle = "unicode" | "ascii";
 
+/** Marker on the header of an opened run. Not user-configurable. */
+export const OPEN_MARKER: Record<GlyphStyle, string> = { unicode: "▾", ascii: "v" };
+
 export const GLYPH_PRESETS: Record<GlyphStyle, Glyphs> = {
   unicode: { done: "✓", failed: "✗", running: "•", queued: "›", gutter: "▌", timer: "⏱", count: "×" },
   // Every ASCII glyph is exactly one column wide, so rows stay aligned in fonts

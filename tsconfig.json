@@ -1,5 +1,5 @@
 {
-  "//": "Typecheck only, never emits. Run: ./run-tests.sh --typecheck. module=esnext + moduleResolution=bundler because this folder deliberately has no package.json (one could change how Pi discovers the extension); nodenext would treat every file as CommonJS and reject ESM syntax and import.meta.",
+  "//": "Typecheck only, never emits. Run: ./run-tests.sh --typecheck. package.json is only the Pi package manifest (\"type\": \"module\", no build); module=esnext + moduleResolution=bundler are set here explicitly so the check resolves .ts import specifiers and import.meta the way Pi's loader does, whatever package.json says.",
   "compilerOptions": {
     "module": "esnext",
     "moduleResolution": "bundler",

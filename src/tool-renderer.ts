@@ -183,7 +183,17 @@ export function createToolRenderer(deps: RendererDeps): ToolRenderer {
         });
         // No background while executing — the animated timer already signals
         // activity, and a highlight flashing on each repaint was distracting.
-        return painter.labeled({ glyph: status.glyph, glyphColor: status.color, label, badge, details, wrap: expanded });
+        // One colour for glyph, label and gutter (the gutter follows the label), so
+        // a failed row is red all over and a done one is label-coloured all over.
+        return painter.labeled({
+          glyph: status.glyph,
+          glyphColor: status.color,
+          label,
+          labelColor: status.color,
+          badge,
+          details,
+          wrap: expanded,
+        });
       };
 
       // EVERY call is observed, so a non-foldable one still cuts a run. Core
@@ -197,7 +207,7 @@ export function createToolRenderer(deps: RendererDeps): ToolRenderer {
       grouping.observe(id, summaryName(name, args), status.outcome, expanded);
       component.setRow(
         (width) => grouping.rowFor(id, new Painter(theme, config), () => paint(width)),
-        () => grouping.open(id),
+        (onHeader) => grouping.click(id, onHeader),
       );
       return component;
     },

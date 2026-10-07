@@ -81,6 +81,34 @@ describe("renderCall", () => {
     assert.deepEqual(failed.render(80).map(plain), [" ▌ ✗ bash false"]);
   });
 
+  it("paints a failed row in the error colour: glyph, label and gutter, collapsed and expanded", () => {
+    const { renderer: r } = renderer();
+    const gutter = "<error>▌</error>";
+    const collapsed = r.renderCall("bash", { command: "false" }, theme, makeContext("failed"));
+    assert.deepEqual(collapsed.render(80), [
+      ` ${gutter} <error>✗</error> <error>bash</error> <toolTitle>false</toolTitle>`,
+    ]);
+
+    // Expanded rows wrap: the continuation lines keep the error gutter too.
+    const expanded = r.renderCall("bash", { command: "false\nexit 1" }, theme, makeContext("failed", { expanded: true }));
+    const lines = expanded.render(80);
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0], ` ${gutter} <error>✗</error> <error>bash</error> <toolTitle>false</toolTitle>`);
+    assert.ok(lines[1].startsWith(` ${gutter} `) && lines[1].endsWith("<toolTitle>exit 1</toolTitle>"), lines[1]);
+
+    // The same call going running -> failed keeps nothing of the label colour.
+    const context = makeContext("running");
+    const running = r.renderCall("bash", { command: "x" }, theme, context);
+    assert.match(running.render(80)[0], /<success>bash<\/success>/);
+    const failed = r.renderCall("bash", { command: "x" }, theme, {
+      ...context,
+      isPartial: false,
+      isError: true,
+      lastComponent: running,
+    });
+    assert.match(failed.render(80)[0], /<error>▌<\/error> <error>✗<\/error> <error>bash<\/error>/);
+  });
+
   it("shows the live timer while running and advances it with the clock", () => {
     const { renderer: r, clock, timers } = renderer();
     const context = makeContext("running");

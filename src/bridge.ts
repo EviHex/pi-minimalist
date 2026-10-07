@@ -33,8 +33,12 @@ export const BRIDGE_SYMBOLS = {
   /** Chronology hooks that keep thinking and prose in transcript order. */
   observeThinking: "pi.minimalist.observeThinking",
   observeProse: "pi.minimalist.observeProse",
+  /** `(id, name) => void`: a visible row we do not fold (user message, excluded tool); it cuts runs. */
+  observeBarrier: "pi.minimalist.observeBarrier",
   /** `undefined` = native prose, `null` = hidden, Row = folded summary. */
   proseView: "pi.minimalist.proseView",
+  /** `(id, theme) => Row | undefined`: header of an opened run, drawn by a prose/native-thinking host. */
+  proseHeader: "pi.minimalist.proseHeader",
   /** `(toolCallId) => boolean`: omit core's separator before an activity summary. */
   activitySummaryRow: "pi.minimalist.activitySummaryRow",
   /** `(owner) => normal|hidden|summary`: normalize assistant host spacing. */
@@ -103,8 +107,14 @@ export function installBridges({ config, grouping, timers }: InstallOptions): vo
 
   // Chronology: core walks message content in transcript order, and run folding
   // depends on that order.
-  globals[slot("observeThinking")] = (owner: object, runIndex: number, streaming: boolean, hidden: boolean) => {
-    grouping.observeThinking(owner, runIndex, !streaming, !hidden);
+  globals[slot("observeThinking")] = (
+    owner: object,
+    runIndex: number,
+    streaming: boolean,
+    hidden: boolean,
+    timestamp?: number,
+  ) => {
+    grouping.observeThinking(owner, runIndex, !streaming, !hidden, timestamp);
     return grouping.thinkingId(owner, runIndex);
   };
   globals[slot("observeProse")] = (
@@ -112,8 +122,11 @@ export function installBridges({ config, grouping, timers }: InstallOptions): vo
     contentIndex: number,
     signal: Parameters<RunGrouping["observeProse"]>[2],
   ) => grouping.observeProse(owner, contentIndex, signal);
+  globals[slot("observeBarrier")] = (id: string) => grouping.observeBarrier(id);
   globals[slot("proseView")] = (id: string, theme: ThemeLike) =>
     grouping.proseView(id, new Painter(theme, config));
+  globals[slot("proseHeader")] = (id: string, theme: ThemeLike) =>
+    grouping.headerFor(id, new Painter(theme, config));
   globals[slot("activitySummaryRow")] = (id: string) => grouping.isActivitySummary(id);
   globals[slot("activityMessageView")] = (owner: object) => grouping.activityMessageView(owner);
   globals[slot("messageSpacer")] = (owner: object) => grouping.showsMessageSpacer(owner);

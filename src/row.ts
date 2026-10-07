@@ -21,7 +21,7 @@
 // Type-only: erased at runtime, but makes a mistyped token ("succes") a compile
 // error instead of a theme.fg() throw that core turns into a verbose card.
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import type { Config } from "./config.ts";
+import { OPEN_MARKER, type Config } from "./config.ts";
 
 // ThemeBg is not exported publicly, so recover it from Theme.bg's own signature
 // rather than importing a deep dist path (which is not a package export).
@@ -54,6 +54,8 @@ export type Row = {
    * colored `[badge] details`; continuation lines are indented under `head`.
    */
   wrap?: { head: string; body: string };
+  /** Header line drawn above an opened run's first row (then one blank line); clicking it folds the run back. */
+  header?: Row;
 };
 
 /**
@@ -191,6 +193,18 @@ export class Painter {
       .map((group) => `${this.theme.fg(group.token, group.glyph)} ${this.counts(group.counts, group.token)}`);
 
     return { gutter: this.gutter(label), text: groups.join(this.theme.fg(details, " · ")) };
+  }
+
+  /**
+   * The header of an opened run: a muted control line, not data, so it carries
+   * no counts. Clicking it folds the run back. ASCII mode swaps `·` for `-`.
+   * No gutter bar: blank padding of the gutter width keeps its text aligned with
+   * the rows below it (no padding at all when the gutter is off).
+   */
+  header(): Row {
+    const ascii = this.config.get("glyphStyle") === "ascii";
+    const text = `${OPEN_MARKER[this.config.get("glyphStyle")]} Expanded ${ascii ? "-" : "·"} click to fold`;
+    return { gutter: this.config.get("gutter") ? "   " : "", text: this.theme.fg("muted", text) };
   }
 
   private counts(counts: Count[], color: ThemeColor): string {

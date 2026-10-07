@@ -219,6 +219,127 @@ describe("run grouping", () => {
   });
 });
 
+describe("re-folding an opened run", () => {
+  const painter = testPainter({}, plainTheme());
+  const base = (name: string) => () => ({ gutter: "|", text: name });
+  const draw = (grouping: RunGrouping, id: string, p = painter) =>
+    grouping.rowFor(id, p, base(id));
+
+  function openRun(settings: Partial<Settings> = {}): RunGrouping {
+    const grouping = grouped(settings);
+    observe(grouping, "a", "read");
+    observe(grouping, "b", "edit", "pending");
+    observe(grouping, "c", "read");
+    assert.equal(grouping.open("c"), true);
+    return grouping;
+  }
+
+  it("draws the plain header on the first row only, keeping a running member", () => {
+    const grouping = openRun();
+    const head = draw(grouping, "a")!;
+    assert.equal(head.text, "a");
+    assert.equal(plain(head.header!.text), "▾ Expanded · click to fold");
+    assert.equal(draw(grouping, "b")!.header, undefined);
+    assert.equal(draw(grouping, "c")!.header, undefined);
+  });
+
+  it("closes only from the header row, folds back, and reopens", () => {
+    const grouping = openRun();
+    assert.equal(grouping.close("zzz"), false);
+    assert.equal(grouping.close("a"), true);
+    assert.equal(draw(grouping, "a"), null);
+    assert.equal(plain(draw(grouping, "c")!.text), "✓ read ×2 · • edit ×1");
+    assert.equal(grouping.open("c"), true);
+    assert.equal(plain(draw(grouping, "a")!.header!.text), "▾ Expanded · click to fold");
+  });
+
+  it("uses a plain marker in the ascii style", () => {
+    const grouping = openRun({ glyphStyle: "ascii" });
+    const ascii = testPainter({ glyphStyle: "ascii" }, plainTheme());
+    assert.equal(draw(grouping, "a", ascii)!.header!.text, "v Expanded - click to fold");
+  });
+
+  it("drops the header when grouping is turned off", () => {
+    const config = testConfig({ groupToolRuns: true });
+    const grouping = new RunGrouping(config);
+    observe(grouping, "a", "read");
+    observe(grouping, "b", "edit");
+    grouping.open("b");
+    config.set("groupToolRuns", false);
+    assert.equal(draw(grouping, "a")!.header, undefined);
+  });
+
+  it("puts the header on the first prose or native-thinking member, which can host it", () => {
+    const grouping = grouped({ foldIntermediateActivity: true, thinkingAsToolCall: false });
+    const owner = {};
+    grouping.agentStarted(0);
+    const first = grouping.observeProse({}, 0);
+    grouping.observeThinking(owner, 0, true, false);
+    observe(grouping, "a", "read");
+    observe(grouping, "b", "edit");
+    grouping.observeProse({}, 0);
+    grouping.agentSettled(5000);
+    const think = grouping.thinkingId(owner, 0);
+    const painter = testPainter({ foldIntermediateActivity: true, thinkingAsToolCall: false }, plainTheme());
+
+    assert.equal(grouping.open("b"), true);
+    assert.equal(plain(grouping.headerFor(first, painter)!.text), "▾ Expanded · click to fold");
+    for (const id of [think, "a", "b"]) assert.equal(grouping.headerFor(id, painter), undefined, id);
+
+    // Native thinking alone is a host too: a run it summarizes can be opened and closed.
+    const lonely = grouped({ foldIntermediateActivity: true, thinkingAsToolCall: false });
+    const other = {};
+    lonely.agentStarted(0);
+    const lead2 = lonely.observeProse({}, 0);
+    lonely.observeThinking(other, 0, true, false);
+    lonely.observeProse({}, 0);
+    const id = lonely.thinkingId(other, 0);
+    assert.equal(lonely.isActivitySummary(id), true);
+    assert.equal(lonely.click(id, false), true);
+    assert.notEqual(lonely.headerFor(lead2, painter), undefined);
+    assert.equal(lonely.click(lead2, true), true);
+    assert.equal(lonely.isActivitySummary(id), true, "folded again");
+  });
+
+  it("keeps the header on a compact thinking head while it is expanded, and after", () => {
+    const grouping = grouped({ thinkingAsToolCall: true });
+    const owner = {};
+    grouping.observeThinking(owner, 0, true, false);
+    observe(grouping, "a", "read");
+    observe(grouping, "b", "edit");
+    const think = grouping.thinkingId(owner, 0);
+    assert.equal(grouping.open("b"), true);
+
+    const headers = () => [think, "a", "b"].map((id) => draw(grouping, id)!.header !== undefined);
+    assert.deepEqual(headers(), [true, false, false]);
+
+    grouping.observeThinking(owner, 0, true, true); // Ctrl+T: now Markdown, not a CompactLine
+    assert.deepEqual(headers(), [true, false, false], "still on the first member");
+
+    grouping.observeThinking(owner, 0, true, false); // collapsed again
+    assert.deepEqual(headers(), [true, false, false]);
+    assert.equal(grouping.click(think, true), true, "the header row folds the run back");
+    assert.equal(grouping.view("b") !== "show", true);
+  });
+
+  it("headers an opened activity summary on its first member and closes it", () => {
+    const grouping = grouped({ foldIntermediateActivity: true });
+    grouping.agentStarted(0);
+    const lead = grouping.observeProse({}, 0);
+    observe(grouping, "a", "read");
+    observe(grouping, "b", "edit");
+    grouping.observeProse({}, 0);
+    grouping.agentSettled(5000);
+    grouping.open("b");
+    const painter = testPainter({}, plainTheme());
+    assert.equal(plain(grouping.headerFor(lead, painter)!.text), "▾ Expanded · click to fold");
+    assert.equal(draw(grouping, "a")!.header, undefined);
+    assert.equal(draw(grouping, "b")!.header, undefined);
+    assert.equal(grouping.close(lead), true);
+    assert.equal(grouping.isActivitySummary("b"), true);
+  });
+});
+
 describe("countNames", () => {
   it("counts names in first-seen order", () => {
     assert.deepEqual(countNames(["read", "edit", "read", "ls", "edit"]), [
@@ -234,18 +355,75 @@ describe("prose folding", () => {
 
   it("dynamically keeps the latest prose and moves one summary behind it", () => {
     const grouping = new RunGrouping(testConfig({ foldIntermediateActivity: true }));
+    const tool = (id: string) => {
+      grouping.agentSettled(3_000);
+      return grouping.rowFor(id, painter, () => ({ gutter: "", text: id }));
+    };
     grouping.agentStarted(0);
     const first = grouping.observeProse({}, 0);
-    assert.equal(grouping.proseView(first, painter, 3_000), undefined);
+    observe(grouping, "read-1", "read");
+    assert.equal(grouping.proseView(first, painter, 3_000), undefined, "no later prose yet");
 
     const second = grouping.observeProse({}, 0);
-    assert.equal(plain(grouping.proseView(first, painter, 3_000)!.text), "Worked for 3s");
+    assert.equal(grouping.proseView(first, painter, 3_000), null);
+    assert.equal(plain(tool("read-1")!.text), "Worked for 3s");
     assert.equal(grouping.proseView(second, painter, 3_000), undefined);
 
+    observe(grouping, "read-2", "read");
     const third = grouping.observeProse({}, 0);
     assert.equal(grouping.proseView(first, painter, 3_000), null);
-    assert.equal(plain(grouping.proseView(second, painter, 3_000)!.text), "Worked for 3s");
+    assert.equal(grouping.proseView(second, painter, 3_000), null);
+    assert.equal(tool("read-1"), null);
+    assert.equal(plain(tool("read-2")!.text), "Worked for 3s");
     assert.equal(grouping.proseView(third, painter, 3_000), undefined);
+  });
+
+  for (const activitySummary of ["elapsed", "tools"] as const) {
+    for (const foldActivityOnFinalAnswer of [false, true]) {
+      it(`never folds a cycle of prose only (${activitySummary}, final-answer wait ${foldActivityOnFinalAnswer})`, () => {
+        const grouping = new RunGrouping(testConfig({
+          foldIntermediateActivity: true,
+          activitySummary,
+          foldActivityOnFinalAnswer,
+        }));
+        grouping.agentStarted(0);
+        const owners = [{}, {}, {}];
+        const ids = [
+          grouping.observeProse(owners[0], 0, { phase: "commentary" }),
+          grouping.observeProse(owners[1], 0, { phase: "commentary" }),
+          grouping.observeProse(owners[2], 0, { phase: "final_answer" }),
+        ];
+        grouping.agentSettled(5_000);
+        for (const id of ids) {
+          assert.equal(grouping.proseView(id, painter, 5_000), undefined);
+          assert.equal(grouping.isActivitySummary(id), false);
+        }
+        for (const owner of owners) {
+          assert.equal(grouping.activityMessageView(owner), "normal");
+          assert.equal(grouping.showsMessageSpacer(owner), true);
+        }
+      });
+    }
+  }
+
+  it("treats cycles independently: a prose-only cycle stays open, a later mixed one folds", () => {
+    const grouping = new RunGrouping(testConfig({ foldIntermediateActivity: true }));
+    grouping.agentStarted(0);
+    const a1 = grouping.observeProse({}, 0);
+    const a2 = grouping.observeProse({}, 0, { stopReason: "stop" });
+    grouping.agentSettled(1_000);
+    grouping.agentStarted(2_000);
+    const b1 = grouping.observeProse({}, 0);
+    observe(grouping, "read", "read");
+    const b2 = grouping.observeProse({}, 0, { stopReason: "stop" });
+    grouping.agentSettled(5_000);
+
+    for (const id of [a1, a2, b2]) assert.equal(grouping.proseView(id, painter, 5_000), undefined);
+    assert.equal(grouping.proseView(b1, painter, 5_000), null);
+    assert.equal(
+      plain(grouping.rowFor("read", painter, () => ({ gutter: "", text: "read" }))!.text),
+      "Worked for 3s",
+    );
   });
 
   it("waits for OpenAI's final-answer signal before folding commentary", () => {
@@ -255,6 +433,7 @@ describe("prose folding", () => {
     }));
     grouping.agentStarted(0);
     const commentary = grouping.observeProse({}, 0, { phase: "commentary" });
+    observe(grouping, "read", "read");
     grouping.observeProse({}, 0, { phase: "commentary" });
     assert.equal(grouping.proseView(commentary, painter, 2_000), undefined, "commentary remains visible");
 
@@ -310,10 +489,14 @@ describe("prose folding", () => {
   it("freezes elapsed time when the agent settles", () => {
     const grouping = new RunGrouping(testConfig({ foldIntermediateActivity: true }));
     grouping.agentStarted(1_000);
-    const first = grouping.observeProse({}, 0);
+    grouping.observeProse({}, 0);
+    observe(grouping, "read", "read");
     grouping.observeProse({}, 0);
     grouping.agentSettled(66_000);
-    assert.equal(plain(grouping.proseView(first, painter, 99_000)!.text), "Worked for 1m 5s");
+    assert.equal(
+      plain(grouping.rowFor("read", painter, () => ({ gutter: "", text: "read" }))!.text),
+      "Worked for 1m 5s",
+    );
   });
 
   it("rebuilds replay boundaries and preserves every interaction's final prose", () => {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
-import { CompactLine, EmptyComponent, GutteredComponent } from "../src/components.ts";
+import { CompactLine, EmptyComponent, FoldableProse, GutteredComponent } from "../src/components.ts";
 import { gutterWidth } from "../src/row.ts";
 import { fakeTheme, fakeTimers, plain, plainTheme, testPainter } from "../test/test-support.ts";
 
@@ -110,6 +110,57 @@ describe("CompactLine", () => {
   });
 });
 
+describe("CompactLine header", () => {
+  const click = (y: number) =>
+    ({ type: "click", button: "left", x: 3, y, screenX: 3, screenY: y, width: 80, height: 2, shift: false, alt: false, ctrl: false }) as const;
+
+  it("draws the header above the row and routes only a y=0 click to close", () => {
+    const calls: boolean[] = [];
+    const line = new CompactLine(fakeTimers());
+    line.setRow(
+      () => ({ ...widthPainter.labeled({ glyph: "✓", label: "read", details: "a.ts" }), header: widthPainter.header() }),
+      (onHeader) => (calls.push(onHeader), onHeader),
+    );
+    assert.deepEqual(line.render(80), ["   ▾ Expanded · click to fold", "", " ▌ ✓ read a.ts"]);
+    assert.equal(line.handleMouse(click(0))?.handled, true);
+    assert.equal(line.handleMouse(click(1)), undefined, "the blank line falls through to Pi");
+    assert.equal(line.handleMouse(click(2)), undefined, "a member row falls through to Pi");
+    assert.deepEqual(calls, [true, false, false]);
+  });
+
+  it("works without a gutter and with an expanded (wrapped) row below", () => {
+    const bare = testPainter({ gutter: false }, plainTheme());
+    const line = new CompactLine(fakeTimers());
+    line.setRow(() => ({
+      ...bare.labeled({ glyph: "✓", label: "bash", details: "x ".repeat(30), wrap: true }),
+      header: bare.header(),
+    }));
+    const lines = line.render(30);
+    assert.equal(lines[0], "▾ Expanded · click to fold");
+    assert.equal(lines[1], "", "one blank line between header and row");
+    assert.ok(lines.length > 3, "header, blank, then several wrapped lines");
+    assert.ok(lines.every((l) => visibleWidth(l) <= 30));
+  });
+
+  it("draws the ASCII header, in the muted colour, with one blank line below", () => {
+    const ascii = testPainter({ glyphStyle: "ascii" }, plainTheme());
+    const line = new CompactLine(fakeTimers());
+    line.setRow(() => ({ ...ascii.labeled({ glyph: "+", label: "read", details: "a.ts" }), header: ascii.header() }));
+    assert.deepEqual(line.render(80), ["   v Expanded - click to fold", "", " | + read a.ts"]);
+    const themed = testPainter({}, fakeTheme()).header();
+    assert.match(themed.text, /^<muted>▾ Expanded · click to fold<\/muted>$/);
+    assert.equal(themed.gutter, "   ", "blank padding of the gutter width, no bar");
+    assert.equal(testPainter({ gutter: false }, fakeTheme()).header().gutter, "", "no padding without a gutter");
+  });
+
+  it("does not treat y=0 as the header when the last render drew none", () => {
+    const line = new CompactLine(fakeTimers());
+    line.setRow(() => widthPainter.labeled({ label: "read" }), (onHeader) => onHeader);
+    line.render(80);
+    assert.equal(line.handleMouse(click(0)), undefined);
+  });
+});
+
 describe("EmptyComponent", () => {
   it("renders zero lines so collapsed results add no height", () => {
     assert.deepEqual(new EmptyComponent().render(), []);
@@ -153,5 +204,22 @@ describe("GutteredComponent", () => {
     );
     wrapper.invalidate();
     assert.equal(invalidated, 1);
+  });
+});
+
+describe("FoldableProse header", () => {
+  const click = (y: number) =>
+    ({ type: "click", button: "left", x: 3, y, screenX: 3, screenY: y, width: 80, height: 3, shift: false, alt: false, ctrl: false }) as const;
+
+  it("draws header, one blank line, then the native output; only y=0 folds (gutter off)", () => {
+    const bare = testPainter({ gutter: false }, plainTheme());
+    const calls: boolean[] = [];
+    const inner: Component = { render: () => ["native text"], invalidate() {} };
+    const prose = new FoldableProse(inner, () => undefined, () => bare.header(), (onHeader) => (calls.push(onHeader), onHeader));
+    assert.deepEqual(prose.render(80), ["▾ Expanded · click to fold", "", "native text"]);
+    assert.equal(prose.handleMouse(click(0))?.handled, true);
+    assert.equal(prose.handleMouse(click(1)), undefined, "the blank line is not ours");
+    assert.equal(prose.handleMouse(click(2)), undefined, "the native output is not ours");
+    assert.deepEqual(calls, [true]);
   });
 });

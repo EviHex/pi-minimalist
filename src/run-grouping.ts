@@ -19,7 +19,8 @@ import type { Count, Painter, Row, RunSummary } from "./row.ts";
 
 export type Outcome = "success" | "failure" | "pending";
 
-type EntryKind = "tool" | "thinking" | "prose";
+/** "other" = visible in the transcript but not ours to fold (user message, excluded tool card). */
+type EntryKind = "tool" | "thinking" | "prose" | "other";
 
 type Entry = {
   id: string;
@@ -38,6 +39,8 @@ type Cycle = { startedAt: number; settledAt?: number; finalAnswerStarted: boolea
 /** "show" keeps the row as-is, "hide" draws nothing, a summary folds a whole run. */
 export type RowView = "show" | "hide" | RunSummary;
 type ActivityState = "show" | "hide" | "summary";
+/** A run the user opened. Every member id maps to the same object. */
+type OpenRun = { members: Entry[]; activity: boolean };
 type ViewCache = {
   key: string;
   activity: Map<string, ActivityState>;
@@ -51,12 +54,14 @@ export class RunGrouping {
   private byId = new Map<string, Entry>();
   private ownerIds = new WeakMap<object, number>();
   private ownerEntries = new Map<number, Set<string>>();
+  /** Message identity per owner. Rebuilt components of one message share it, so they share entries. */
+  private messageKeys = new WeakMap<object, string>();
   private nextOwnerId = 1;
   private cycle = 0;
   private cycles = new Map<number, Cycle>();
   private agentActive = false;
-  /** Rows the user opened out of a summary by clicking it. Never fold again. */
-  private opened = new Set<string>();
+  /** Rows the user opened out of a summary by clicking it. They stay out of folds until `close()`. */
+  private opened = new Map<string, OpenRun>();
   private version = 0;
   private cache?: ViewCache;
 
@@ -116,8 +121,17 @@ export class RunGrouping {
     this.invalidateViews();
   }
 
-  /** Observe a thinking block by its component identity and local run index. */
-  observeThinking(owner: object, runIndex: number, done: boolean, expanded: boolean): void {
+  /**
+   * Record something visible that we never fold or draw (a user message, an
+   * excluded tool card). It only exists to cut runs, so no summary jumps over it.
+   */
+  observeBarrier(id: string): void {
+    this.observe(id, "other", "success", false, false, "other");
+  }
+
+  /** Observe a thinking block by its message identity and local run index. */
+  observeThinking(owner: object, runIndex: number, done: boolean, expanded: boolean, timestamp?: number): void {
+    this.identify(owner, timestamp);
     const id = this.thinkingId(owner, runIndex);
     this.rememberOwnerEntry(owner, id);
     this.observe(id, "think", done ? "success" : "pending", expanded, true, "thinking");
@@ -138,7 +152,8 @@ export class RunGrouping {
       timestamp?: number;
     } = {},
   ): string {
-    const id = `prose:${this.ownerId(owner)}:${contentIndex}`;
+    this.identify(owner, signal.timestamp);
+    const id = `prose:${this.messageKey(owner)}:${contentIndex}`;
     const isNew = !this.byId.has(id);
     const timestamp = signal.timestamp ?? Date.now();
     if (!this.cycles.has(this.cycle)) {
@@ -193,7 +208,7 @@ export class RunGrouping {
   }
 
   thinkingId(owner: object, runIndex: number): string {
-    return `think:${this.ownerId(owner)}:${runIndex}`;
+    return `think:${this.messageKey(owner)}:${runIndex}`;
   }
 
   /** Hide a message's leading spacer only when every one of its rows is hidden. */
@@ -223,7 +238,7 @@ export class RunGrouping {
     if (activity === "summary") return this.activitySummary(entry!, painter);
 
     const view = this.view(id);
-    if (view === "show") return base();
+    if (view === "show") return entry ? this.withHeader(entry, base(), painter) : base();
     if (view === "hide") return null;
     return painter.summary(view);
   }
@@ -240,44 +255,69 @@ export class RunGrouping {
     if (!entry) return false;
     const { activity, grouped } = this.views();
     const members = [entry];
-    if (activity.get(id) === "summary") {
-      members.push(...this.entries.filter((e) => e.cycle === entry.cycle && activity.get(e.id) === "hide"));
+    const isActivity = activity.get(id) === "summary";
+    if (isActivity) {
+      members.unshift(...this.entries.filter((e) => e.cycle === entry.cycle && activity.get(e.id) === "hide"));
     } else if (typeof grouped.get(id) === "object") {
       // A run's hidden members are the contiguous "hide" rows before its tail.
       for (let i = this.entries.indexOf(entry) - 1; i >= 0 && grouped.get(this.entries[i].id) === "hide"; i--) {
-        members.push(this.entries[i]);
+        members.unshift(this.entries[i]);
       }
     } else {
       return false;
     }
-    for (const member of members) this.opened.add(member.id);
+    const run: OpenRun = { members, activity: isActivity };
+    for (const member of members) this.opened.set(member.id, run);
     this.invalidateViews();
     return true;
+  }
+
+  /**
+   * Fold an opened run back, after a click on its header. `CompactLine` reports
+   * `onHeader` only for a row that drew the header, so `id` is that row.
+   */
+  close(id: string): boolean {
+    const run = this.opened.get(id);
+    if (!run) return false;
+    for (const member of run.members) this.opened.delete(member.id);
+    this.invalidateViews();
+    return true;
+  }
+
+  /** The click handler of a row drawn by `CompactLine`: header folds back, anything else opens. */
+  click(id: string, onHeader: boolean): boolean {
+    return onHeader ? this.close(id) : this.open(id);
+  }
+
+  /** The header of an opened run, on its first member only, while the fold that made it is on. */
+  headerFor(id: string, painter: Painter): Row | undefined {
+    const entry = this.byId.get(id);
+    const run = this.opened.get(id);
+    if (!entry || !run || run.members[0].id !== id || !(run.activity ? this.config.get("foldIntermediateActivity") : this.enabled)) {
+      return undefined;
+    }
+    return painter.header();
+  }
+
+  private withHeader(entry: Entry, row: Row, painter: Painter): Row {
+    const header = this.headerFor(entry.id, painter);
+    return header ? { ...row, header } : row;
   }
 
   view(id: string): RowView {
     return this.views().grouped.get(id) ?? "show";
   }
 
-  /**
-   * Can this entry disappear into a run summary?
-   *
-   * A RUNNING entry folds by default: folds are recomputed on every render, so
-   * the row reappears the moment it matters, and the summary still counts it in
-   * its `running` group. `keepActiveToolsExpanded` opts out for people who want
-   * to watch a long command in place.
-   */
   /** Collapse every collapsible row before the latest prose into ONE activity summary. */
   private activityState(entry: Entry | undefined): ActivityState {
     return entry ? (this.views().activity.get(entry.id) ?? "show") : "show";
   }
 
+  /** The `activitySummary` mode decides what a folded activity run shows. */
   private activitySummary(entry: Entry, painter: Painter, now = Date.now()): Row {
-    const cycle = this.cycles.get(entry.cycle);
     const actions = this.views().actions.get(entry.cycle);
-    if (this.config.get("activitySummary") === "tools" && actions) {
-      return painter.summary(actions);
-    }
+    if (this.config.get("activitySummary") === "tools" && actions) return painter.summary(actions);
+    const cycle = this.cycles.get(entry.cycle);
     const elapsed = Math.max(0, (cycle?.settledAt ?? now) - (cycle?.startedAt ?? now));
     return painter.labeled({ label: "Worked", details: `for ${formatDuration(elapsed)}` });
   }
@@ -304,7 +344,12 @@ export class RunGrouping {
           continue;
         }
         let last = first + 1;
-        while (last < this.entries.length && this.foldable(this.entries[last])) last++;
+        // A new agent cycle (user prompt) also cuts the run.
+        while (
+          last < this.entries.length &&
+          this.foldable(this.entries[last]) &&
+          this.entries[last].cycle === this.entries[first].cycle
+        ) last++;
         if (last - first > 1) {
           for (let index = first; index < last - 1; index++) grouped.set(this.entries[index].id, "hide");
           grouped.set(this.entries[last - 1].id, summarize(this.entries.slice(first, last)));
@@ -329,13 +374,15 @@ export class RunGrouping {
         ) continue;
 
         const beforeLatest = entries.slice(0, entries.indexOf(prose.at(-1)!));
+        // A cycle of consecutive prose only (no tool, no thinking) has nothing to fold.
+        if (!beforeLatest.some(isAction)) continue;
         const collapsible = beforeLatest.filter((entry) => this.activityFoldable(entry));
         for (let index = 0; index < collapsible.length - 1; index++) {
           activity.set(collapsible[index].id, "hide");
         }
         const tail = collapsible.at(-1);
         if (tail) activity.set(tail.id, "summary");
-        const actionEntries = beforeLatest.filter((entry) => entry.kind !== "prose");
+        const actionEntries = beforeLatest.filter(isAction);
         if (actionEntries.length > 0) actions.set(cycleId, summarize(actionEntries));
       }
     }
@@ -349,6 +396,7 @@ export class RunGrouping {
   }
 
   private activityFoldable(entry: Entry): boolean {
+    if (entry.kind === "other") return false;
     if (entry.expanded || this.opened.has(entry.id)) return false;
     if (entry.outcome === "pending" && entry.kind !== "prose" && this.config.get("keepActiveToolsExpanded")) {
       return false;
@@ -373,6 +421,20 @@ export class RunGrouping {
     entries.add(entryId);
   }
 
+  /**
+   * Ids follow the MESSAGE, not the component: Pi builds new components for the
+   * same messages on every rebuild (Ctrl+T, tree navigation), and ids tied to
+   * the dropped components would leave ghost entries counted in summaries.
+   * `timestamp` is set once when a message starts streaming and never changes.
+   */
+  private identify(owner: object, timestamp?: number): void {
+    if (timestamp !== undefined) this.messageKeys.set(owner, `t${timestamp}`);
+  }
+
+  private messageKey(owner: object): string {
+    return this.messageKeys.get(owner) ?? `o${this.ownerId(owner)}`;
+  }
+
   private ownerId(owner: object): number {
     let id = this.ownerIds.get(owner);
     if (id === undefined) {
@@ -382,6 +444,9 @@ export class RunGrouping {
     return id;
   }
 }
+
+/** A tool or thinking row: what a "Worked for" fold and its tool counts are made of. */
+const isAction = (entry: Entry) => entry.kind === "tool" || entry.kind === "thinking";
 
 /** Group a run's entries by outcome, each in first-seen order. */
 export function summarize(run: Entry[]): RunSummary {

@@ -220,6 +220,28 @@ blacklist it silently OVERRODE the user, so `compactToolRows: false` and an
 excluded rendererless tool were both compacted anyway. → `core-patch.test.ts`,
 "obeys the master switch even for a tool with no renderer".
 
+### A folded summary must never jump over something visible
+
+A summary is drawn at the position of its LAST member. So every visible transcript
+item between two foldable rows must cut the run, or the summary lands after it.
+`RunGrouping.views()` therefore ends a run at (a) any non-foldable entry, and (b) an
+entry of another agent `cycle` (a new user prompt). Visible things we never draw are
+observed as `kind: "other"` barriers (`observeBarrier`, bridge `observeBarrier`):
+a tool card we do not claim (`syncShell` in `patchToolExecution`: `subagent`, any
+`excludeTools` name, or every tool while `compactToolRows` is off) and a user message
+(`patchUserMessage`, wraps `UserMessageComponent.rebuild`). They are never folded
+into a "Worked for" summary or its tool counts (`activityFoldable`, `isAction`). Known
+limit: a "Worked for" summary still sits at its last folded row, so it can appear
+below a barrier card that was inside the same cycle. → `core-patch.test.ts`, "a folded
+run never jumps over something visible".
+
+### A failed row is red all over
+
+`tool-renderer.ts` passes `labelColor: status.color` (as well as `glyphColor`) to
+`Painter.labeled`, whose gutter follows the label colour. Before, only the glyph was
+red and the label and gutter stayed green in every state. → `tool-renderer.test.ts`,
+"paints a failed row in the error colour".
+
 ### Recognize components structurally, never by class or name
 
 The thinking wrapper finds a thinking run by `MouseRegion`'s `onMouse` + `child`
@@ -270,6 +292,27 @@ uses Pi's `stopReason === "stop"`, which Pi sets on
 `response.output_item.added` before the first final-answer text delta; the later
 `final_answer` signature is the stable confirmation. → `core-patch.test.ts`,
 "folds commentary as soon as OpenAI's final answer starts streaming".
+
+### A cycle of prose only never folds
+
+`foldIntermediateActivity` folds a cycle only when something before its latest prose is not prose (a tool row or a thinking row); consecutive assistant text alone stays fully visible, with no "Worked for" summary and normal spacing, in both `activitySummary` modes. The check is in `RunGrouping.views()`. → `run-grouping.test.ts`, "never folds a cycle of prose only", `core-patch.test.ts`, "leaves a prose-only cycle fully visible".
+
+### Thinking and prose ids follow the MESSAGE, not the component
+
+Pi builds NEW `AssistantMessageComponent`s for the same messages on every rebuild
+(`rebuildChatFromMessages`: Ctrl+T, tree navigation, ...). Ids made from the
+component instance left ghost thinking/prose entries behind: the folded summary
+counted them (`think ×6` for three visible rows), and clicking it opened rows
+that did not exist. `RunGrouping` therefore keys `think:`/`prose:` ids on
+`message.timestamp` (set once when streaming starts, so partial and final
+messages agree) and falls back to the component number only without one. A
+rebuilt component re-observes the SAME entries in place. Tool rows were never
+affected (they use `toolCallId`). Test messages need unique timestamps
+(`assistantMessage()` in `core-patch.test.ts` counts up). → `core-patch.test.ts`,
+"keeps the run count right when Pi rebuilds the chat from its messages", "does
+not count an empty thinking block, before or after a rebuild", "keeps rebuilt
+prose and an opened run on the same entries". Still open: entries of a previous
+session are never dropped on a session switch.
 
 ### Session replay rebuilds interaction boundaries from finalized answers
 
@@ -325,11 +368,58 @@ A summary is drawn by ONE member (the tail); the others draw zero lines, so
 every click lands in the tail's `MouseRegion` and Pi expanded only that row.
 `CompactLine.handleMouse` asks `RunGrouping.open()` first (MouseRegion consults
 its child before `onMouse`); a handled click opens every member for the session.
-One `opened` set stops BOTH folds on purpose: a row the user opened stays
-visible, even when later prose starts a new "Worked for" summary.
-Known gap: a summary hosted by `FoldableProse` (prose, or native thinking) is
-not clickable. → `core-patch.test.ts`, "opens a clicked run summary instead of
-expanding only its last row".
+`RunGrouping.opened` maps every member id to ONE shared run object, which stops
+BOTH folds on purpose: a row the user opened stays visible, even when later
+prose starts a new "Worked for" summary.
+
+An opened run keeps a HEADER: `▾ Expanded · click to fold` (`v Expanded - click to
+fold` in ASCII; `Painter.header()`, muted colour, no gutter bar — three blank columns
+instead, so its text starts where the rows below start, and no padding at all when
+the gutter is off; no counts, same text for tool runs
+and "Worked for" runs). It is followed by exactly ONE blank line, then the member's
+normal output: the host draws `[header, "", ...own lines]` (`CompactLine`,
+`FoldableProse`), so the blank is never doubled — the member's own leading spacer sits
+ABOVE the header, outside the host. The header is ALWAYS drawn by the FIRST member of
+the opened run (`run.members[0]`, transcript order; `RunGrouping.headerFor`), whatever
+its kind and whether or not Ctrl+T expanded it. There is no "which member can host it"
+search: every member kind has a host that can draw it, all with a click handler:
+
+- `CompactLine`: a tool row, or a collapsed compact thinking row. The header is `Row.header`.
+- `FoldableProse` around assistant prose, around NATIVE thinking
+  (`thinkingAsToolCall` off, expanded or not) and around EXPANDED compact thinking
+  (the recolored Markdown; `patchAssistantMessage` recolors it in place, then wraps it
+  in `foldable()` inside its `MouseRegion`). It draws the summary, or — for the
+  head of an opened run — the header line ABOVE Pi's unchanged output
+  (bridge `proseHeader`).
+
+Do not bring back a "dynamic head" that skips a member that cannot host the header: it
+made the header jump below an expanded thinking row. Both hosts remember
+whether their last render drew a header and pass `onHeader = headed && event.y === 0`
+to the click callback (`RunGrouping.click`): header → `close()` (members leave
+`opened`, the run folds again, the tail opens it again); anything else → `open()`,
+which returns false for a visible member so Pi expands only that row.
+`FoldableProse` is only clickable on its summary or its header line; a click on the
+native output below (prose body, a thinking row) is not handled, so Pi's own
+thinking toggle keeps working. `event.y` is local to the host because Container
+subtracts earlier siblings (the tool spacer, the message spacer), so never compare
+it with the host's line numbers. Only host line 0 is the header: the blank at line 1
+and everything below are not handled by us (Pi's own click applies). The header view is
+not a "summary" view, so the assistant-message `y` shift below does not apply to it. The header is shown only while the fold that made
+it is on (`groupToolRuns` / `foldIntermediateActivity`). It is derived at render
+time and does not depend on the members' counts.
+
+**Mouse `y` through the assistant message.** For a summary, the `render` wrapper
+changes the lines AFTER `Container.render()` recorded its mouse layout
+(`withOneLeadingBlank` adds or drops leading blanks), so Pi's `y` no longer matches
+that layout: a summary alone in its message is drawn at row 1 but the Container
+knows it at row 0, and the click falls off the end. The `handleMouse` wrapper on
+the prototype translates `y` back by the same shift (remembered per component from
+the last render; none when the view is not a summary). Do not remove it. →
+`core-patch.test.ts`, "opens a clicked run summary instead of expanding only its
+last row" (also covers header close and reopen), "opens a prose-hosted 'Worked for'
+summary by click, and folds it back by its header" and "opens a summary hosted by
+native (non-compact) thinking, and leaves its own toggle alone" (both drive Pi's
+real `Container.handleMouse`), and `run-grouping.test.ts`, "re-folding an opened run".
 
 ### Do not call runtime actions during extension load
 
@@ -524,8 +614,12 @@ MCP adapter interplay, and how the glyphs look in a given font. After a restart:
     first final-answer text appears, then collapses immediately.
 16. `activitySummary`: `Worked for 2m 7s` replaces prior tool rows rather than
     appearing after them; tool-count mode likewise emits one combined summary.
-17. Click a folded run: it opens into separate rows. Click one row: only that
-    row expands.
+17. Click a folded run: it opens into separate rows under a muted
+    `▾ Expanded · click to fold` header, then one blank line. Click
+    one row: only that row expands. Click the header: the run folds back; click
+    the summary again: it reopens. Same for a "Worked for …" summary, including one
+    drawn at the start of an assistant message (prose or native thinking): the
+    summary and the `▾` header are clickable there, the prose text below is not.
 
 ---
 
@@ -533,7 +627,12 @@ MCP adapter interplay, and how the glyphs look in a given font. After a restart:
 
 - After changing `core-patch.ts`: fully quit and restart Pi. The wrappers are
   applied once per process (`PATCHED` marker), so `/reload` cannot replace one.
-- Otherwise `/reload` is enough for `index.ts` and `src/`.
+- The same goes for what the wrappers close over, i.e. what `core-patch.ts`
+  imports at runtime: `FoldableProse` in `components.ts` (with the `renderRow` and
+  `wrapped` it calls) and `BRIDGE_SYMBOLS` in `bridge.ts`. A reload re-imports
+  those modules, but the surviving wrappers keep the old copies.
+- Otherwise `/reload` is enough for `index.ts` and `src/`: everything else is
+  reached through the bridge slots at call time.
 - Reload while idle; avoid it during a running tool or an open overlay.
 - Each reload overwrites the bridge slots with fresh instances. Do NOT clear them
   from `session_shutdown`: reload ordering can let an old shutdown hook erase the

@@ -85,7 +85,28 @@ export const DEFAULT_TOKENS: Tokens = {
 /** Settings `/minimalist` can edit: visible effect, no vocabulary needed. */
 export type ActivitySummary = "elapsed" | "tools";
 
+export const PRESET_NAMES = ["off", "lite", "full", "max", "custom"] as const;
+export type Preset = (typeof PRESET_NAMES)[number];
+
+export function isPreset(value: unknown): value is Preset {
+  return (PRESET_NAMES as readonly unknown[]).includes(value);
+}
+
+/** The only settings a preset names. Every other setting stays the user's own. */
+export const LOOK_KEYS = ["compactToolRows", "groupToolRuns", "foldIntermediateActivity", "thinkingAsToolCall"] as const;
+export type LookKey = (typeof LOOK_KEYS)[number];
+
+/** Preset of a user who has never configured anything (no basic key in the `minimalist` block). */
+export const FRESH_PRESET: Preset = "full";
+
+/** True when the `minimalist` block holds no basic key, so the user never configured anything. */
+export function isFresh(block: unknown): boolean {
+  return typeof block !== "object" || block === null || !BASIC_KEYS.some((key) => key in block);
+}
+
 export type BasicSettings = {
+  /** A named bundle of the four look settings below. `custom` uses the user's own values for all of them. */
+  preset: Preset;
   /** Master switch. Off restores Pi's native tool cards entirely. */
   compactToolRows: boolean;
   /** Fold adjacent finished rows into one summary line. */
@@ -127,6 +148,7 @@ export type AdvancedSettings = {
 export type Settings = BasicSettings & AdvancedSettings;
 
 export const DEFAULT_BASIC: BasicSettings = {
+  preset: "custom",
   compactToolRows: true,
   groupToolRuns: true,
   foldIntermediateActivity: false,
@@ -138,6 +160,17 @@ export const DEFAULT_BASIC: BasicSettings = {
   keepActiveToolsExpanded: false,
   keepActiveThinkingExpanded: false,
   glyphStyle: "unicode",
+};
+
+/**
+ * The four look settings each non-custom preset forces. A preset is a LAYER
+ * applied on read (see `Config`); it never writes the user's own keys.
+ */
+export const PRESETS: Record<Exclude<Preset, "custom">, Record<LookKey, boolean>> = {
+  off: { compactToolRows: false, groupToolRuns: false, foldIntermediateActivity: false, thinkingAsToolCall: false },
+  lite: { compactToolRows: true, groupToolRuns: false, foldIntermediateActivity: false, thinkingAsToolCall: false },
+  full: { compactToolRows: true, groupToolRuns: true, foldIntermediateActivity: false, thinkingAsToolCall: true },
+  max: { compactToolRows: true, groupToolRuns: true, foldIntermediateActivity: true, thinkingAsToolCall: true },
 };
 
 export const DEFAULT_ADVANCED: AdvancedSettings = {
@@ -167,6 +200,11 @@ export type BasicKey = keyof BasicSettings;
 // Live configuration
 // ---------------------------------------------------------------------------
 
+/** defaults < the user's own keys < the preset's four look keys (none for `custom`). */
+function layer(user: Settings): Settings {
+  return user.preset === "custom" ? user : { ...user, ...PRESETS[user.preset] };
+}
+
 /**
  * The live settings object.
  *
@@ -175,7 +213,12 @@ export type BasicKey = keyof BasicSettings;
  * and no restart.
  */
 export class Config {
+  /** The user's own values (what settings.json says), before any preset. */
   private settings: Settings;
+  /** What the rest of the extension sees: `settings` with the preset layered on. */
+  private get view(): Settings {
+    return layer(this.settings);
+  }
 
   /**
    * Values changed in this session that are NOT in settings.json.
@@ -192,9 +235,10 @@ export class Config {
   }
 
   get<K extends keyof Settings>(key: K): Settings[K] {
-    return this.settings[key];
+    return this.view[key];
   }
 
+  /** Writes the user's own value; a non-custom preset keeps shadowing it until `preset` is custom. */
   set<K extends keyof Settings>(key: K, value: Settings[K]): void {
     this.settings = { ...this.settings, [key]: value };
   }
@@ -211,7 +255,7 @@ export class Config {
   }
 
   all(): Settings {
-    return this.settings;
+    return this.view;
   }
 
   /** Adopt freshly read settings, re-applying anything held only in memory. */
@@ -221,12 +265,12 @@ export class Config {
 
   /** Preset chosen by `glyphStyle`, then per-glyph overrides. */
   glyphs(): Glyphs {
-    return { ...GLYPH_PRESETS[this.settings.glyphStyle], ...this.settings.glyphs };
+    return { ...GLYPH_PRESETS[this.view.glyphStyle], ...this.view.glyphs };
   }
 
   /** Default token map plus overrides. */
   tokens(): Tokens {
-    return { ...DEFAULT_TOKENS, ...this.settings.tokens };
+    return { ...DEFAULT_TOKENS, ...this.view.tokens };
   }
 
   /**
@@ -236,11 +280,11 @@ export class Config {
    * alongside it wherever claiming happens.
    */
   isExcluded(toolName: string): boolean {
-    return this.settings.excludeTools.includes(toolName);
+    return this.view.excludeTools.includes(toolName);
   }
 
   /** True when this tool should be drawn as a compact row. */
   compacts(toolName: string): boolean {
-    return this.settings.compactToolRows && !this.isExcluded(toolName);
+    return this.view.compactToolRows && !this.isExcluded(toolName);
   }
 }

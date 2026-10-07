@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { BASIC_KEYS, Config, DEFAULTS, DEFAULT_BASIC } from "../src/config.ts";
+import { BASIC_KEYS, Config, DEFAULTS } from "../src/config.ts";
 import { FIELDS, argumentCompletions, createConfigScreen, items, summary } from "../src/config-ui.ts";
 
 type Item = { id: string; label: string; description?: string; currentValue: string; values?: string[] };
@@ -43,13 +43,12 @@ class FakeSettingsList {
   selectItem(): void {}
 }
 
-function screen(config: Config, onChange = (_k: string, _v: unknown) => {}, onClose = () => {}, onReset = () => {}) {
+function screen(config: Config, onChange = (_k: string, _v: unknown) => {}, onClose = () => {}) {
   createConfigScreen({
     SettingsList: FakeSettingsList as never,
-    theme: {} as never,
+    theme: { hint: (text: string) => text } as never,
     config,
     onChange: onChange as never,
-    onReset,
     onClose,
   });
   const list = FakeSettingsList.last;
@@ -82,7 +81,7 @@ describe("config screen contents", () => {
     const byId = new Map(rendered.map((item) => [item.id, item]));
     assert.equal(byId.get("groupToolRuns")?.currentValue, "on");
     assert.equal(byId.get("timer")?.currentValue, "off");
-    for (const item of rendered.filter((item) => !["activitySummary", "glyphStyle"].includes(item.id))) {
+    for (const item of rendered.filter((item) => !["preset", "activitySummary", "glyphStyle"].includes(item.id))) {
       assert.deepEqual(item.values, ["on", "off"]);
     }
   });
@@ -127,11 +126,63 @@ describe("config screen contents", () => {
       theme: { hint: (text: string) => text } as never,
       config: new Config(DEFAULTS),
       onChange: () => {},
-      onReset: () => {},
       onClose: () => {},
     });
     assert.match(component.render(80).at(-1)!, /Changes apply live · Ctrl\+O reveals tool output/);
     assert.ok(visibleWidth(component.render(20).at(-1)!) <= 20);
+  });
+});
+
+describe("presets in the config screen", () => {
+  it("puts the Preset row first and cycles all five presets", () => {
+    const first = items(DEFAULTS)[0];
+    assert.equal(first.id, "preset");
+    assert.equal(first.currentValue, "custom");
+    assert.deepEqual(first.values, ["off", "lite", "full", "max", "custom"]);
+  });
+
+  it("switching preset keeps the user's own keys and shows the preset's look keys", () => {
+    const config = new Config({ ...DEFAULTS, groupToolRuns: true, gutter: false });
+    const changes: [string, unknown][] = [];
+    screen(config, (k, v) => changes.push([k, v])).onChange("preset", "lite");
+    assert.deepEqual(changes, [["preset", "lite"]]);
+    assert.equal(config.get("groupToolRuns"), false);
+    assert.equal(config.get("gutter"), false, "not a look key: the user's value stays");
+    screen(config).onChange("preset", "custom");
+    assert.equal(config.get("groupToolRuns"), true);
+  });
+
+  it("greys only the four look rows under a preset: activating one changes nothing", () => {
+    const config = new Config({ ...DEFAULTS, preset: "lite", groupToolRuns: true, timer: false });
+    const changes: unknown[] = [];
+    const list = screen(config, (k, v) => changes.push([k, v]));
+    const group = list.items.find((item) => item.id === "groupToolRuns")!;
+    assert.deepEqual(group.values, [group.currentValue]);
+    assert.match(group.description ?? "", /Set by the 'lite' preset.*custom/);
+    list.onChange("groupToolRuns", group.currentValue);
+    assert.deepEqual(changes, []);
+    assert.equal(config.get("groupToolRuns"), false);
+    for (const id of ["timer", "gutter", "glyphStyle", "keepActiveToolsExpanded"]) {
+      assert.ok(list.items.find((item) => item.id === id)!.values!.length > 1, id);
+    }
+    list.onChange("timer", "on");
+    assert.deepEqual(changes, [["timer", true]]);
+  });
+
+  it("shows the generic footer, with no Restore defaults row", () => {
+    const component = createConfigScreen({
+      SettingsList: FakeSettingsList as never,
+      theme: { hint: (text: string) => text } as never,
+      config: new Config({ ...DEFAULTS, preset: "full" }),
+      onChange: () => {},
+      onClose: () => {},
+    });
+    assert.match(component.render(200).at(-1)!, /Changes apply live/);
+    assert.equal(FakeSettingsList.last!.items.some((item) => /restore/i.test(item.label)), false);
+  });
+
+  it("status marks preset-controlled rows", () => {
+    assert.match(summary(new Config({ ...DEFAULTS, preset: "lite" }).all()), /Preset\s+lite\n[^\n]*\(from preset\)/);
   });
 });
 
@@ -170,23 +221,6 @@ describe("config screen behaviour", () => {
     const before = config.all();
     screen(config).onChange("not-a-setting", "on");
     assert.deepEqual(config.all(), before);
-  });
-
-  it("restores editor-managed defaults live while retaining advanced values", () => {
-    const config = new Config({ ...DEFAULTS, groupToolRuns: true, glyphStyle: "ascii", foldIntermediateActivity: true,
-      glyphs: { done: "OK" }, tokens: { label: "accent" }, excludeTools: ["custom"] });
-    let reset = 0;
-    const list = screen(config, undefined, undefined, () => reset++);
-    assert.equal(list.items.at(-1)?.label, "Restore defaults");
-    assert.match(list.items.at(-1)?.description ?? "", /Custom glyphs/);
-    list.onChange("restoreDefaults", "Restore");
-    assert.equal(reset, 1);
-    for (const key of BASIC_KEYS) assert.equal(config.get(key), DEFAULT_BASIC[key]);
-    assert.deepEqual(config.get("glyphs"), { done: "OK" });
-    assert.deepEqual(config.get("tokens"), { label: "accent" });
-    assert.deepEqual(config.get("excludeTools"), ["custom"]);
-    assert.equal(FakeSettingsList.last?.items.some((item) => item.id === "foldActivityOnFinalAnswer"), false);
-    assert.equal(FakeSettingsList.last?.items.find((item) => item.id === "glyphStyle")?.currentValue, "Unicode");
   });
 
   it("closes through the cancel callback", () => {

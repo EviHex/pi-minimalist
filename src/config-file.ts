@@ -29,6 +29,11 @@ import {
   DEFAULTS,
   DEFAULT_TOKENS,
   GLYPH_PRESETS,
+  FRESH_PRESET,
+  LOOK_KEYS,
+  PRESETS,
+  isFresh,
+  isPreset,
   SETTINGS_KEY,
   type BasicSettings,
   type Glyphs,
@@ -153,8 +158,10 @@ function readSettingsFile(path: string): Json {
  * this is hand-edited input.
  */
 function coerce(raw: unknown, into: Settings): Settings {
-  if (!isRecord(raw)) return into;
   const out = { ...into };
+  // A user with no basic key has never configured anything: they get the default preset.
+  if (isFresh(raw)) out.preset = FRESH_PRESET;
+  if (!isRecord(raw)) return out;
 
   for (const key of BASIC_KEYS) {
     if (typeof DEFAULT_BASIC[key] === "boolean" && typeof raw[key] === "boolean") {
@@ -169,6 +176,7 @@ function coerce(raw: unknown, into: Settings): Settings {
   if (Array.isArray(raw.excludeTools)) {
     out.excludeTools = raw.excludeTools.filter((name): name is string => typeof name === "string");
   }
+  if (isPreset(raw.preset)) out.preset = raw.preset;
   if (raw.glyphStyle === "unicode" || raw.glyphStyle === "ascii") {
     out.glyphStyle = raw.glyphStyle;
   }
@@ -205,6 +213,17 @@ export function loadSettings(env = process.env): Settings {
 }
 
 /**
+ * Look keys to write when the user switches to `custom` for the first time: the
+ * `lite` look, so "custom" starts from something known. Undefined when the file
+ * already holds any of the user's own look keys (they are kept untouched).
+ */
+export function customSeed(env = process.env): Record<string, boolean> | undefined {
+  const block = readSettingsFile(globalSettingsPath(env))[SETTINGS_KEY];
+  const own = isRecord(block) && LOOK_KEYS.some((key) => key in block);
+  return own ? undefined : PRESETS.lite;
+}
+
+/**
  * One-time migration of the old `/quiet` preference.
  *
  * Returns a value only when settings.json has no `groupToolRuns` yet, so an
@@ -232,7 +251,7 @@ export type SaveResult =
 
 /**
  * Persist only the supplied editor-managed settings into the global agent file.
- * A normal edit passes one key; Restore defaults intentionally passes all.
+ * A normal edit passes one key.
  * Hand-written `glyphs`/`tokens`/`excludeTools` values survive untouched.
  *
  * REFUSES to write a file containing comments. `JSON.stringify` would silently
@@ -263,6 +282,8 @@ export function saveBasicSettings(settings: Partial<BasicSettings>, env = proces
   }
   const existing = isRecord(root[SETTINGS_KEY]) ? root[SETTINGS_KEY] : {};
   const merged: Json = { ...existing };
+  // The first write must pin the fresh-install preset, or the file would stop looking fresh and become `custom`.
+  if (isFresh(existing)) merged.preset = FRESH_PRESET;
   for (const key of BASIC_KEYS) {
     if (settings[key] !== undefined) merged[key] = settings[key];
   }

@@ -22,8 +22,8 @@ import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 // keybindings and colours, as Pi's own `/settings`.
 import { SettingsList } from "@earendil-works/pi-tui";
 import { installBridges, sharedState } from "./src/bridge.ts";
-import { BASIC_KEYS, DEFAULT_BASIC, type BasicKey, type BasicSettings, type Config } from "./src/config.ts";
-import { loadSettings, migratedQuiet, saveBasicSettings } from "./src/config-file.ts";
+import { type BasicKey, type BasicSettings, type Config } from "./src/config.ts";
+import { customSeed, loadSettings, migratedQuiet, saveBasicSettings } from "./src/config-file.ts";
 import { argumentCompletions, createConfigScreen, summary } from "./src/config-ui.ts";
 import { patchCore } from "./src/core-patch.ts";
 import { refreshMcpTools } from "./src/tools.ts";
@@ -82,7 +82,6 @@ export default function (pi: ExtensionAPI) {
           theme: getSettingsListTheme(),
           config,
           onChange: (key, value) => persist(ctx, config, key, value),
-          onReset: () => persistDefaults(ctx, config),
           onClose: () => done(),
         }),
       );
@@ -92,37 +91,23 @@ export default function (pi: ExtensionAPI) {
 
 type NotifyContext = { ui: { notify(message: string, type?: "info" | "warning" | "error"): void } };
 
-/**
- * Write only the changed key to the global agent settings, and be honest when that is impossible.
- *
- * The live value has already changed, so a silent failure would leave the UI and
- * the file disagreeing. Keeping it as a session override means the per-turn
- * re-read cannot revert what the message says was applied.
- */
-function persistDefaults(ctx: NotifyContext, config: Config): void {
-  const result = saveBasicSettings(DEFAULT_BASIC);
-  for (const key of BASIC_KEYS) {
-    if (result.ok) config.clearSessionOverride(key);
-    else config.setSessionOverride(key, config.get(key));
-  }
-  if (!result.ok) {
-    ctx.ui.notify(`Defaults applied for this session only; settings.json could not be written (${result.reason}).`, "warning");
-  }
-}
-
 function persist(
   ctx: NotifyContext,
   config: Config,
   key: BasicKey,
   value: BasicSettings[BasicKey],
 ): void {
-  const result = saveBasicSettings({ [key]: value });
-  if (result.ok) {
-    // The file now agrees, so it becomes the source of truth again.
-    config.clearSessionOverride(key);
-    return;
+  // The first switch to `custom` starts from the `lite` look (see customSeed).
+  const seed = key === "preset" && value === "custom" ? customSeed() : undefined;
+  const changes: Partial<Record<BasicKey, unknown>> = { ...seed, [key]: value };
+  const result = saveBasicSettings(changes as Partial<BasicSettings>);
+  for (const [k, v] of Object.entries(changes) as [BasicKey, never][]) {
+    config.set(k, v);
+    // On success the file agrees, so it becomes the source of truth again.
+    if (result.ok) config.clearSessionOverride(k);
+    else config.setSessionOverride(k, v);
   }
-  config.setSessionOverride(key, value);
+  if (result.ok) return;
   ctx.ui.notify(
     result.reason === "comments"
       ? `Applied for this session only. settings.json has comments, which JSON.stringify would delete — set "minimalist": { "${key}": ${JSON.stringify(value)} } by hand to persist.`

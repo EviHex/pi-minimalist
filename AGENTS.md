@@ -21,6 +21,7 @@ rewrote Pi's compiled bundle with perl and is gone.
 
 | Feature | Default | Setting |
 | --- | --- | --- |
+| Preset: off, lite, full, max, custom (a layer over four look keys) | full (fresh install) / custom (existing config) | `preset` |
 | One-line tool rows, output hidden until `Ctrl+O` | on | `compactToolRows` |
 | Fold adjacent finished rows into one summary | on | `groupToolRuns` |
 | Fold activity before the latest assistant prose into one summary | off | `foldIntermediateActivity` |
@@ -57,6 +58,7 @@ defaults  <  global agent settings.json (PI_CODING_AGENT_DIR respected)
 
 ```json
 "minimalist": {
+  "preset": "custom",
   "compactToolRows": true,
   "groupToolRuns": true,
   "foldIntermediateActivity": false,
@@ -79,13 +81,43 @@ defaults  <  global agent settings.json (PI_CODING_AGENT_DIR respected)
 - `/minimalist` opens an editor built on pi-tui's `SettingsList` — the same
   component `/settings` uses, so arrow keys, hover descriptions and Enter/Space
   cycling behave identically. `/minimalist config` remains an alias.
-- `/minimalist status` prints the current state. The editor's Restore defaults
-  action resets only its eleven settings, including `glyphStyle`, leaving
-  hand-written advanced values and unrelated Pi settings untouched.
+- `/minimalist status` prints the current state. The editor has no reset
+  row: the presets are the reset points, and a
+  hand-written advanced value or unrelated Pi setting is never touched.
+
+### Presets are a layer, not a write
+
+A preset names exactly four keys (`LOOK_KEYS`: `compactToolRows`,
+`groupToolRuns`, `foldIntermediateActivity`, `thinkingAsToolCall`). `Config`
+keeps the user's own values in `settings` and computes the effective view on read
+(`layer()`: user keys < the preset's four look keys; `custom` adds nothing).
+Choosing off/lite/full/max therefore never touches the user's keys, and every
+other setting (Left border, Symbols, ...) stays the user's own and stays editable.
+Advanced keys (`glyphs`, `tokens`, `excludeTools`) are never preset.
+
+- **Greyed rows.** `SettingsList` has no disabled rows, so under a preset each
+  look row's ONLY value is its dimmed current text: Enter "cycles" to the same
+  text and `onChange` returns early. The row's description says to switch to
+  `custom`; the footer stays generic.
+- **Default.** A fresh install gets `full` (`FRESH_PRESET`). "Fresh" means the
+  `minimalist` block holds no basic key (`isFresh`), including no block at all. A
+  user who never configured anything therefore moves from the old defaults to
+  `full`: thinking rows become compact. An existing block with any basic key but
+  no `preset` key stays `custom`, unchanged. The first write pins
+  `"preset": "full"` into a fresh block, so saving one setting does not flip the
+  user to `custom`.
+- **First switch to `custom`** (index.ts `persist` + `customSeed`) writes the
+  `lite` look keys, but only when the file has none of the four look keys. Existing
+  own values are left untouched.
+- There is deliberately no reset row: presets are the reset points and delete
+  nothing.
+
+→ `config.test.ts` "presets", `config-ui.test.ts` "presets in the config screen".
 
 ### Which settings are discoverable, and why
 
-The eleven keys above the blank line are in the command, including `glyphStyle`
+The twelve keys above the blank line are in the command, including `preset` and
+`glyphStyle`
 (Unicode / ASCII). The two prose sub-options appear only while
 `foldIntermediateActivity` is on. The four below are JSON-only: they need
 exact tool names or knowledge of Pi's theme palette, and putting them in a
@@ -98,9 +130,9 @@ misaligns it, the `ascii` preset uses only one-column symbols.
 ### Writing rules
 
 The `/minimalist` editor writes only the changed basic key in the global
-`minimalist` block; Restore defaults intentionally writes all eleven editor keys.
+`minimalist` block (a preset switch to `custom` may add the four seeded look keys).
 Project-local `minimalist` blocks are ignored, not migrated or deleted.
-Hand-written `glyphs`/`tokens`/`excludeTools` survive either operation.
+Hand-written `glyphs`/`tokens`/`excludeTools` survive every write.
 It REFUSES to write a settings.json containing comments — `JSON.stringify` would
 silently delete them — and says so, applying the change for the session instead.
 

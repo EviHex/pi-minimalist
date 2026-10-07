@@ -3,9 +3,10 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { BASIC_KEYS, Config, DEFAULTS, DEFAULT_BASIC } from "../src/config.ts";
+import { BASIC_KEYS, Config, DEFAULTS, DEFAULT_BASIC, PRESETS } from "../src/config.ts";
 import {
   agentDir,
+  customSeed,
   hasComments,
   loadSettings,
   migratedQuiet,
@@ -59,7 +60,7 @@ describe("stripJsonComments", () => {
 describe("loadSettings", () => {
   it("returns defaults when nothing is configured", () => {
     const { env } = sandbox();
-    assert.deepEqual(loadSettings(env), DEFAULTS);
+    assert.deepEqual(loadSettings(env), { ...DEFAULTS, preset: "full" });
     assert.equal(loadSettings(env).groupToolRuns, true, "consecutive calls combine by default");
   });
 
@@ -86,7 +87,7 @@ describe("loadSettings", () => {
   it("survives malformed JSON and ignores wrongly-typed fields", () => {
     const { env, settingsPath } = sandbox();
     writeFileSync(settingsPath, "{ this is not json");
-    assert.deepEqual(loadSettings(env), DEFAULTS, "a syntax error must never break the UI");
+    assert.deepEqual(loadSettings(env), { ...DEFAULTS, preset: "full" }, "a syntax error must never break the UI");
 
     // One bad value must not discard the whole block: this file is hand-edited.
     writeFileSync(settingsPath, JSON.stringify({ minimalist: { gutter: "yes", timer: false } }));
@@ -120,7 +121,7 @@ describe("saveBasicSettings", () => {
     const written = JSON.parse(readFileSync(settingsPath, "utf8"));
     assert.equal(written.theme, "dark", "unrelated keys survive");
     assert.deepEqual(written.extensions, ["a"]);
-    assert.deepEqual(written.minimalist, { groupToolRuns: true }, "one toggle writes only its key");
+    assert.deepEqual(written.minimalist, { preset: "full", groupToolRuns: true }, "first write pins the fresh preset, then only its key");
     assert.equal(loadSettings(env).groupToolRuns, true, "the custom agent dir is read back");
   });
 
@@ -139,22 +140,6 @@ describe("saveBasicSettings", () => {
     assert.equal(written.minimalist.glyphStyle, "ascii", "Symbols remains unchanged");
   });
 
-  it("resets editable values without changing custom or unrelated settings", () => {
-    const { env, settingsPath } = sandbox();
-    writeFileSync(settingsPath, JSON.stringify({ theme: "dark", minimalist: {
-      groupToolRuns: true, glyphStyle: "ascii", glyphs: { done: "OK" }, tokens: { label: "accent" },
-      excludeTools: ["custom"], maxDetailChars: 99,
-    } }));
-    assert.deepEqual(saveBasicSettings(DEFAULTS, env), { ok: true });
-    const written = JSON.parse(readFileSync(settingsPath, "utf8"));
-    for (const key of BASIC_KEYS) assert.equal(written.minimalist[key], DEFAULT_BASIC[key]);
-    assert.deepEqual(written.minimalist.glyphs, { done: "OK" });
-    assert.deepEqual(written.minimalist.tokens, { label: "accent" });
-    assert.deepEqual(written.minimalist.excludeTools, ["custom"]);
-    assert.equal(written.minimalist.maxDetailChars, 99);
-    assert.equal(written.theme, "dark");
-  });
-
   it("refuses malformed global settings rather than overwriting them", () => {
     const { env, settingsPath } = sandbox();
     for (const original of ['{"minimalist":', '{"minimalist": false}']) {
@@ -164,21 +149,6 @@ describe("saveBasicSettings", () => {
       assert.equal(result.ok ? undefined : result.reason, "unparsable");
       assert.equal(readFileSync(settingsPath, "utf8"), original);
     }
-  });
-
-  it("keeps failed reset defaults live across re-reads without reviving old overrides", () => {
-    const { env, settingsPath } = sandbox();
-    const original = '{ // keep this\n "minimalist": { "groupToolRuns": true, "glyphStyle": "ascii" }\n}';
-    writeFileSync(settingsPath, original);
-    const config = new Config(loadSettings(env));
-    config.setSessionOverride("groupToolRuns", true);
-    for (const key of BASIC_KEYS) config.set(key, DEFAULT_BASIC[key]);
-    assert.equal(saveBasicSettings(DEFAULT_BASIC, env).ok, false);
-    for (const key of BASIC_KEYS) config.setSessionOverride(key, config.get(key));
-    config.replace(loadSettings(env));
-    assert.equal(config.get("groupToolRuns"), DEFAULT_BASIC.groupToolRuns);
-    assert.equal(config.get("glyphStyle"), "unicode");
-    assert.equal(readFileSync(settingsPath, "utf8"), original);
   });
 
   it("REFUSES to write a file with comments instead of deleting them", () => {
@@ -263,5 +233,73 @@ describe("Config", () => {
     config.clearSessionOverride("groupToolRuns");
     config.replace(DEFAULTS);
     assert.equal(config.get("groupToolRuns"), DEFAULT_BASIC.groupToolRuns, "cleared override yields to the file");
+  });
+});
+
+describe("presets", () => {
+  const user = { ...DEFAULTS, groupToolRuns: false, gutter: false, excludeTools: ["x"] };
+
+  it("layer user keys < preset look keys", () => {
+    const off = new Config({ ...user, preset: "off" });
+    assert.equal(off.get("compactToolRows"), false);
+    assert.equal(off.get("groupToolRuns"), false);
+    assert.equal(off.get("gutter"), false);
+    assert.deepEqual(off.get("excludeTools"), ["x"]);
+    assert.equal(new Config({ ...user, preset: "lite" }).get("groupToolRuns"), false);
+    assert.equal(new Config({ ...user, preset: "full" }).get("thinkingAsToolCall"), true);
+    const max = new Config({ ...user, preset: "max" });
+    assert.equal(max.get("foldIntermediateActivity"), true);
+    assert.equal(max.get("thinkingAsToolCall"), true);
+    assert.equal(max.compacts("read"), true);
+    assert.equal(off.compacts("read"), false);
+  });
+
+  it("an existing minimalist block without a preset key stays custom and uses the user's own keys", () => {
+    const { env, settingsPath } = sandbox();
+    writeFileSync(settingsPath, JSON.stringify({ minimalist: { gutter: false } }));
+    const settings = loadSettings(env);
+    assert.equal(settings.preset, "custom");
+    assert.equal(new Config(settings).get("gutter"), false);
+    assert.equal(new Config({ ...user, preset: "custom" }).get("groupToolRuns"), false);
+  });
+
+  it("a fresh install (no minimalist block, or no basic key) gets the full preset", () => {
+    const { env, settingsPath } = sandbox();
+    assert.equal(loadSettings(env).preset, "full");
+    writeFileSync(settingsPath, JSON.stringify({ minimalist: { excludeTools: [] } }));
+    assert.equal(loadSettings(env).preset, "full");
+    assert.equal(new Config(loadSettings(env)).get("thinkingAsToolCall"), true);
+  });
+
+  it("the first write pins the fresh preset so the file does not turn custom", () => {
+    const { env, settingsPath } = sandbox();
+    assert.deepEqual(saveBasicSettings({ gutter: false }, env), { ok: true });
+    assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")).minimalist, { preset: "full", gutter: false });
+    assert.equal(loadSettings(env).preset, "full");
+  });
+
+  it("a preset names only the four look keys and leaves other settings alone", () => {
+    const c = new Config({ ...DEFAULTS, preset: "max", gutter: false, glyphStyle: "ascii" });
+    assert.equal(c.get("gutter"), false);
+    assert.equal(c.get("glyphStyle"), "ascii");
+    assert.equal(c.get("foldIntermediateActivity"), true);
+  });
+
+  it("the first switch to custom seeds the lite look; own look keys are kept", () => {
+    const { env, settingsPath } = sandbox();
+    assert.deepEqual(customSeed(env), PRESETS.lite);
+    writeFileSync(settingsPath, JSON.stringify({ minimalist: { gutter: false } }));
+    assert.deepEqual(customSeed(env), PRESETS.lite);
+    writeFileSync(settingsPath, JSON.stringify({ minimalist: { preset: "full", groupToolRuns: true } }));
+    assert.equal(customSeed(env), undefined);
+  });
+
+  it("reads a valid preset, ignores an invalid one, and saving it leaves other keys alone", () => {
+    const { env, settingsPath } = sandbox();
+    writeFileSync(settingsPath, JSON.stringify({ minimalist: { preset: "bogus", gutter: false } }));
+    assert.equal(loadSettings(env).preset, "custom");
+    assert.deepEqual(saveBasicSettings({ preset: "lite" }, env), { ok: true });
+    assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")).minimalist, { preset: "lite", gutter: false });
+    assert.equal(loadSettings(env).preset, "lite");
   });
 });

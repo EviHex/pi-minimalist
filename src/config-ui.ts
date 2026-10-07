@@ -3,7 +3,9 @@
 import { truncateToWidth, type AutocompleteItem, type Component, type SettingItem, type SettingsList, type SettingsListTheme } from "@earendil-works/pi-tui";
 import {
   BASIC_KEYS,
-  DEFAULT_BASIC,
+  LOOK_KEYS,
+  PRESET_NAMES,
+  isPreset,
   type BasicKey,
   type BasicSettings,
   type Config,
@@ -20,6 +22,11 @@ type Field = {
 
 /** Label and hover description for every basic setting, in display order. */
 export const FIELDS: Field[] = [
+  {
+    key: "preset",
+    label: "Preset",
+    description: "off = native Pi, lite = one-line rows, full = + groups and thinking rows, max = + collapsed earlier activity. custom uses your own values. A preset only sets the four look rows; your other settings are kept.",
+  },
   {
     key: "compactToolRows",
     label: "Compact tool rows",
@@ -83,18 +90,27 @@ type InputComponent = Component & { handleInput(data: string): void };
 type SettingsListConstructor = new (...args: ConstructorParameters<typeof SettingsList>) => SettingsList;
 type BasicValue = BasicSettings[BasicKey];
 
-/** Conditional rows plus their display values. */
-export function items(settings: Settings): SettingItem[] {
+const CHOICES: Partial<Record<BasicKey, string[]>> = {
+  preset: [...PRESET_NAMES],
+  activitySummary: ["elapsed time", "tools used"],
+  glyphStyle: ["Unicode", "ASCII"],
+};
+
+const isLook = (key: string) => (LOOK_KEYS as readonly string[]).includes(key);
+
+/** Conditional rows plus their display values. `dim` greys the look rows a preset owns. */
+export function items(settings: Settings, dim?: (text: string) => string): SettingItem[] {
   return FIELDS.filter((field) => !field.activityOption || settings.foldIntermediateActivity).map(
     ({ key, label, description }) => {
-      const value = settings[key];
-      return {
-        id: key,
-        label,
-        description,
-        currentValue: displayValue(value),
-        values: key === "activitySummary" ? ["elapsed time", "tools used"] : key === "glyphStyle" ? ["Unicode", "ASCII"] : ["on", "off"],
-      };
+      const value = displayValue(settings[key]);
+      // SettingsList has no disabled rows, so a locked row shows its dimmed value
+      // as its ONLY value: Enter "cycles" to the same text and nothing changes.
+      if (dim && isLook(key)) {
+        const shown = dim(value);
+        const hint = `Set by the '${settings.preset}' preset. Switch Preset to 'custom' to edit (your custom values are kept).`;
+        return { id: key, label, description: hint, currentValue: shown, values: [shown] };
+      }
+      return { id: key, label, description, currentValue: value, values: CHOICES[key] ?? ["on", "off"] };
     },
   );
 }
@@ -104,39 +120,35 @@ export type ConfigScreenDeps = {
   theme: SettingsListTheme;
   config: Config;
   onChange: (key: BasicKey, value: BasicValue) => void;
-  onReset: () => void;
   onClose: () => void;
 };
 
 /** Build a live screen; toggling prose folding immediately adds/removes its two child rows. */
 export function createConfigScreen(deps: ConfigScreenDeps): InputComponent {
-  const { SettingsList, theme, config, onChange, onReset, onClose } = deps;
+  const { SettingsList, theme, config, onChange, onClose } = deps;
   let list: SettingsList;
+  let locked = false;
 
   const build = () => {
-    const rows = [
-      ...items(config.all()),
-      {
-        id: "restoreDefaults",
-        label: "Restore defaults",
-        description: "Reset the settings in this editor, including Symbols. Custom glyphs, colours, and excluded tools are kept.",
-        currentValue: "Enter to restore",
-        values: ["Restore"],
-      },
-    ];
+    const preset = config.all().preset;
+    locked = preset !== "custom";
+    const rows = items(config.all(), locked ? theme.hint : undefined);
     return new SettingsList(
       rows,
       rows.length,
       theme,
       (id, displayValue) => {
-        if (id === "restoreDefaults") {
-          for (const key of BASIC_KEYS) config.set(key, DEFAULT_BASIC[key]);
-          onReset();
+        if (!isBasicKey(id)) return;
+        if (id === "preset") {
+          const value = isPreset(displayValue) ? displayValue : "custom";
+          config.set(id, value);
+          onChange(id, value);
           list = build();
           list.selectItem(id);
           return;
         }
-        if (!isBasicKey(id)) return;
+        // Locked rows only echo their own text; do nothing (their description explains).
+        if (locked && isLook(id)) return;
         if (id === "activitySummary") {
           const value = displayValue === "tools used" ? "tools" : "elapsed";
           config.set(id, value);
@@ -176,6 +188,7 @@ function isBasicKey(id: string): id is BasicKey {
 }
 
 function displayValue(value: BasicValue): string {
+  if (isPreset(value)) return value;
   if (value === "elapsed") return "elapsed time";
   if (value === "tools") return "tools used";
   if (value === "unicode") return "Unicode";
@@ -199,7 +212,8 @@ export function summary(settings: Settings): string {
   const width = Math.max(...visible.map((field) => field.label.length));
   return [
     ...visible.map(({ key, label }) => {
-      return `  ${label.padEnd(width)}  ${displayValue(settings[key])}`;
+      const dimmed = settings.preset !== "custom" && isLook(key) ? " (from preset)" : "";
+      return `  ${label.padEnd(width)}  ${displayValue(settings[key])}${dimmed}`;
     }),
     "",
     "  /minimalist          change these",

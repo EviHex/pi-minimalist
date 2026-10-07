@@ -35,8 +35,7 @@ export default function (pi: ExtensionAPI) {
   const { config, grouping } = sharedState(loadSettings());
 
   installBridges({ config, grouping });
-  // Runtime replacement for editing Pi's compiled bundle. Idempotent, so a
-  // /reload only refreshes the bridge slots the wrappers read.
+  // Idempotent, so a /reload only refreshes the Bridge the wrappers read.
   patchCore(core);
 
   const refresh = () => {

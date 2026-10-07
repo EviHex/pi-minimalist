@@ -1,8 +1,8 @@
 /**
- * RUNTIME core patches — the replacement for the old patch-pi.sh bundle edits.
+ * RUNTIME core patches: wrappers on Pi's real component prototypes.
  *
- * WHY THIS WORKS (the discovery that removed the patch script)
- * -----------------------------------------------------------
+ * WHY THIS WORKS
+ * --------------
  * Pi's bundled CLI loads extensions through jiti with
  * `virtualModules: VIRTUAL_MODULES` (see core/extensions/loader.ts; the bundle
  * sets `isBundledNode = true`). Those virtual modules are the bundle's OWN live
@@ -10,19 +10,14 @@
  * `@earendil-works/pi-coding-agent`, it receives the very same class objects the
  * running TUI instantiates — not a second copy from `dist/`.
  *
- * `ToolExecutionComponent` and `AssistantMessageComponent` are public exports,
- * and every seam the old patch script rewrote is a `prototype` method. Wrapping
- * those prototypes at load time therefore produces exactly the behavior the perl
- * substitutions produced, with three advantages:
+ * Every seam is a `prototype` method on a public export, so wrapping at load time
+ * leaves nothing on disk modified (a Pi upgrade cannot silently revert it) and
+ * the wrappers are ordinary TypeScript, unit-testable against the real
+ * components (see test/core-patch.test.ts).
  *
- *   - a Pi upgrade cannot silently revert it (nothing on disk is modified);
- *   - no `node --check`, no marker greps, no per-release regex maintenance;
- *   - the wrappers are ordinary TypeScript, unit-testable against the real
- *     components (see test/core-patch.test.ts).
- *
- * Each wrapper reads its behavior from the process-global bridge slots at CALL
- * time (see bridge.ts), so `/reload` swaps behavior without re-wrapping — and
- * an unloaded extension degrades to Pi's native rendering.
+ * Each wrapper reads its behavior from the process-global `Bridge` at CALL time
+ * (see bridge.ts), so `/reload` swaps behavior without re-wrapping — and an
+ * unloaded extension degrades to Pi's native rendering.
  */
 
 import type { Component } from "@earendil-works/pi-tui";
@@ -79,16 +74,12 @@ type ToolExecutionProto = {
 };
 
 /**
- * PATCH 1 — give the compact renderer priority and remove the self-shell spacer
- * when a tool row temporarily hosts the one folded-activity summary.
+ * Give the compact renderer priority and normalize the self-shell spacer when a
+ * tool row hosts the one folded-activity summary.
  *
- * Replaces the old `getCallRenderer` / `getResultRenderer` /
- * `hasRendererDefinition` / `getRenderShell` bundle rewrite, plus both
- * `create*Fallback` rewrites. The fallbacks no longer need patching: because
- * `hasRendererDefinition()` and the two getters now always answer for a handled
- * tool, core never reaches its verbose `formatToolExecution()` branch, and
- * late-registered tools with `toolDefinition === undefined` are covered by the
- * same condition.
+ * `hasRendererDefinition()` and the two getters always answer for a handled tool,
+ * so core never reaches its verbose `formatToolExecution()` branch, and
+ * late-registered tools with `toolDefinition === undefined` are covered too.
  *
  * The native tool definitions are NOT touched: this is render-only, so built-ins
  * keep their builtin source ownership and pi-subagents keeps exposing
@@ -102,14 +93,11 @@ export function patchToolExecution(proto: ToolExecutionProto): void {
   /**
    * "Ours" when the bridge claims this tool name — and ONLY then.
    *
-   * `handles()` is now the single authority (blacklist plus the master switch),
-   * so it covers rendererless MCP/third-party tools and late-registered tools
-   * whose definition is missing from the UI lookup entirely.
-   *
-   * There used to be an extra "...or the tool has no renderer of its own"
-   * fallback here. Under the old whitelist it was load-bearing. With a blacklist
-   * it silently OVERRODE the user: an excluded tool with no renderer, and every
-   * tool when `compactToolRows` was off, got compacted anyway.
+   * `handles()` is the single authority (blacklist plus the master switch), so it
+   * covers rendererless MCP/third-party tools and late-registered tools whose
+   * definition is missing from the UI lookup entirely. Do NOT also claim "any
+   * tool with no renderer of its own": that overrides the user's exclusions and
+   * the master switch.
    */
   function claims(this: ToolExecutionProto): ToolRenderer | undefined {
     const renderer = bridge()?.toolRenderer;
@@ -214,7 +202,7 @@ export function patchUserMessage(proto: { rebuild(): void }): void {
 }
 
 // ---------------------------------------------------------------------------
-// PATCH 2 — thinking blocks
+// Assistant messages: thinking, prose, summaries
 // ---------------------------------------------------------------------------
 
 type AssistantProto = {
@@ -250,8 +238,7 @@ function thinkingRuns(message: any): string[][] {
 
 /**
  * Core wraps every thinking run — and ONLY a thinking run — in a MouseRegion, so
- * the Nth MouseRegion in contentContainer is the Nth thinking run. That is the
- * seam this patch uses instead of the old bundle rewrite.
+ * the Nth MouseRegion in contentContainer is the Nth thinking run.
  *
  * Recognized STRUCTURALLY, not by `instanceof` or `constructor.name`, because
  * neither is reliable across Pi's loading modes:
@@ -267,10 +254,9 @@ function isMouseRegion(value: any): boolean {
 }
 
 /**
- * PATCH 2 — collapsed preview, streaming expansion, all-purple expanded
- * Markdown, and the run-grouping chronology/spacer hooks.
- *
- * Replaces five bundle rewrites inside `updateContent` with one wrapper:
+ * Collapsed preview, streaming expansion, all-purple expanded Markdown, the
+ * run-grouping chronology/spacer hooks, and the summary spacing and mouse
+ * correction in `render` / `handleMouse`. `updateContent` does:
  *
  *  - active thinking: a streaming block stays COLLAPSED by default (its compact
  *    preview already shows the latest text). `keepActiveThinkingExpanded` forces

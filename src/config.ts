@@ -55,9 +55,8 @@ export const GLYPH_PRESETS: Record<GlyphStyle, Glyphs> = {
  * Which Pi theme token paints each part of a row.
  *
  * Overridable, but the defaults are deliberate: the action word is a LABEL, not
- * a warning, so it uses `success` green even for mutating tools. An earlier
- * version used warning orange, which collided with orange meaning "highlighted
- * prose".
+ * a warning, so it uses `success` green even for mutating tools (orange would
+ * collide with "highlighted prose").
  */
 export type Tokens = {
   label: ThemeColor;
@@ -163,9 +162,8 @@ export const PRESETS: Record<Exclude<Preset, "custom">, Record<LookKey, boolean>
 
 export const DEFAULT_ADVANCED: AdvancedSettings = {
   // `subagent` ships a renderer showing run id, state and a ctrl+o hint that one
-  // line cannot carry. Excluded by NAME rather than by the old "does this tool
-  // have its own renderer?" rule, which silently exempted every third-party tool
-  // and made the behavior impossible to discover from the UI.
+  // line cannot carry. Excluded by NAME rather than by a "does this tool
+  // have its own renderer?" rule, which would silently exempt every third-party tool.
   excludeTools: ["subagent"],
   glyphs: {},
   tokens: {},

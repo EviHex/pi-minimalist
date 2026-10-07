@@ -5,9 +5,8 @@
  * compacted is `Config.compacts()`, not this file.
  *
  * `describeTool` returns the label and details SEPARATELY and must never join
- * them: the painter colors each part, and an earlier version that returned one
- * string forced the painter to split it back apart on the first space, silently
- * assuming no label ever contains one.
+ * them: the painter colors each part, and one joined string would
+ * force it to split on the first space, assuming no label contains one.
  */
 
 /** Native tools with a per-tool details extractor below. */
@@ -28,8 +27,8 @@ const mcpTools = new Set<string>();
 /**
  * Refresh after MCP adapter registration.
  *
- * No longer decides what gets COMPACTED (the blacklist does that). It is kept
- * because it decides what gets LABELED `mcp`, which is real information: a bare
+ * Decides what gets LABELED `mcp` (not what gets compacted; the blacklist does
+ * that). It is real information: a bare
  * `atlassian_getConfluencePage` row does not tell you it crossed an MCP server.
  */
 export function refreshMcpTools(tools: { name: string; sourceInfo: { path: string } }[]): void {
@@ -178,9 +177,7 @@ function builtInDetails(name: ToolName, args: any, options: DescribeOptions): st
   switch (name) {
     case "bash":
       // ONE field, so no budget split is needed: CompactLine truncates at the
-      // real viewport width. An earlier version also capped this at 100
-      // characters, which threw away ~89 usable columns on a 200-column
-      // terminal. A collapsed row folds newlines into spaces; an expanded one
+      // real viewport width (no character cap). A collapsed row folds newlines into spaces; an expanded one
       // keeps its lines (see `field`).
       return field(args.command, budget);
     case "read": {

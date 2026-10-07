@@ -129,9 +129,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("keeps native rendering ONLY for excluded tools", async () => {
     const { components, newTool, builtIn } = await loadPi();
-    // Blacklist semantics: exclusion is the only exemption, so it is now
-    // explicit configuration rather than the old implicit "has its own
-    // renderer?" rule that silently exempted every third-party tool.
+    // Blacklist semantics: exclusion is the only exemption.
     install(components, { excludeTools: ["powershell"] }, "tool");
 
     const row = newTool("powershell", "call-3", { command: "Get-Date" }, builtIn("powershell"));
@@ -1054,11 +1052,8 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   });
 
   it("obeys the master switch even for a tool with no renderer", async () => {
-    // REGRESSION: claims() also returned our renderer when a tool had no
-    // renderer of its own. Load-bearing under the old whitelist; with a
-    // blacklist it silently OVERRODE the user, so `compactToolRows: false` and an
-    // excluded rendererless tool were both compacted anyway. Caught by an
-    // end-to-end check against the real bundle, not by the unit tests.
+    // REGRESSION: claims() also returned our renderer when a tool had no renderer
+    // of its own, which overrode `compactToolRows: false` and excludeTools.
     const { components } = await loadPi();
     install(components, { compactToolRows: false }, "tool");
 

@@ -4,15 +4,11 @@
  * TWO RULES THIS FILE ENFORCES
  * ---------------------------
  * 1. Rows are described as DATA and painted exactly once. Nothing downstream may
- *    re-parse painted text. An earlier version built `"read src/a.ts"` and then
- *    split it on the first space to recolor the action word, which silently
- *    assumed no label ever contains a space; run summaries were joined into
- *    `"read ×2, edit ×1"` and split back apart the same way.
+ *    re-parse painted text (splitting `"read src/a.ts"` on the first space
+ *    assumes no label contains a space).
  *
- * 2. Theme and settings are bound ONCE, in a `Painter`. There used to be a
- *    module-level mutable config with `config = defaultConfig()` defaults on four
- *    functions, which made painting depend on load order and let one test leak
- *    settings into the next.
+ * 2. Theme and settings are bound ONCE, in a `Painter`, so painting never
+ *    depends on load order and one test cannot leak settings into the next.
  *
  * Free of Pi extension-API runtime imports, so tests exercise real painting
  * without an extension runtime.
@@ -54,9 +50,8 @@ export type Row = {
 /**
  * Visible columns a gutter occupies: one space, the glyph, one space.
  *
- * DERIVED from the row's own gutter text, never configured. An earlier design
- * exported this as a constant, which could disagree with the real glyph width and
- * shift every row.
+ * DERIVED from the row's own gutter text, never configured, so it cannot
+ * disagree with the real glyph width and shift every row.
  */
 export function gutterWidth(gutter: string): number {
   return gutter === "" ? 0 : 3;

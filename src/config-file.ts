@@ -3,12 +3,9 @@
  *
  * WHY settings.json AND NOT OUR OWN FILE
  * --------------------------------------
- * The old `pi-minimalist.json` was a second config file the user had to know
- * about, and it hardcoded `~/.pi/agent`, so anyone setting
- * `PI_CODING_AGENT_DIR` silently wrote their preference somewhere it would never
- * be read back. settings.json is where a Pi user already looks, it is what
- * `pi-env` reads, and Pi tolerates unknown top-level keys (the published
- * `pi-powerline-footer` extension does exactly this with its `powerline` key).
+ * It is where a Pi user already looks, it is what `pi-env` reads, and Pi
+ * tolerates unknown top-level keys (the published `pi-powerline-footer`
+ * extension does exactly this with its `powerline` key).
  *
  * SCOPE
  *   defaults  <  global agent settings.json (PI_CODING_AGENT_DIR if set).

@@ -258,8 +258,8 @@ function detailBudget(width: number, glyph: string, label: string, badge: string
  *
  * Two caches on purpose: core's renderer path passes `lastComponent`, but its
  * FALLBACK path always passes undefined, so `context.state` is the only stable
- * per-call cache there. Allocating a fresh row per repaint used to start another
- * 1s ticker while clearing none — an interval leak that froze the UI.
+ * per-call cache there. Allocating a fresh row per repaint would start another
+ * 1s ticker while clearing none — an interval leak that freezes the UI.
  */
 function reuseRow(context: CallContext & { lastComponent?: unknown }, timers: Timers): CompactLine {
   const cached =

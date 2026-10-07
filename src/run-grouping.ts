@@ -1,9 +1,6 @@
 /**
  * Folding adjacent low-noise rows into one summary (the `groupToolRuns` setting).
  *
- * Formerly `quiet-mode.ts` / `QuietMode`, named after a `/quiet` command that no
- * longer exists.
- *
  * WHY THIS STATE EXISTS AT ALL
  * ---------------------------
  * Each tool row is an independent transcript entry that knows nothing about its

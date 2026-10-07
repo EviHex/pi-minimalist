@@ -15,8 +15,7 @@ describe("isBuiltIn", () => {
 describe("Config.compacts", () => {
   it("compacts every tool by default (blacklist, not whitelist)", () => {
     const config = new Config();
-    // The old rule was a whitelist of built-ins + MCP, which silently exempted
-    // every third-party tool that shipped its own renderer.
+    // Not a whitelist: third-party tools with their own renderer are compacted too.
     for (const name of [...BUILT_INS, "mcp", "mcpScript", "mcp__atlassian", "TaskCreate", "web_search", "anything"]) {
       assert.equal(config.compacts(name), true, name);
     }
@@ -138,8 +137,7 @@ describe("describeTool", () => {
     const command = "echo " + "y".repeat(300);
 
     // The budget comes from the real viewport width at render time. A wide
-    // terminal therefore shows more, where the old fixed 100-char cap threw
-    // away ~89 usable columns on a 200-column terminal.
+    // terminal therefore shows more (no fixed character cap).
     assert.equal(describeTool("bash", { command }, { budget: 60 }).details.length, 60);
     assert.equal(describeTool("bash", { command }, { budget: 180 }).details.length, 180);
 

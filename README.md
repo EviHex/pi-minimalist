@@ -33,7 +33,23 @@ Run **`/minimalist`** to change settings live. Start with compact tool rows, or 
 - **Compact thinking rows**, or keep thinking visible as it arrives.
 - **Keep running tools visible** while grouping other calls, with an elapsed timer to show how long they take.
 
-Compact tool rows and consecutive-call grouping are **on by default**. Activity folding and compact thinking are opt-in. Disable grouping if you prefer to see each call separately.
+A fresh install starts on the **`full`** preset (see below): compact tool rows, grouped calls and compact thinking. Activity folding is opt-in. Choose `lite` if you prefer to see each call separately.
+
+### Presets
+
+The **Preset** row at the top of `/minimalist` sets four options at once: **Compact tool rows**, **Combine consecutive tool calls**, **Collapse earlier activity** and **Compact thinking rows**.
+
+| Preset | What you get |
+| --- | --- |
+| `off` | Pi's native tool cards. |
+| `lite` | One-line tool rows, each call on its own line. |
+| `full` | `lite` plus combined consecutive calls and compact thinking rows. |
+| `max` | `full` plus collapsed earlier activity (`Worked for …`). |
+| `custom` | Your own values for those four options. |
+
+A preset never overwrites your settings. While `off`, `lite`, `full` or `max` is selected, only those four rows are greyed out and show the preset's values; pressing Enter on one does nothing. Every other option (Left border, Elapsed timer, Symbols and so on) stays yours and stays editable. Your own values are kept and come back when you choose `custom`. The first time you choose `custom`, it starts from `lite`.
+
+**Upgrading:** if your settings already contain a `minimalist` block, you stay on `custom` and nothing changes. Only a user with no `minimalist` settings at all starts on `full`, which makes thinking rows compact. To pick another look, change **Preset**.
 
 ### Everyday controls
 
@@ -43,13 +59,12 @@ Compact tool rows and consecutive-call grouping are **on by default**. Activity 
 | `/minimalist status` | Show current settings |
 | Ctrl+O | Expand or collapse tool output |
 | Ctrl+T | Expand or collapse thinking |
-| Restore defaults | Reset display settings in the editor |
 
 Settings apply to existing conversation history and are saved globally. If a symbol looks wrong in your terminal, choose **Symbols → ASCII**. No Nerd Font required.
 
 ## Go back to Pi's usual view
 
-Turn off **Compact tool rows** to restore native tool cards. Other folding options are independent; **Restore defaults** returns to the extension's initial settings, not native Pi.
+Turn off **Compact tool rows** to restore native tool cards. Or choose the `off` preset.
 
 To disable the extension completely, run `pi config`, disable pi-minimalist, and restart Pi. To uninstall:
 

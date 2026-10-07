@@ -48,6 +48,12 @@ export type Row = {
   text: string;
   /** Full-width background, applied after truncation. */
   highlight?: (text: string) => string;
+  /**
+   * Set on an expanded row: wrap instead of truncating. `head` is the colored
+   * `glyph label` prefix (no timer badge, whose width changes) and `body` the
+   * colored `[badge] details`; continuation lines are indented under `head`.
+   */
+  wrap?: { head: string; body: string };
 };
 
 /**
@@ -80,6 +86,8 @@ export type Labeled = {
   details?: string;
   /** Highlight the row background (streaming thinking only). */
   highlight?: boolean;
+  /** Wrap long details onto more lines instead of truncating (expanded tool rows). */
+  wrap?: boolean;
 };
 
 /** One folded name and how many times it appeared in a run. */
@@ -100,8 +108,6 @@ export type RunSummary = {
   failed: Count[];
   running: Count[];
 };
-
-export const EMPTY_SUMMARY: RunSummary = { done: [], failed: [], running: [] };
 
 /**
  * Paints rows for one theme and one settings object.
@@ -144,14 +150,25 @@ export class Painter {
     const parts: string[] = [];
     if (spec.glyph) parts.push(this.theme.fg(spec.glyphColor ?? tokens.label, spec.glyph));
     parts.push(this.theme.fg(labelColor, spec.label));
-    if (spec.badge) parts.push(this.theme.fg(tokens.label, spec.badge));
-    if (spec.details) parts.push(this.theme.fg(tokens.details, spec.details));
+    // The wrap indent is `glyph label` ONLY: the timer badge changes width every
+    // 1s/10s/100s and must not shift (re-wrap) the continuation lines.
+    const head = parts.join(" ");
+    // `text` is always ONE line. Details with real newlines (an expanded
+    // command) are flattened for it and kept for `wrap`, colored line by line so
+    // no color escape spans a newline.
+    const details = spec.details ?? "";
+    const flat = details.includes("\n") ? details.replace(/\s+/g, " ").trim() : details;
+    const paintDetails = (text: string) => this.theme.fg(tokens.details, text);
+    const badge = spec.badge ? this.theme.fg(tokens.label, spec.badge) : "";
+    const rest = [badge, flat && paintDetails(flat)].filter(Boolean);
+    const wrapBody = [badge, details && details.split("\n").map(paintDetails).join("\n")].filter(Boolean);
     return {
       // The gutter follows the label's hue, so thinking rows stay purple and tool
       // rows stay green without either caller naming a gutter color.
       gutter: this.gutter(labelColor),
-      text: parts.join(" "),
+      text: [head, ...rest].join(" "),
       highlight: spec.highlight ? (text) => this.theme.bg(tokens.activeBg, text) : undefined,
+      wrap: spec.wrap && spec.details ? { head, body: wrapBody.join(" ") } : undefined,
     };
   }
 

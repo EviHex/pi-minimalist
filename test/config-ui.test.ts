@@ -58,7 +58,7 @@ function screen(config: Config, onChange = (_k: string, _v: unknown) => {}, onCl
 
 describe("config screen contents", () => {
   it("exposes exactly the command-editable keys", () => {
-    // The advanced keys (glyphs, tokens, excludeTools, maxDetailChars) must stay
+    // The advanced keys (glyphs, tokens, excludeTools) must stay
     // JSON-only: they need exact tool names or Pi palette knowledge, and a
     // chooser would imply they are casual choices.
     assert.deepEqual(

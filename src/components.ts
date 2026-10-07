@@ -6,7 +6,7 @@
  * production components without loading an extension runtime.
  */
 
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Component, TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { gutterWidth, type Row } from "./row.ts";
 
@@ -40,13 +40,51 @@ export const realTimers: Timers = {
  */
 export type ResolveRow = (width: number) => Row | null;
 
+/** Columns the details must keep on each line before wrapping is worth it. */
+const MIN_WRAP_COLUMNS = 10;
+
 /**
- * One physical terminal line with width-aware truncation and full-width color.
+ * An expanded row's details wrapped under themselves (a hanging indent below
+ * `glyph label`), or undefined when the terminal is too narrow to wrap
+ * usefully: the caller then truncates as usual. A body that fits wraps to a
+ * single line.
+ */
+function wrapped({ head, body }: { head: string; body: string }, room: number): string[] | undefined {
+  const indent = visibleWidth(head) + 1;
+  if (room - indent < MIN_WRAP_COLUMNS) return undefined;
+  const pad = " ".repeat(indent);
+  return wrapTextWithAnsi(body, room - indent).map((line, i) => (i === 0 ? `${head} ` : pad) + line);
+}
+
+/**
+ * Paint a resolved row at `width`; `null` renders ZERO lines.
+ *
+ * TUI pads each line to terminal width, so no manual trailing padding is
+ * needed. truncateToWidth understands ANSI codes and wide Unicode glyphs, so
+ * colored text truncates at VISIBLE columns. The gutter is a fixed-width
+ * prefix, so the content gets the remaining columns. Width comes from the
+ * row's OWN gutter text, so a disabled gutter reclaims those columns.
+ */
+function renderRow(row: Row | null, width: number): string[] {
+  if (row === null) return [];
+  const room = Math.max(1, width - gutterWidth(row.gutter));
+  const paint = (line: string) => row.gutter + (row.highlight ? row.highlight(line) : line);
+  const lines = row.wrap ? wrapped(row.wrap, room) : undefined;
+  if (lines) return lines.map(paint);
+  return [paint(truncateToWidth(row.text, room, "…"))];
+}
+
+/**
+ * One physical terminal line (several for an expanded row) with width-aware
+ * truncation and full-width color.
  *
  * Pi's Text component wraps long strings. That is correct for prose but made a
- * long path spill onto a second line in a supposedly single-line renderer. TUI
+ * long path spill onto a second line in a renderer meant for one line. TUI
  * only supplies the real terminal width during render(), so truncating with a
  * fixed character count in the caller cannot solve this reliably.
+ *
+ * The one exception is an EXPANDED row (`row.wrap`): there the user asked to see
+ * everything, so a long command wraps under its own details instead.
  */
 export class CompactLine implements Component {
   private resolve: ResolveRow = () => null;
@@ -97,16 +135,7 @@ export class CompactLine implements Component {
   }
 
   render(width: number): string[] {
-    const row = this.resolve(width);
-    if (row === null) return [];
-
-    // TUI pads each line to terminal width, so no manual trailing padding is
-    // needed. truncateToWidth understands ANSI codes and wide Unicode glyphs,
-    // so colored text truncates at VISIBLE columns. The gutter is a fixed-width
-    // prefix, so the content gets the remaining columns. Width comes from the
-    // row's OWN gutter text, so a disabled gutter reclaims those columns.
-    const line = truncateToWidth(row.text, Math.max(1, width - gutterWidth(row.gutter)), "…");
-    return [row.gutter + (row.highlight ? row.highlight(line) : line)];
+    return renderRow(this.resolve(width), width);
   }
 
   // Component contract allows cached components to be invalidated. This class
@@ -115,12 +144,9 @@ export class CompactLine implements Component {
 }
 
 /**
- * Collapsed results must render ZERO lines, not one blank line.
- *
- * Pi's Text component returns [""] for empty strings (one blank row), which
- * doubled the height of every collapsed tool call. This is the only safe way to
- * say "no content at all" while still returning a Component, as the
- * renderResult slot contract requires.
+ * Assistant prose or native thinking that a fold may take over: the resolver
+ * returns a Row to draw it instead, `null` to hide it (zero lines), or
+ * `undefined` to leave `inner` untouched.
  */
 export class FoldableProse implements Component {
   private inner: Component;
@@ -133,10 +159,7 @@ export class FoldableProse implements Component {
 
   render(width: number): string[] {
     const row = this.resolve(width);
-    if (row === undefined) return this.inner.render(width);
-    const line = new CompactLine();
-    line.setRow(() => row);
-    return line.render(width);
+    return row === undefined ? this.inner.render(width) : renderRow(row, width);
   }
 
   invalidate(): void {
@@ -144,6 +167,14 @@ export class FoldableProse implements Component {
   }
 }
 
+/**
+ * Collapsed results must render ZERO lines, not one blank line.
+ *
+ * Pi's Text component returns [""] for empty strings (one blank row), which
+ * doubled the height of every collapsed tool call. This is the only safe way to
+ * say "no content at all" while still returning a Component, as the
+ * renderResult slot contract requires.
+ */
 export class EmptyComponent implements Component {
   render(): string[] {
     return [];

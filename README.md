@@ -18,7 +18,7 @@ A quieter transcript for [Pi](https://pi.dev): turn bulky tool calls into one-li
 
 <img src="docs/click.png" width="600" alt="Clicking a folded line opens it into rows; clicking one row expands only that row">
 
-Press **Ctrl+O** to expand tool output—including diffs and syntax highlighting. Nothing is removed from the session or hidden from the model; only the display changes.
+Press **Ctrl+O** to expand tool output—including diffs and syntax highlighting. Expanded rows also wrap long commands instead of cutting them off. Nothing is removed from the session or hidden from the model; only the display changes.
 
 ## Install
 

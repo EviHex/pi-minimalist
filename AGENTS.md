@@ -73,8 +73,7 @@ defaults  <  global agent settings.json (PI_CODING_AGENT_DIR respected)
 
   "excludeTools": ["subagent"],
   "glyphs": {},
-  "tokens": {},
-  "maxDetailChars": 4000
+  "tokens": {}
 }
 ```
 
@@ -119,7 +118,7 @@ Advanced keys (`glyphs`, `tokens`, `excludeTools`) are never preset.
 The twelve keys above the blank line are in the command, including `preset` and
 `glyphStyle`
 (Unicode / ASCII). The two prose sub-options appear only while
-`foldIntermediateActivity` is on. The four below are JSON-only: they need
+`foldIntermediateActivity` is on. The three below are JSON-only: they need
 exact tool names or knowledge of Pi's theme palette, and putting them in a
 chooser would imply they are casual choices.
 
@@ -370,7 +369,7 @@ index.ts                 wiring only: shared state, bridges, /minimalist
 | `src/bridge.ts` | `BRIDGE_SYMBOLS`, `sharedState()`, `installBridges()` |
 | `src/core-patch.ts` | the two runtime prototype wrappers |
 | `src/row.ts` | `Row`/`RunSummary` model and `Painter`, the only thing that colors text |
-| `src/components.ts` | `CompactLine`, `EmptyComponent`, `GutteredComponent`, injectable `Timers` |
+| `src/components.ts` | `CompactLine`, `FoldableProse`, `EmptyComponent`, `GutteredComponent`, injectable `Timers` |
 | `src/tools.ts` | `BUILT_INS`, `describeTool`, `summaryName`, detail extraction |
 | `src/tool-renderer.ts` | feature 1, plus everything derived from a render context |
 | `src/thinking.ts` | feature 2: preview + single-hue expanded Markdown theme |
@@ -413,9 +412,35 @@ earlier fixed cap of 100 discarded ~89 usable columns on a 200-column terminal.
 COMPOSED details still need a per-field budget: `grep`/`find` render
 `/pattern/ in path`, and without one a long regex pushed the path — usually the
 part you wanted — off the end of the row. The budget is derived from the width
-passed to `render()`. `maxDetailChars` remains only as a sanity cap so a
-multi-megabyte heredoc is not whitespace-collapsed, colored and measured on every
-repaint.
+passed to `render()`. There is no other length cap (the old `maxDetailChars`
+setting is gone; a leftover key in settings.json is ignored). A collapsed row
+still slices its input to about twice the budget before the whitespace regex, so
+a huge string is not fully scanned on every repaint; an expanded row shows
+everything.
+
+### An expanded row wraps; a collapsed row never does
+
+On `Ctrl+O` the user asked to see everything, so an expanded call row gets no
+detail budget and `Row.wrap` (`{ head, body }`): `CompactLine` wraps the details
+under themselves, a hanging indent below `glyph label` (the timer badge is part of
+the wrapped text, not of the indent, so its growth never shifts the continuation
+lines), with the gutter on every line. An expanded row KEEPS the value's line
+structure (`block()` in tools.ts): `\r\n` becomes `\n`, tabs become two spaces,
+trailing whitespace and blank lines at the start and end go, and each source line
+keeps its own leading indentation. `wrapTextWithAnsi` wraps every source line
+separately, so a long line wraps and later lines still indent under the details.
+A continuation of a wrapped, indented line is not re-indented (no hanging indent
+inside the hanging indent). All tools whose details come from `describeTool`'s
+text fields (bash, mcp, mcpScript, grep/find pattern, generic) share this path;
+paths stay verbatim.
+
+`Painter.labeled` keeps `Row.text` ONE line (whitespace collapsed) for the
+collapsed and fold paths, and colors the wrap body line by line, so no color
+escape spans a newline. Below 10 usable detail columns the row falls back to
+truncating `Row.text`: the whole command on one clipped, space-joined line.
+A collapsed row stays exactly one line. → `tool-renderer.test.ts`, "keeps an
+expanded command's lines under the hanging indent; a collapsed one stays one
+clipped row" and the tests after it.
 
 ### Claiming is a blacklist
 
@@ -473,6 +498,8 @@ MCP adapter interplay, and how the glyphs look in a given font. After a restart:
 
 1. Read a file: one line `✓ read path`, no output, no blank row after it.
 2. A long path in a narrow terminal: one line ending in `…`, never wrapping.
+   After `Ctrl+O`, the same row wraps under its details instead. A
+   multi-line command (heredoc) then shows one source line per row.
 3. Several tools in a row: one line each, one blank line before each.
 4. `mcp`, `mcpScript` and an `mcp__<server>` proxy: `✓ mcp <operation> @ <server>`.
 5. An unrendered IDE tool: `✓ tool_name <identifying argument>`.

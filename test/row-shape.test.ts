@@ -72,16 +72,23 @@ describe("painted row structure", () => {
     assert.ok(!plain(row.text).endsWith(" "), "and no trailing separator space");
   });
 
-  it("keeps every built-in row on exactly one line, at any width", () => {
+  it("keeps Row.text (the collapsed rendering) free of newlines for every built-in", () => {
     const theme = plainTheme();
     const args = { path: "a/".repeat(80) + "f.ts", command: "x\ny\nz", pattern: "p" };
     for (const name of BUILT_INS) {
-      for (const expanded of [false, true]) {
-        const { label, details } = describeTool(name, args, { expanded });
+      for (const budget of [undefined, 40]) {
+        const { label, details } = describeTool(name, args, { budget });
         const text = new Painter(theme, testConfig()).labeled({ glyph: "✓", label, details }).text;
-        assert.ok(!text.includes("\n"), `${name} exp=${expanded} must stay single-line`);
+        assert.ok(!text.includes("\n"), `${name} budget=${budget} must have no newline in Row.text`);
       }
     }
+  });
+
+  it("colors an expanded multi-line body line by line, while Row.text stays one line", () => {
+    const row = painter.labeled({ glyph: "✓", label: "bash", badge: "[⏱ 3s]", details: "a b\n  c", wrap: true });
+    assert.ok(!row.text.includes("\n"));
+    assert.equal(plain(row.text), "✓ bash [⏱ 3s] a b c");
+    assert.equal(row.wrap?.body, "<success>[⏱ 3s]</success> <toolTitle>a b</toolTitle>\n<toolTitle>  c</toolTitle>");
   });
 
   it("separates quiet summary groups without coloring the separator glyphs' spaces", () => {

@@ -137,12 +137,6 @@ export type AdvancedSettings = {
   excludeTools: string[];
   glyphs: Partial<Glyphs>;
   tokens: Partial<Tokens>;
-  /**
-   * Sanity cap on detail text length. NOT a display limit — rows truncate at the
-   * real viewport width. This only stops a multi-megabyte heredoc from being
-   * whitespace-collapsed, colored and measured on every repaint.
-   */
-  maxDetailChars: number;
 };
 
 export type Settings = BasicSettings & AdvancedSettings;
@@ -181,7 +175,6 @@ export const DEFAULT_ADVANCED: AdvancedSettings = {
   excludeTools: ["subagent"],
   glyphs: {},
   tokens: {},
-  maxDetailChars: 4000,
 };
 
 export const DEFAULTS: Settings = { ...DEFAULT_BASIC, ...DEFAULT_ADVANCED };

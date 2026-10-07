@@ -172,17 +172,18 @@ export function createToolRenderer(deps: RendererDeps): ToolRenderer {
 
       // Painted at render time, because the detail budget depends on the real
       // viewport width and TUI only reveals it during render().
+      const expanded = context.expanded === true;
       const paint = (width: number) => {
         const painter = new Painter(theme, config);
         const badge = timerBadge(status.elapsed, config);
+        // Expanded (Ctrl+O): the full details, wrapped by CompactLine instead of
+        // truncated, so a long command is readable.
         const { label, details } = describeTool(name, args, {
-          expanded: context.expanded === true,
-          budget: detailBudget(width, status.glyph, name, badge),
-          config,
+          budget: expanded ? undefined : detailBudget(width, status.glyph, name, badge),
         });
         // No background while executing — the animated timer already signals
         // activity, and a highlight flashing on each repaint was distracting.
-        return painter.labeled({ glyph: status.glyph, glyphColor: status.color, label, badge, details });
+        return painter.labeled({ glyph: status.glyph, glyphColor: status.color, label, badge, details, wrap: expanded });
       };
 
       // EVERY call is observed, so a non-foldable one still cuts a run. Core
@@ -193,7 +194,7 @@ export function createToolRenderer(deps: RendererDeps): ToolRenderer {
         component.setRow(paint);
         return component;
       }
-      grouping.observe(id, summaryName(name, args), status.outcome, context.expanded === true);
+      grouping.observe(id, summaryName(name, args), status.outcome, expanded);
       component.setRow(
         (width) => grouping.rowFor(id, new Painter(theme, config), () => paint(width)),
         () => grouping.open(id),

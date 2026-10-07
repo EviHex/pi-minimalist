@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { BUILT_INS, compact, describeTool, isBuiltIn, refreshMcpTools, summaryName } from "../src/tools.ts";
+import { BUILT_INS, block, compact, describeTool, isBuiltIn, refreshMcpTools, summaryName } from "../src/tools.ts";
 import { Config } from "../src/config.ts";
 
 describe("isBuiltIn", () => {
@@ -99,15 +99,39 @@ describe("describeTool", () => {
     assert.equal(describeTool("read", { path: "/Users/me/x/y.ts" }).details, "/Users/me/x/y.ts");
   });
 
-  it("collapses a multiline command into ONE row, collapsed and expanded", () => {
+  it("collapses a multiline command when budgeted, keeps its lines when not", () => {
     const command = "python3 - <<'EOF'\nprint(1)\n\n  print(2)\nEOF";
 
     const collapsed = describeTool("bash", { command }, { budget: 100 }).details;
-    const expanded = describeTool("bash", { command }, { expanded: true }).details;
+    const expanded = describeTool("bash", { command }).details;
 
-    assert.ok(!collapsed.includes("\n"), "collapsed row must be single-line");
-    assert.ok(!expanded.includes("\n"), "expanded row must be single-line");
-    assert.equal(expanded, "python3 - <<'EOF' print(1) print(2) EOF");
+    assert.equal(collapsed, "python3 - <<'EOF' print(1) print(2) EOF");
+    assert.equal(expanded, "python3 - <<'EOF'\nprint(1)\n\n  print(2)\nEOF");
+  });
+
+  it("shows a huge command in full when expanded, and only a slice of it scanned when budgeted", () => {
+    const command = "echo " + "z".repeat(20000);
+    assert.equal(describeTool("bash", { command }).details, command);
+    const budgeted = describeTool("bash", { command }, { budget: 30 }).details;
+    assert.equal(budgeted.length, 30);
+    assert.ok(budgeted.endsWith("…"));
+  });
+
+  it("keeps lines for other tools' scalar details when expanded", () => {
+    assert.equal(describeTool("grep", { pattern: "a\nb", path: "src" }).details, "/a\nb/ in src");
+    assert.equal(describeTool("grep", { pattern: "a\nb", path: "src" }, { budget: 80 }).details, "/a b/ in src");
+    assert.equal(describeTool("mcpScript", { code: "x\ny" }).details, "x\ny");
+    assert.equal(describeTool("custom_tool", { prompt: "x\n\ny" }).details, "x\n\ny");
+    // Expanded keeps the whole pattern; a budget clips it (the path survives).
+    const pattern = "averyveryverylongpattern".repeat(3);
+    assert.equal(describeTool("grep", { pattern, path: "src" }).details, `/${pattern}/ in src`);
+    const clipped = describeTool("grep", { pattern, path: "src" }, { budget: 40 }).details;
+    assert.ok(clipped.length <= 40 && clipped.endsWith("in src") && !clipped.includes(pattern), clipped);
+  });
+
+  it("turns terminal-affecting line separators into spaces when expanded", () => {
+    const command = "a\vb\fc\u2028d\u2029e\u0085f\tg\r\nh";
+    assert.equal(describeTool("bash", { command }).details, "a b c d e f  g\nh");
   });
 
   it("truncates to the given width budget, not a fixed character count", () => {
@@ -120,7 +144,7 @@ describe("describeTool", () => {
     assert.equal(describeTool("bash", { command }, { budget: 180 }).details.length, 180);
 
     const collapsed = describeTool("bash", { command }, { budget: 100 }).details;
-    const expanded = describeTool("bash", { command }, { expanded: true }).details;
+    const expanded = describeTool("bash", { command }).details;
 
     assert.equal(collapsed.length, 100);
     assert.ok(collapsed.endsWith("…"));
@@ -145,5 +169,18 @@ describe("compact", () => {
     assert.equal(compact("abcdef", 4), "abc…");
     assert.equal(compact(undefined), "");
     assert.equal(compact("abc", Number.POSITIVE_INFINITY), "abc");
+  });
+
+  it("has no length cap of its own", () => {
+    assert.equal(compact("a ".repeat(20000)).length, 39999);
+  });
+});
+
+describe("block", () => {
+  it("normalizes line endings and tabs, trims outer blank lines and trailing spaces", () => {
+    assert.equal(block("\n\n a  \r\n\tb\t\r\n\n"), " a\n  b");
+    assert.equal(block("a\n\nb"), "a\n\nb");
+    assert.equal(block(undefined), "");
+    assert.equal(block(" \n \t"), "");
   });
 });

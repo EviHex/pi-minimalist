@@ -143,23 +143,145 @@ describe("renderCall", () => {
     assert.equal(line.isTicking(), false);
   });
 
-  it("keeps a multiline expanded command on ONE row within the width", () => {
+  it("keeps an expanded command's lines under the hanging indent; a collapsed one stays one clipped row", () => {
     const { renderer: r } = renderer();
     const command = "python3 - <<'EOF'\nprint(1)\nprint(2)\nEOF";
+    const expandedRow = () => r.renderCall("bash", { command }, widthTheme, makeContext("completed", { expanded: true }));
 
-    // Fits in 60 columns: the whole command shows, on ONE row, newlines gone.
-    const wide = r.renderCall("bash", { command }, widthTheme, makeContext("completed", { expanded: true }));
-    assert.deepEqual(
-      wide.render(60).map(plain),
-      [" ▌ ✓ bash python3 - <<'EOF' print(1) print(2) EOF"],
-    );
+    // Wide enough for everything: still one row per SOURCE line.
+    assert.deepEqual(expandedRow().render(60).map(plain), [
+      " ▌ ✓ bash python3 - <<'EOF'",
+      " ▌        print(1)",
+      " ▌        print(2)",
+      " ▌        EOF",
+    ]);
 
-    // Too narrow: it must CLIP, never wrap onto a second row.
-    const narrow = r.renderCall("bash", { command }, widthTheme, makeContext("completed", { expanded: true }));
-    const rendered = narrow.render(30);
-    assert.equal(rendered.length, 1);
-    assert.ok(visibleWidth(rendered[0]) <= 30);
-    assert.ok(!plain(rendered[0]).includes("print(2)"), "row must clip, not wrap");
+    // Narrow: the long first source line wraps, and later lines still indent.
+    assert.deepEqual(expandedRow().render(22).map(plain), [
+      " ▌ ✓ bash python3 -",
+      " ▌        <<'EOF'",
+      " ▌        print(1)",
+      " ▌        print(2)",
+      " ▌        EOF",
+    ]);
+  });
+
+  it("wraps a long source line inside a heredoc and keeps indenting the lines after it", () => {
+    const { renderer: r } = renderer();
+    const command = "cat <<'EOF'\n" + "word ".repeat(12).trim() + "\ntail\nEOF";
+    const lines = r
+      .renderCall("bash", { command }, widthTheme, makeContext("completed", { expanded: true }))
+      .render(30)
+      .map(plain);
+    assert.deepEqual(lines, [
+      " ▌ ✓ bash cat <<'EOF'",
+      " ▌        word word word word",
+      " ▌        word word word word",
+      " ▌        word word word word",
+      " ▌        tail",
+      " ▌        EOF",
+    ]);
+  });
+
+  it("keeps each line's own indentation, turns tabs into two spaces, and drops outer blank lines", () => {
+    const { renderer: r } = renderer();
+    const command = "\n\nif x; then\r\n\techo hi   \r\n    echo there\r\nfi\n\n";
+    const lines = r
+      .renderCall("bash", { command }, widthTheme, makeContext("completed", { expanded: true }))
+      .render(40)
+      .map(plain);
+    assert.deepEqual(lines, [
+      " ▌ ✓ bash if x; then",
+      " ▌          echo hi",
+      " ▌            echo there",
+      " ▌        fi",
+    ]);
+  });
+
+  it("keeps blank lines inside a command and shows an enormous one without a cap", () => {
+    const { renderer: r } = renderer();
+    const inner = r
+      .renderCall("bash", { command: "a\n\nb" }, widthTheme, makeContext("completed", { expanded: true }))
+      .render(40)
+      .map(plain);
+    assert.deepEqual(inner.map((line) => line.trimEnd()), [" ▌ ✓ bash a", " ▌", " ▌        b"]);
+
+    const word = "abcdefghi ";
+    const huge = word.repeat(1500).trim(); // ~15000 chars
+    const text = r
+      .renderCall("bash", { command: huge }, widthTheme, makeContext("completed", { expanded: true }))
+      .render(80)
+      .map((line) => plain(line).slice(" ▌ ✓ bash ".length).trim())
+      .join(" ");
+    assert.equal(text, huge, "nothing truncated, no ellipsis");
+  });
+
+  it("collapses a multi-line command to ONE clipped line with spaces", () => {
+    const { renderer: r } = renderer();
+    const command = "python3 - <<'EOF'\nprint(1)\nprint(2)\nEOF";
+    const wide = r.renderCall("bash", { command }, widthTheme, makeContext("completed")).render(60);
+    assert.deepEqual(wide.map(plain), [" ▌ ✓ bash python3 - <<'EOF' print(1) print(2) EOF"]);
+
+    const one = r.renderCall("bash", { command }, widthTheme, makeContext("completed")).render(30);
+    assert.equal(one.length, 1);
+    assert.ok(visibleWidth(one[0]) <= 30);
+    assert.ok(!plain(one[0]).includes("print(2)"), "a collapsed row clips");
+  });
+
+  it("never exceeds the width for a multi-line expanded command, including the narrow fallback", () => {
+    const { renderer: r, config } = renderer();
+    const command = "python3 - <<'EOF'\n" + "x".repeat(60) + "\n  indented " + "y ".repeat(30) + "\n\nEOF";
+    for (const gutter of [true, false]) {
+      for (const glyphStyle of ["unicode", "ascii"] as const) {
+        config.set("gutter", gutter);
+        config.set("glyphStyle", glyphStyle);
+        for (const width of [8, 12, 20, 21, 24, 33, 80, 200]) {
+          const lines = r
+            .renderCall("bash", { command }, widthTheme, makeContext("completed", { expanded: true }))
+            .render(width);
+          assert.ok(lines.length >= 1);
+          for (const line of lines) assert.ok(visibleWidth(line) <= width, `width ${width}: ${JSON.stringify(plain(line))}`);
+        }
+      }
+    }
+  });
+
+  it("falls back to ONE clipped, whitespace-collapsed line when too narrow to wrap a multi-line command", () => {
+    const { renderer: r } = renderer();
+    const lines = r
+      .renderCall("bash", { command: "echo a\necho b" }, widthTheme, makeContext("completed", { expanded: true }))
+      .render(16);
+    assert.deepEqual(lines.map(plain), [" ▌ ✓ bash echo …"]);
+  });
+
+  it("colors every line of an expanded command on its own, so no escape bleeds across a newline", () => {
+    const { renderer: r } = renderer();
+    // Real SGR codes, like the live theme.
+    const ansi = { fg: (_t: string, text: string) => `\x1b[32m${text}\x1b[39m`, bg: (_t: string, text: string) => text };
+    const lines = r
+      .renderCall("bash", { command: "echo one\necho " + "two ".repeat(20) }, ansi as never, makeContext("completed", { expanded: true }))
+      .render(40);
+    assert.ok(lines.length >= 3);
+    for (const line of lines) assert.ok(visibleWidth(line) <= 40);
+    // Source line 1 is closed on its own line; source line 2 opens a fresh color
+    // (the pad after the gutter is uncolored), so nothing bleeds across "\n".
+    assert.ok(lines[0].endsWith("\x1b[39m"), JSON.stringify(lines[0]));
+    assert.ok(lines[1].includes("        \x1b[32mecho two"), JSON.stringify(lines[1]));
+  });
+
+  it("keeps the hanging indent of a running expanded row when the timer badge grows", () => {
+    const command = "python3 - <<'EOF'\nprint(1)\nprint(2)\nEOF";
+    const indents = [9, 10].map((seconds) => {
+      const { renderer: r, clock } = renderer();
+      const context = makeContext("running", { expanded: true });
+      r.renderCall("bash", { command }, widthTheme, context).render(30); // starts the clock
+      clock.advance(seconds * 1000);
+      const lines = r.renderCall("bash", { command }, widthTheme, context).render(30).map(plain);
+      for (const line of lines) assert.ok(visibleWidth(line) <= 30);
+      assert.ok(lines.length > 1 && lines[0].includes(`${seconds}s]`), lines.join("|"));
+      return lines.slice(1).map((line) => line.length - line.trimStart().length);
+    });
+    assert.deepEqual(indents[0], indents[1]);
   });
 
   it("never exceeds the requested width for long arguments at any size", () => {

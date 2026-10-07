@@ -191,9 +191,6 @@ function coerce(raw: unknown, into: Settings): Settings {
     // therefore the honest boundary of what this function can check.
     out.tokens = pickStrings(raw.tokens, Object.keys(DEFAULT_TOKENS) as (keyof Tokens)[]) as Partial<Tokens>;
   }
-  if (typeof raw.maxDetailChars === "number" && raw.maxDetailChars > 0) {
-    out.maxDetailChars = Math.floor(raw.maxDetailChars);
-  }
   return out;
 }
 

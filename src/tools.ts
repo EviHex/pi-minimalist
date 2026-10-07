@@ -1,5 +1,5 @@
 /**
- * Tool vocabulary: how each tool describes itself on one line.
+ * Tool vocabulary: how each tool describes itself (a label and its details).
  *
  * Pure and deterministic — no components, no theme, no globals. Which tools get
  * compacted is `Config.compacts()`, not this file.
@@ -10,8 +10,6 @@
  * assuming no label ever contains one.
  */
 
-import type { Config } from "./config.ts";
-
 /** Native tools with a per-tool details extractor below. */
 // `as const` preserves literal names instead of widening every item to string.
 export const BUILT_INS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
@@ -19,7 +17,7 @@ export const BUILT_INS = ["read", "bash", "edit", "write", "grep", "find", "ls"]
 // `(typeof BUILT_INS)[number]` turns the tuple values into a union type.
 export type ToolName = (typeof BUILT_INS)[number];
 
-/** True for native tools with a hand-written one-line description. */
+/** True for native tools with a hand-written description. */
 export function isBuiltIn(name: string): name is ToolName {
   return BUILT_INS.includes(name as ToolName);
 }
@@ -48,60 +46,80 @@ export function isMcpTool(name: string): boolean {
 /**
  * Collapse whitespace and truncate for one-line display.
  *
- * `max` is a DISPLAY budget in characters; `hardCap` is a sanity limit that
- * exists only so a multi-megabyte heredoc is not whitespace-collapsed, colored
- * and measured on every repaint. Neither is the final word on width —
- * `CompactLine` truncates at the real viewport column count.
+ * `max` is a DISPLAY budget in characters. It is not the final word on width —
+ * `CompactLine` truncates at the real viewport column count. There is no other
+ * cap: with no budget the whole value is kept.
  */
-export function compact(value: unknown, max = Number.POSITIVE_INFINITY, hardCap = 4000): string {
-  const limit = Math.min(max, hardCap);
-  // Slice BEFORE the regex so a huge string is never fully scanned. The extra
-  // headroom leaves room for whitespace runs that collapse away.
+export function compact(value: unknown, max = Number.POSITIVE_INFINITY): string {
   const raw = String(value ?? "");
-  const sliced = Number.isFinite(limit) ? raw.slice(0, limit * 2 + 16) : raw.slice(0, hardCap * 2 + 16);
+  // With a finite budget, slice BEFORE the regex so a huge string is never fully
+  // scanned for a collapsed row. The extra headroom leaves room for whitespace
+  // runs that collapse away.
+  const sliced = Number.isFinite(max) ? raw.slice(0, max * 2 + 16) : raw;
   // Replacing every whitespace run prevents multi-line call rows.
   const text = sliced.replace(/\s+/g, " ").trim();
-  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/**
+ * The value for an EXPANDED row: complete, with its line structure kept.
+ * `\r\n` becomes `\n`, tabs become two spaces, trailing whitespace goes, and
+ * blank lines at the start and end of the whole value go. Each line keeps its
+ * own leading indentation; `CompactLine` wraps every line under the details.
+ */
+export function block(value: unknown): string {
+  const lines = String(value ?? "")
+    // \v, \f, \u2028, \u2029 and \u0085 would reach the terminal raw (the
+    // collapsed path folds them away with \s+).
+    .replace(/[\v\f\u2028\u2029\u0085]/g, " ")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/\t/g, "  ").trimEnd());
+  while (lines.length > 0 && lines[0] === "") lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  return lines.join("\n");
+}
+
+/** A budget means a collapsed one-line row; no budget means an expanded row. */
+function field(value: unknown, budget: number): string {
+  return Number.isFinite(budget) ? compact(value, budget) : block(value);
 }
 
 /** Minimum columns a composed field keeps, so it never vanishes entirely. */
 const MIN_FIELD = 12;
 
 export type DescribeOptions = {
-  /** Expanded rows keep full-length details (still on ONE physical line). */
-  expanded?: boolean;
   /**
    * Columns available for the details segment.
    *
    * Approximate on purpose: `CompactLine` performs the exact, ANSI-aware,
    * wide-character-aware truncation. This budget only decides WHICH field is
    * sacrificed when a composed detail (`/pattern/ in path`) cannot fit.
+   * Omitted (expanded rows): full-length details, wrapped by `CompactLine`.
    */
   budget?: number;
-  config?: Config;
 };
 
 /**
- * The one-line description of a call: `read` + `src/a.ts:1-50`, `bash` +
+ * The description of a call: `read` + `src/a.ts:1-50`, `bash` +
  * `go test ./...`, or a third-party tool's name plus its most identifying
  * argument.
  */
 export function describeTool(name: string, args: any, options: DescribeOptions = {}): { label: string; details: string } {
-  const hardCap = options.config?.get("maxDetailChars") ?? 4000;
   const budget = options.budget ?? Number.POSITIVE_INFINITY;
   const a = args ?? {};
 
-  if (name === "mcp") return { label: "mcp", details: mcpDetails(a, budget, hardCap) };
-  if (name === "mcpScript") return { label: "mcpScript", details: compact(a.code, budget, hardCap) };
+  if (name === "mcp") return { label: "mcp", details: mcpDetails(a, budget) };
+  if (name === "mcpScript") return { label: "mcpScript", details: field(a.code, budget) };
   if (name.startsWith("mcp__")) {
     const server = name.slice("mcp__".length);
-    const tool = compact(a.tool, budget, hardCap);
+    const tool = field(a.tool, budget);
     return { label: "mcp", details: tool ? `${tool} @ ${server}` : `@ ${server}` };
   }
   if (isMcpTool(name)) return { label: "mcp", details: name };
-  if (isBuiltIn(name)) return { label: name, details: builtInDetails(name, a, options, hardCap) };
+  if (isBuiltIn(name)) return { label: name, details: builtInDetails(name, a, options) };
   // Any other tool: show the name plus whichever argument identifies the call.
-  return { label: name, details: genericDetails(a, budget, hardCap) };
+  return { label: name, details: genericDetails(a, budget) };
 }
 
 /**
@@ -120,10 +138,10 @@ export function summaryName(name: string, args: any): string {
   return name;
 }
 
-function mcpDetails(args: any, budget: number, hardCap: number): string {
-  if (args.tool) return compact(args.tool, budget, hardCap);
+function mcpDetails(args: any, budget: number): string {
+  if (args.tool) return field(args.tool, budget);
   for (const key of ["search", "describe", "connect", "action"] as const) {
-    if (args[key]) return `${key} ${compact(args[key], budget, hardCap)}`;
+    if (args[key]) return `${key} ${field(args[key], budget)}`;
   }
   return "";
 }
@@ -139,20 +157,19 @@ const GENERIC_KEYS = [
   "tool", "action", "id", "target", "message", "text", "prompt",
 ] as const;
 
-function genericDetails(args: any, budget: number, hardCap: number): string {
+function genericDetails(args: any, budget: number): string {
   for (const key of GENERIC_KEYS) {
     const value = args[key];
-    // Only scalars: an object would serialize into noise on a one-line row.
+    // Only scalars: an object would serialize into noise on a row.
     if (value !== undefined && value !== null && typeof value !== "object") {
-      const text = compact(value, budget, hardCap);
+      const text = field(value, budget);
       if (text) return text;
     }
   }
   return "";
 }
 
-function builtInDetails(name: ToolName, args: any, options: DescribeOptions, hardCap: number): string {
-  const expanded = options.expanded === true;
+function builtInDetails(name: ToolName, args: any, options: DescribeOptions): string {
   const budget = options.budget ?? Number.POSITIVE_INFINITY;
   // Paths are shown verbatim (no ~/ home abbreviation — it was decorative and
   // cost a homedir() call per render).
@@ -163,8 +180,9 @@ function builtInDetails(name: ToolName, args: any, options: DescribeOptions, har
       // ONE field, so no budget split is needed: CompactLine truncates at the
       // real viewport width. An earlier version also capped this at 100
       // characters, which threw away ~89 usable columns on a 200-column
-      // terminal. Newlines still collapse so a heredoc cannot escape the row.
-      return compact(args.command, expanded ? Number.POSITIVE_INFINITY : budget, hardCap);
+      // terminal. A collapsed row folds newlines into spaces; an expanded one
+      // keeps its lines (see `field`).
+      return field(args.command, budget);
     case "read": {
       // Show the line range when offset/limit were used, mirroring the built-in
       // read tool's "path:start-end" notation.
@@ -186,7 +204,7 @@ function builtInDetails(name: ToolName, args: any, options: DescribeOptions, har
       const wrapper = name === "grep" ? 2 : 0; // the two slashes in /pattern/
       const overhead = where.length + " in ".length + wrapper;
       const room = Number.isFinite(budget) ? Math.max(MIN_FIELD, budget - overhead) : Number.POSITIVE_INFINITY;
-      const pattern = compact(args.pattern, room, hardCap);
+      const pattern = field(args.pattern, room);
       return name === "grep" ? `/${pattern}/ in ${where}` : `${pattern} in ${where}`;
     }
     case "ls":

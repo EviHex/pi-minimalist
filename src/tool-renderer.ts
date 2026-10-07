@@ -1,8 +1,8 @@
 /**
  * FEATURE 1: the compact tool renderer.
  *
- * Installed on the process-global bridge `Symbol.for("pi.defaultToolRenderer")`
- * and consulted by the prototype wrappers in `core-patch.ts`.
+ * Installed as `Bridge.toolRenderer` (see `bridge.ts`) and consulted by the
+ * prototype wrappers in `core-patch.ts`.
  *
  * Core overrides RENDERING only. Native tool definitions keep their schema,
  * `execute()`, and builtin source ownership — that ownership is what lets

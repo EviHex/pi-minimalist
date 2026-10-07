@@ -1,14 +1,14 @@
 /**
  * FEATURE 2: thinking blocks.
  *
- * Collapsed — one line replacing Pi's bare "Thinking..." label, installed on
- * `Symbol.for("pi.thinkingPreview")`:
+ * Collapsed — one line replacing Pi's bare "Thinking..." label, installed as
+ * `Bridge.thinkingPreview`:
  *
  *     • think The user wants me to…    ← while streaming
  *     ✓ think The user wants me to…    ← once the message completes
  *
  * Expanded (Ctrl+T) — Pi's native italic Markdown, but with every token-specific
- * color replaced by the thinking hue, on `Symbol.for("pi.thinkingMarkdownTheme")`.
+ * color replaced by the thinking hue, as `Bridge.thinkingMarkdownTheme`.
  */
 
 import { CompactLine, realTimers, type Timers } from "./components.ts";

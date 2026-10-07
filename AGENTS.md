@@ -153,7 +153,7 @@ layers:
 
 1. **Ordinary extension code** does everything the public API can express.
 2. **Runtime prototype wrappers** (`core-patch.ts`) make Pi's own components
-   consult process-global slots that this extension fills.
+   consult one process-global `Bridge` object that this extension fills.
 
 ### Why layer 2 is legitimate
 
@@ -185,15 +185,19 @@ schema, `execute()` and source ownership; only rendering is replaced.
 streaming visibility, single-hue expanded Markdown, run-grouping chronology, and
 the message spacer.
 
-### Bridge slots
+### The bridge
 
-`bridge.ts` owns `BRIDGE_SYMBOLS`, the single source of truth for the names. The
-wrappers read them at CALL time, so `/reload` swaps behavior without re-wrapping,
-and an unloaded extension degrades to Pi's native rendering.
+`bridge.ts` owns `BRIDGE_SYMBOLS` (the single source of the global key names) and
+the typed `Bridge` object: the tool renderer, the thinking preview, the
+chronology/fold hooks and two settings reads. The wrappers call `readBridge()` at
+CALL time, so a `/reload` that installs a new object swaps behavior without
+re-wrapping, and an unloaded extension (no object) degrades to Pi's native
+rendering.
 
-`config` and `grouping` are also kept in slots so they survive `/reload`:
+`config` and `grouping` live in their own slots so they survive `/reload`:
 existing transcript rows close over them and resolve their appearance at render
-time, so replacing an instance would strand every row on stale state.
+time, so replacing an instance would strand every row on stale state. The
+`Bridge` closes over those same two instances.
 
 ---
 
@@ -444,7 +448,7 @@ index.ts                 wiring only: shared state, bridges, /minimalist
 | `src/config.ts` | setting schema, defaults, `Config` (no filesystem access) |
 | `src/config-file.ts` | global settings.json path, read/save, comment handling |
 | `src/config-ui.ts` | `/minimalist` field list + `SettingsList` wiring |
-| `src/bridge.ts` | `BRIDGE_SYMBOLS`, `sharedState()`, `installBridges()` |
+| `src/bridge.ts` | `BRIDGE_SYMBOLS`, the `Bridge` type, `readBridge()`, `sharedState()`, `installBridges()` |
 | `src/core-patch.ts` | the two runtime prototype wrappers |
 | `src/row.ts` | `Row`/`RunSummary` model and `Painter`, the only thing that colors text |
 | `src/components.ts` | `CompactLine`, `FoldableProse`, `EmptyComponent`, `GutteredComponent`, injectable `Timers` |
@@ -614,15 +618,16 @@ MCP adapter interplay, and how the glyphs look in a given font. After a restart:
 - After changing `core-patch.ts`: fully quit and restart Pi. The wrappers are
   applied once per process (`PATCHED` marker), so `/reload` cannot replace one.
 - The same goes for what the wrappers close over, i.e. what `core-patch.ts`
-  imports at runtime: `FoldableProse` in `components.ts` (with the `renderRow` and
-  `wrapped` it calls) and `BRIDGE_SYMBOLS` in `bridge.ts`. A reload re-imports
-  those modules, but the surviving wrappers keep the old copies.
+  imports at runtime: `FoldableProse` and `EmptyComponent` in `components.ts` (with
+  the `renderRow` and `wrapped` they call) and `readBridge` / `BRIDGE_SYMBOLS` in
+  `bridge.ts`. A reload re-imports those modules, but the surviving wrappers keep
+  the old copies. (The `Bridge` object itself is NOT affected: it is read at call time.)
 - Otherwise `/reload` is enough for `index.ts` and `src/`: everything else is
-  reached through the bridge slots at call time.
+  reached through the `Bridge` object at call time.
 - Reload while idle; avoid it during a running tool or an open overlay.
-- Each reload overwrites the bridge slots with fresh instances. Do NOT clear them
+- Each reload overwrites the bridge object with a fresh one. Do NOT clear it
   from `session_shutdown`: reload ordering can let an old shutdown hook erase the
-  newly installed bridges. Process exit clears globalThis naturally.
+  newly installed bridge. Process exit clears globalThis naturally.
 - If the extension is disabled, restart once to clear its globals.
 
 ## 8. Scope

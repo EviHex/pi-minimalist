@@ -25,12 +25,13 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
 
     assert.deepEqual(loaded.errors, []);
     assert.deepEqual([...loaded.extensions[0].tools.keys()], []);
-    const renderer = (globalThis as any)[Symbol.for("pi.defaultToolRenderer")];
+    const bridge = (globalThis as any)[Symbol.for(BRIDGE_SYMBOLS.bridge)];
+    const renderer = bridge.toolRenderer;
     assert.equal(typeof renderer, "object");
     assert.equal(renderer.handles("mcp"), true);
     assert.equal(renderer.handles("mcpScript"), true);
     assert.equal(renderer.handles("mcp__atlassian"), true);
-    assert.equal(typeof (globalThis as any)[Symbol.for("pi.thinkingPreview")], "function");
+    assert.equal(typeof bridge.thinkingPreview, "function");
   });
 
   it("opens settings by default, keeps config as alias, and reports status without a TUI", async () => {

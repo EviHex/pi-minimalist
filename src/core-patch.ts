@@ -26,20 +26,15 @@
  */
 
 import type { Component } from "@earendil-works/pi-tui";
-import { BRIDGE_SYMBOLS } from "./bridge.ts";
+import { readBridge as bridge, type Bridge } from "./bridge.ts";
 import { EmptyComponent, FoldableProse } from "./components.ts";
-import type { Config } from "./config.ts";
-import type { Row, ThemeLike } from "./row.ts";
-import type { RunGrouping } from "./run-grouping.ts";
+import type { ThemeLike } from "./row.ts";
+import type { NativeResultRenderer, ToolRenderer } from "./tool-renderer.ts";
 
 type Globals = Record<symbol, unknown>;
 
-function bridge<T>(key: keyof typeof BRIDGE_SYMBOLS): T | undefined {
-  return (globalThis as Globals)[Symbol.for(BRIDGE_SYMBOLS[key])] as T | undefined;
-}
-
 const EMPTY = new EmptyComponent();
-const barrier = (id: string) => bridge<(id: string) => void>("observeBarrier")?.(id);
+const barrier = (id: string) => bridge()?.observeBarrier(id);
 
 /** Applied-once marker per prototype, so /reload never double-wraps. */
 const PATCHED = Symbol.for("pi.minimalist.corePatched");
@@ -62,20 +57,6 @@ function once(target: object, name: string, apply: () => void): void {
 // are ordinary properties — so patchCore() accepts the class objects loosely and
 // each patch function keeps its precise internal shape for the body below.
 // ---------------------------------------------------------------------------
-
-type ToolRendererBridge = {
-  renderShell?: "self" | "default";
-  handles?: (name: string) => boolean;
-  renderCall?: (name: string, args: unknown, theme: unknown, context: unknown) => Component;
-  renderResult?: (
-    name: string,
-    result: unknown,
-    options: unknown,
-    theme: unknown,
-    context: unknown,
-    nativeRenderer?: unknown,
-  ) => Component | undefined;
-};
 
 type ToolExecutionProto = {
   toolName: string;
@@ -130,10 +111,9 @@ export function patchToolExecution(proto: ToolExecutionProto): void {
    * it silently OVERRODE the user: an excluded tool with no renderer, and every
    * tool when `compactToolRows` was off, got compacted anyway.
    */
-  function claims(this: ToolExecutionProto): ToolRendererBridge | undefined {
-    const renderer = bridge<ToolRendererBridge>("toolRenderer");
-    if (!renderer?.renderCall) return undefined;
-    return renderer.handles?.(this.toolName) ? renderer : undefined;
+  function claims(this: ToolExecutionProto): ToolRenderer | undefined {
+    const renderer = bridge()?.toolRenderer;
+    return renderer?.handles(this.toolName) ? renderer : undefined;
   }
 
   once(proto, "toolExecution", () => {
@@ -173,17 +153,17 @@ export function patchToolExecution(proto: ToolExecutionProto): void {
 
     proto.getCallRenderer = function () {
       const renderer = claims.call(this);
-      if (!renderer?.renderCall) return this.toolDefinition?.renderCall;
+      if (!renderer) return this.toolDefinition?.renderCall;
       return (args: unknown, theme: unknown, context: unknown) =>
-        renderer.renderCall!(this.toolName, args, theme, context);
+        renderer.renderCall(this.toolName, args, theme, context);
     };
 
     proto.getResultRenderer = function () {
       const renderer = claims.call(this);
-      if (!renderer?.renderResult) return this.toolDefinition?.renderResult;
-      const nativeRenderer = this.toolDefinition?.renderResult;
+      if (!renderer) return this.toolDefinition?.renderResult;
+      const nativeRenderer = this.toolDefinition?.renderResult as NativeResultRenderer | undefined;
       return (result: unknown, options: unknown, theme: unknown, context: unknown) => {
-        const component = renderer.renderResult!(this.toolName, result, options, theme, context, nativeRenderer);
+        const component = renderer.renderResult(this.toolName, result, options, theme, context, nativeRenderer);
         // `undefined` means "show Pi's own text output". Core's RESULT-RENDERER
         // path (unlike its fallback path) would wrap undefined in a MouseRegion
         // and crash at render, so resolve the fallback here instead.
@@ -209,7 +189,7 @@ export function patchToolExecution(proto: ToolExecutionProto): void {
       // Rebuild once on transition, never on every render (or during a renderer).
       if (syncShell.call(this)) nativeUpdateDisplay.call(this);
       const lines = nativeRender.call(this, width);
-      const ownsSummary = bridge<(id: string) => boolean>("activitySummaryRow")?.(this.toolCallId);
+      const ownsSummary = bridge()?.activitySummaryRow(this.toolCallId);
       // The summary must have the same one-line separation regardless of which
       // tool/assistant component happened to become its host.
       return ownsSummary ? withOneLeadingBlank(lines) : lines;
@@ -236,14 +216,6 @@ export function patchUserMessage(proto: { rebuild(): void }): void {
 // ---------------------------------------------------------------------------
 // PATCH 2 — thinking blocks
 // ---------------------------------------------------------------------------
-
-type ThinkingBridge = (
-  text: string,
-  theme: unknown,
-  streaming?: boolean,
-  owner?: object,
-  runIndex?: number,
-) => Component;
 
 type AssistantProto = {
   contentContainer: { children: Component[] };
@@ -331,7 +303,7 @@ export function patchAssistantMessage(proto: AssistantProto): void {
       const savedOverrides = this.thinkingVisibilityOverrides;
       // Default: a streaming block stays collapsed to its compact preview, which
       // already shows the newest text. Opt in to force it open instead.
-      const forceOpen = isStreaming && bridge<() => boolean>("keepActiveThinkingExpanded")?.() === true;
+      const forceOpen = isStreaming && bridge()?.keepActiveThinkingExpanded() === true;
       if (forceOpen) {
         this.hideThinkingBlock = false;
         this.thinkingVisibilityOverrides = new Map();
@@ -355,7 +327,7 @@ export function patchAssistantMessage(proto: AssistantProto): void {
         this.updateContent(this.lastMessage, this.isStreaming);
       }
       const lines = nativeRender.call(this, width);
-      const view = bridge<(owner: object) => "normal" | "hidden" | "summary">("activityMessageView")?.(this);
+      const view = bridge()?.activityMessageView(this);
       if (view === "hidden") return [];
       if (view !== "summary") {
         mouseShift.delete(this);
@@ -373,37 +345,22 @@ export function patchAssistantMessage(proto: AssistantProto): void {
 }
 
 function compactThinking(): boolean {
-  return bridge<Config>("config")?.get("thinkingAsToolCall") === true;
+  return bridge()?.compactThinking() === true;
 }
 
+type Decorating = {
+  bridge: Bridge;
+  theme: ThemeLike | undefined;
+  component: AssistantProto;
+  message: any;
+  isStreaming: boolean;
+  compact: boolean;
+};
+
 function decorateThinking(component: AssistantProto, message: any, isStreaming: boolean, compact: boolean): void {
-  const preview = bridge<ThinkingBridge>("thinkingPreview");
-  const purple = bridge<(base: Record<string, unknown>, theme: unknown) => Record<string, unknown>>(
-    "thinkingMarkdownTheme",
-  );
-  const observeThinking = bridge<(owner: object, run: number, streaming: boolean, hidden: boolean, timestamp?: number) => string>(
-    "observeThinking",
-  );
-  const observeProse = bridge<(
-    owner: object,
-    contentIndex: number,
-    signal: {
-      stopReason?: string;
-      streaming?: boolean;
-      timestamp?: number;
-    },
-  ) => string>("observeProse");
-  const proseView = bridge<(id: string, theme: ThemeLike) => Row | null | undefined>("proseView");
-  const proseHeader = bridge<(id: string, theme: ThemeLike) => Row | undefined>("proseHeader");
-  const messageSpacer = bridge<(owner: object) => boolean>("messageSpacer");
-  const theme = liveTheme();
-  const foldable = (inner: Component, id: string) =>
-    new FoldableProse(
-      inner,
-      () => proseView!(id, theme as ThemeLike),
-      () => proseHeader?.(id, theme as ThemeLike),
-      (onHeader) => bridge<RunGrouping>("grouping")?.click(id, onHeader) ?? false,
-    );
+  const b = bridge();
+  if (!b) return;
+  const ctx: Decorating = { bridge: b, theme: liveTheme(), component, message, isStreaming, compact };
 
   const children = component.contentContainer.children;
   const regions: any[] = children.filter(isMouseRegion);
@@ -422,73 +379,88 @@ function decorateThinking(component: AssistantProto, message: any, isStreaming: 
   for (let i = 0; i < (message?.content?.length ?? 0); i++) {
     const content = message.content[i];
     if (content?.type === "text" && String(content.text ?? "").trim()) {
-      const id = observeProse?.(component, i, {
-        stopReason: message.stopReason,
-        streaming: isStreaming,
-        timestamp: message.timestamp,
-      });
-      const target = proseChildren[prose++];
-      if (id && target && proseView && theme) {
-        children[target.index] = foldable(target.child, id);
-      }
+      wrapProse(ctx, i, proseChildren[prose++]);
       continue;
     }
     if (content?.type !== "thinking") continue;
     while (i + 1 < message.content.length && message.content[i + 1]?.type === "thinking") i++;
     const blocks = runs[run];
     if (!blocks) continue;
-    const entry = regions[run];
+    const region = regions[run];
     const runIndex = run++;
-    if (!entry) continue;
-
-    const inner = entry.child as any;
-    // Collapsed runs are a Text (the hidden label); expanded runs are a Markdown.
-    // Only Markdown carries a `theme` field, which is also the field the
-    // all-purple recolor needs, so one check serves both branches.
-    const hidden = inner?.theme === undefined;
-    // Pass `hidden` THROUGH, never `!hidden`. bridge.ts negates it into
-    // `expanded` itself, so negating here too inverted all run folding: expanded
-    // thinking became foldable (swallowing whole runs of tool rows into one
-    // summary) and collapsed thinking stopped folding entirely.
-    const id = observeThinking?.(component, runIndex, isStreaming, hidden, message.timestamp);
-
-    if (!compact) {
-      // Native thinking still participates in the separately enabled activity
-      // fold, just like native prose. Otherwise keep Pi's component untouched.
-      if (id && proseView && theme) {
-        entry.child = foldable(inner, id);
-      }
-      continue;
-    }
-
-    if (hidden) {
-      if (!preview || !theme) continue;
-      // MouseRegion.child is `private` in TS only; reassigning keeps the
-      // existing click handler (and therefore the expand/collapse toggle).
-      entry.child = preview(
-        blocks.join("\n"),
-        theme,
-        isStreaming,
-        component,
-        runIndex,
-      );
-    } else if (purple && theme && inner?.theme !== undefined) {
-      // Markdown reads its (TS-private) theme at render time, and this runs
-      // before the first render, so recoloring in place needs no reconstruction.
-      inner.theme = purple(component.markdownTheme, theme);
-      // Host the header like native thinking does, so an opened run's header
-      // can sit above this row too.
-      if (id && proseView && theme) entry.child = foldable(inner, id);
-    }
+    if (region) wrapThinkingRun(ctx, region, blocks, runIndex);
   }
 
-  // Leading spacer: hidden only when every row of this message is hidden.
-  // Identified by what it DOES (renders exactly one blank line) rather than by
-  // class, for the same cross-loading-mode reason as isMouseRegion.
+  wrapSpacer(ctx, children);
+}
+
+/** Wrap a host in the folding component for entry `id`. */
+function foldable({ bridge: b, theme }: Decorating, inner: Component, id: string): Component {
+  return new FoldableProse(
+    inner,
+    () => b.proseView(id, theme!),
+    () => b.proseHeader(id, theme!),
+    (onHeader) => b.click(id, onHeader),
+  );
+}
+
+/** Observe one prose block and, when a theme is live, let it fold. */
+function wrapProse(ctx: Decorating, contentIndex: number, target: { child: any; index: number } | undefined): void {
+  const { bridge: b, component, message, isStreaming, theme } = ctx;
+  const id = b.observeProse(component, contentIndex, {
+    stopReason: message.stopReason,
+    streaming: isStreaming,
+    timestamp: message.timestamp,
+  });
+  if (id && target && theme) component.contentContainer.children[target.index] = foldable(ctx, target.child, id);
+}
+
+/** Observe one thinking run (a MouseRegion) and replace what it shows. */
+function wrapThinkingRun(ctx: Decorating, region: any, blocks: string[], runIndex: number): void {
+  const { bridge: b, component, message, isStreaming, theme, compact } = ctx;
+  const inner = region.child as any;
+  // Collapsed runs are a Text (the hidden label); expanded runs are a Markdown.
+  // Only Markdown carries a `theme` field, which is also the field the
+  // all-purple recolor needs, so one check serves both branches.
+  const hidden = inner?.theme === undefined;
+  // Pass `hidden` THROUGH, never `!hidden`. The bridge negates it into
+  // `expanded` itself, so negating here too inverted all run folding: expanded
+  // thinking became foldable (swallowing whole runs of tool rows into one
+  // summary) and collapsed thinking stopped folding entirely.
+  const id = b.observeThinking(component, runIndex, isStreaming, hidden, message.timestamp);
+
+  if (!compact) {
+    // Native thinking still participates in the separately enabled activity
+    // fold, just like native prose. Otherwise keep Pi's component untouched.
+    if (id && theme) region.child = foldable(ctx, inner, id);
+    return;
+  }
+  if (!theme) return;
+
+  if (hidden) {
+    // MouseRegion.child is `private` in TS only; reassigning keeps the
+    // existing click handler (and therefore the expand/collapse toggle).
+    region.child = b.thinkingPreview(blocks.join("\n"), theme, isStreaming, component, runIndex);
+  } else {
+    // Markdown reads its (TS-private) theme at render time, and this runs
+    // before the first render, so recoloring in place needs no reconstruction.
+    inner.theme = b.thinkingMarkdownTheme(component.markdownTheme, theme);
+    // Host the header like native thinking does, so an opened run's header
+    // can sit above this row too.
+    if (id) region.child = foldable(ctx, inner, id);
+  }
+}
+
+/**
+ * Leading spacer: hidden only when every row of this message is hidden.
+ * Identified by what it DOES (renders exactly one blank line) rather than by
+ * class, for the same cross-loading-mode reason as isMouseRegion.
+ */
+function wrapSpacer({ bridge: b, component }: Decorating, children: Component[]): void {
   const first = children[0] as any;
-  if (messageSpacer && first && typeof first.setLines === "function") {
+  if (first && typeof first.setLines === "function") {
     children[0] = {
-      render: () => (messageSpacer(component) === false ? [] : [""]),
+      render: () => (b.messageSpacer(component) === false ? [] : [""]),
       invalidate: () => {},
     };
   }
@@ -512,8 +484,8 @@ function visiblyBlank(line: string): boolean {
 }
 
 /** Pi's live Theme instance, shared through globalThis by its theme module. */
-function liveTheme(): unknown {
-  return (globalThis as Globals)[Symbol.for("@earendil-works/pi-coding-agent:theme")];
+function liveTheme(): ThemeLike | undefined {
+  return (globalThis as Globals)[Symbol.for("@earendil-works/pi-coding-agent:theme")] as ThemeLike | undefined;
 }
 
 /**

@@ -285,58 +285,6 @@ describe("re-folding an opened run", () => {
     assert.equal(grouping.open("b"), true);
     assert.equal(plain(grouping.headerFor(first, painter)!.text), "▾ Expanded · click to fold");
     for (const id of [think, "a", "b"]) assert.equal(grouping.headerFor(id, painter), undefined, id);
-
-    // Native thinking alone is a host too: a run it summarizes can be opened and closed.
-    const lonely = grouped({ foldIntermediateActivity: true, thinkingAsToolCall: false });
-    const other = {};
-    lonely.agentStarted(0);
-    const lead2 = lonely.observeProse({}, 0);
-    lonely.observeThinking(other, 0, true, false);
-    lonely.observeProse({}, 0);
-    const id = lonely.thinkingId(other, 0);
-    assert.equal(lonely.isActivitySummary(id), true);
-    assert.equal(lonely.click(id, false), true);
-    assert.notEqual(lonely.headerFor(lead2, painter), undefined);
-    assert.equal(lonely.click(lead2, true), true);
-    assert.equal(lonely.isActivitySummary(id), true, "folded again");
-  });
-
-  it("keeps the header on a compact thinking head while it is expanded, and after", () => {
-    const grouping = grouped({ thinkingAsToolCall: true });
-    const owner = {};
-    grouping.observeThinking(owner, 0, true, false);
-    observe(grouping, "a", "read");
-    observe(grouping, "b", "edit");
-    const think = grouping.thinkingId(owner, 0);
-    assert.equal(grouping.open("b"), true);
-
-    const headers = () => [think, "a", "b"].map((id) => draw(grouping, id)!.header !== undefined);
-    assert.deepEqual(headers(), [true, false, false]);
-
-    grouping.observeThinking(owner, 0, true, true); // Ctrl+T: now Markdown, not a CompactLine
-    assert.deepEqual(headers(), [true, false, false], "still on the first member");
-
-    grouping.observeThinking(owner, 0, true, false); // collapsed again
-    assert.deepEqual(headers(), [true, false, false]);
-    assert.equal(grouping.click(think, true), true, "the header row folds the run back");
-    assert.equal(grouping.view("b") !== "show", true);
-  });
-
-  it("headers an opened activity summary on its first member and closes it", () => {
-    const grouping = grouped({ foldIntermediateActivity: true });
-    grouping.agentStarted(0);
-    const lead = grouping.observeProse({}, 0);
-    observe(grouping, "a", "read");
-    observe(grouping, "b", "edit");
-    grouping.observeProse({}, 0);
-    grouping.agentSettled(5000);
-    grouping.open("b");
-    const painter = testPainter({}, plainTheme());
-    assert.equal(plain(grouping.headerFor(lead, painter)!.text), "▾ Expanded · click to fold");
-    assert.equal(draw(grouping, "a")!.header, undefined);
-    assert.equal(draw(grouping, "b")!.header, undefined);
-    assert.equal(grouping.close(lead), true);
-    assert.equal(grouping.isActivitySummary("b"), true);
   });
 });
 

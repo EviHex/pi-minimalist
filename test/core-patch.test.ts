@@ -1,12 +1,8 @@
 /**
- * The tests that replaced patch-pi.sh's marker greps.
- *
- * The old integration test could only assert that certain strings existed inside
- * Pi's compiled bundle — it never executed a single line of the patched code. The
- * runtime patches are ordinary functions applied to Pi's REAL exported component
- * prototypes, so these tests construct those real components, render them, and
- * assert on the painted output. A broken seam now fails here instead of showing
- * up as verbose cards in a live session.
+ * The runtime patches are ordinary functions applied to Pi's REAL exported
+ * component prototypes, so these tests construct those real components, render
+ * them, and assert on the painted output. A broken seam fails here instead of
+ * showing up as verbose cards in a live session.
  *
  * Skipped without PI_ROOT (run-tests.sh --unit), like the other integration test.
  */
@@ -36,7 +32,24 @@ async function loadPi() {
   // Pi passes getMarkdownThemeWithSettings() into every message component; a
   // stub object would miss bold/italic/underline and throw inside pi-tui.
   const markdownTheme = { ...getMarkdownTheme(), codeBlockIndent: "\u2502 " };
-  return { components, withBuiltInRenderers, markdownTheme };
+  return {
+    components,
+    withBuiltInRenderers,
+    markdownTheme,
+    /** A real AssistantMessageComponent, as Pi builds it (thinking collapsed unless `hidden` is false). */
+    newAssistant: (message: unknown, hidden = true) =>
+      new components.AssistantMessageComponent(message, hidden, markdownTheme, "Thinking...", 1, []),
+    /** A message with one text block (after `lead` blocks), as Pi builds it for the given stop reason. */
+    newProse: (text: string, stopReason = "stop", lead: unknown[] = []) =>
+      new components.AssistantMessageComponent(
+        assistantMessage([...lead, { type: "text", text }], stopReason), true, markdownTheme, "Thinking...", 1, [],
+      ),
+    /** A real ToolExecutionComponent; `definition` is what Pi's lookup returns (undefined: unknown tool). */
+    newTool: (name: string, id: string, args: object, definition?: unknown) =>
+      new components.ToolExecutionComponent(name, id, args, {}, definition, fakeUi(), process.cwd()),
+    /** Pi's built-in definition for `name`, exactly as interactive-mode merges it in. */
+    builtIn: (name: string) => withBuiltInRenderers(name, undefined),
+  };
 }
 
 /** Config + grouping for one test, on top of the production defaults. */
@@ -44,6 +57,24 @@ function state(settings: Partial<ConstructorParameters<typeof Config>[0]> = {}) 
   const config = new Config(settings);
   return { config, grouping: new RunGrouping(config) };
 }
+
+/** Install the bridge for one test and wrap the named prototypes. */
+function install(
+  components: Awaited<ReturnType<typeof loadPi>>["components"],
+  settings: Partial<ConstructorParameters<typeof Config>[0]> = {},
+  ...wrap: ("tool" | "assistant" | "user")[]
+) {
+  const shared = state(settings);
+  installBridges(shared);
+  if (wrap.includes("tool")) patchToolExecution(components.ToolExecutionComponent.prototype);
+  if (wrap.includes("assistant")) patchAssistantMessage(components.AssistantMessageComponent.prototype);
+  if (wrap.includes("user")) patchUserMessage(components.UserMessageComponent.prototype);
+  return shared;
+}
+
+const linesOf = (item: { render(width: number): string[] }, width = 80) =>
+  item.render(width).map(plain).map((line: string) => line.trimEnd());
+const textOf = (item: { render(width: number): string[] }) => item.render(80).map(plain).join("\n");
 
 function fakeUi() {
   return { requestRender() {}, invalidate() {} };
@@ -57,24 +88,15 @@ function assistantMessage(content: unknown[], stopReason = "stop") {
 
 describe("runtime core patches against real Pi components", { skip: PI_ROOT ? false : "PI_ROOT not set" }, () => {
   it("compacts a built-in tool row without touching its definition", async () => {
-    const { components, withBuiltInRenderers } = await loadPi();
-    installBridges(state());
-    patchToolExecution(components.ToolExecutionComponent.prototype);
+    const { components, withBuiltInRenderers, newTool } = await loadPi();
+    install(components, {}, "tool");
 
     // Exactly what interactive-mode passes: built-in renderers merged in.
     const definition = withBuiltInRenderers("read", undefined);
-    const row = new components.ToolExecutionComponent(
-      "read",
-      "call-1",
-      { path: "src/a.ts" },
-      {},
-      definition,
-      fakeUi(),
-      process.cwd(),
-    );
+    const row = newTool("read", "call-1", { path: "src/a.ts" }, definition);
     row.updateResult({ content: [{ type: "text", text: "file body" }], details: {} });
 
-    const lines = row.render(80).map(plain).map((line: string) => line.trimEnd());
+    const lines = linesOf(row);
     // One blank separator + one compact line, and no tool output.
     assert.deepEqual(lines, ["", " ▌ ✓ read src/a.ts"]);
     // Render-only: the native definition still owns execution and its renderers.
@@ -84,8 +106,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("compacts a rendererless third-party tool (no definition at all)", async () => {
     const { components } = await loadPi();
-    installBridges(state());
-    patchToolExecution(components.ToolExecutionComponent.prototype);
+    install(components, {}, "tool");
 
     const row = new components.ToolExecutionComponent(
       "goland__execute_tool",
@@ -98,7 +119,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     );
     row.updateResult({ content: [{ type: "text", text: "ide output" }], details: {} });
 
-    const lines = row.render(80).map(plain).map((line: string) => line.trimEnd());
+    const lines = linesOf(row);
     // Blacklist default: it compacts, and the generic extractor surfaces the
     // most identifying argument so the row beats a bare tool name.
     assert.deepEqual(lines, ["", " ▌ ✓ goland__execute_tool x"]);
@@ -107,96 +128,59 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   });
 
   it("keeps native rendering ONLY for excluded tools", async () => {
-    const { components, withBuiltInRenderers } = await loadPi();
+    const { components, newTool, builtIn } = await loadPi();
     // Blacklist semantics: exclusion is the only exemption, so it is now
     // explicit configuration rather than the old implicit "has its own
     // renderer?" rule that silently exempted every third-party tool.
-    installBridges(state({ excludeTools: ["powershell"] }));
-    patchToolExecution(components.ToolExecutionComponent.prototype);
+    install(components, { excludeTools: ["powershell"] }, "tool");
 
-    const row = new components.ToolExecutionComponent(
-      "powershell",
-      "call-3",
-      { command: "Get-Date" },
-      {},
-      withBuiltInRenderers("powershell", undefined),
-      fakeUi(),
-      process.cwd(),
-    );
-    const text = row.render(80).map(plain).join("\n");
+    const row = newTool("powershell", "call-3", { command: "Get-Date" }, builtIn("powershell"));
+    const text = textOf(row);
     // Native shell renderer prints its prompt prefix; ours never would.
     assert.ok(text.includes("PS>"), text);
     assert.ok(!text.includes("▌ ✓ powershell"), text);
   });
 
   it("compacts a tool that ships its own renderer when it is not excluded", async () => {
-    const { components, withBuiltInRenderers, markdownTheme } = await loadPi();
-    installBridges(state({ excludeTools: [] }));
-    patchToolExecution(components.ToolExecutionComponent.prototype);
-    void markdownTheme;
+    const { components, newTool, builtIn } = await loadPi();
+    install(components, { excludeTools: [] }, "tool");
 
-    const row = new components.ToolExecutionComponent(
-      "powershell",
-      "call-3b",
-      { command: "Get-Date" },
-      {},
-      withBuiltInRenderers("powershell", undefined),
-      fakeUi(),
-      process.cwd(),
-    );
-    const text = row.render(80).map(plain).join("\n");
+    const row = newTool("powershell", "call-3b", { command: "Get-Date" }, builtIn("powershell"));
+    const text = textOf(row);
     assert.ok(text.includes("▌ › powershell Get-Date"), text);
     assert.ok(!text.includes("PS>"), text);
   });
 
   it("expands a built-in row through its ORIGINAL renderer", async () => {
-    const { components, withBuiltInRenderers } = await loadPi();
-    installBridges(state());
-    patchToolExecution(components.ToolExecutionComponent.prototype);
+    const { components, newTool, builtIn } = await loadPi();
+    install(components, {}, "tool");
 
-    const row = new components.ToolExecutionComponent(
-      "read",
-      "call-4",
-      { path: "src/a.ts" },
-      {},
-      withBuiltInRenderers("read", undefined),
-      fakeUi(),
-      process.cwd(),
-    );
+    const row = newTool("read", "call-4", { path: "src/a.ts" }, builtIn("read"));
     row.updateResult({
       content: [{ type: "text", text: "hello" }],
       details: { path: "src/a.ts", content: "hello", truncated: false },
     });
     row.setExpanded(true);
 
-    const text = row.render(80).map(plain).join("\n");
+    const text = textOf(row);
     assert.ok(text.includes("✓ read src/a.ts"), text);
     assert.ok(text.includes("hello"), text);
   });
 
-  it("renders zero lines for a quiet-hidden row, spacer included", async () => {
-    const { components, withBuiltInRenderers } = await loadPi();
-    installBridges(state({ groupToolRuns: true }));
-    patchToolExecution(components.ToolExecutionComponent.prototype);
+  it("renders zero lines for a folded-away row, spacer included", async () => {
+    const { components, newTool, builtIn } = await loadPi();
+    install(components, { groupToolRuns: true }, "tool");
 
     const rows = ["a", "b"].map((id, index) => {
-      const row = new components.ToolExecutionComponent(
-        "read",
-        id,
-        { path: `src/${index}.ts` },
-        {},
-        withBuiltInRenderers("read", undefined),
-        fakeUi(),
-        process.cwd(),
-      );
+      const row = newTool("read", id, { path: `src/${index}.ts` }, builtIn("read"));
       row.updateResult({ content: [{ type: "text", text: "x" }], details: {} });
       return row;
     });
-    // Render once so both rows register with quiet mode, then again to fold.
+    // Render once so both rows register with the run grouping, then again to fold.
     for (const row of rows) row.render(80);
 
     assert.deepEqual(rows[0].render(80), [], "hidden row must emit no lines at all");
-    const tail = rows[1].render(80).map(plain).map((line: string) => line.trimEnd());
+    const tail = linesOf(rows[1]);
     assert.deepEqual(tail, ["", " ▌ ✓ read ×2"]);
   });
 
@@ -263,30 +247,25 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   });
 
   it("keeps streaming expansion independent from compact thinking", async () => {
-    const { components, markdownTheme } = await loadPi();
-    installBridges(state({ thinkingAsToolCall: false, keepActiveThinkingExpanded: true }));
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    const { components, newAssistant } = await loadPi();
+    install(components, { thinkingAsToolCall: false, keepActiveThinkingExpanded: true }, "assistant");
     const message = assistantMessage([{ type: "thinking", thinking: "full reasoning" }]);
-    const row = new components.AssistantMessageComponent(message, true, markdownTheme, "Thinking...", 1, []);
+    const row = newAssistant(message);
     row.updateContent(message, true);
-    const streaming = row.render(80).map(plain).join("\n");
+    const streaming = textOf(row);
     assert.match(streaming, /full reasoning/);
     assert.doesNotMatch(streaming, /▌|[✓•] think/);
     row.updateContent(message, false);
-    const done = row.render(80).map(plain).join("\n");
+    const done = textOf(row);
     assert.match(done, /Thinking\.\.\./);
     assert.doesNotMatch(done, /▌|✓ think|full reasoning/);
     assert.equal(row.hideThinkingBlock, true);
   });
 
   it("restores native thinking rows and spacers when switching off grouped previews", async () => {
-    const { components, markdownTheme } = await loadPi();
-    const shared = state({ groupToolRuns: true });
-    installBridges(shared);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
-    const rows = ["one", "two"].map((thinking) => new components.AssistantMessageComponent(
-      assistantMessage([{ type: "thinking", thinking }]), true, markdownTheme, "Thinking...", 1, [],
-    ));
+    const { components, newAssistant } = await loadPi();
+    const shared = install(components, { groupToolRuns: true }, "assistant");
+    const rows = ["one", "two"].map((thinking) => newAssistant(assistantMessage([{ type: "thinking", thinking }])));
     const render = () => rows.flatMap((row) => row.render(80)).map(plain).map((line: string) => line.trimEnd());
     const native = render();
     assert.deepEqual(native, ["", " Thinking...", "", " Thinking..."]);
@@ -297,32 +276,27 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   });
 
   it("lets native thinking host an independently enabled activity summary", async () => {
-    const { components, markdownTheme } = await loadPi();
-    const shared = state({ foldIntermediateActivity: true, activitySummary: "tools" });
+    const { components, newAssistant } = await loadPi();
+    const shared = install(components, { foldIntermediateActivity: true, activitySummary: "tools" }, "assistant");
     shared.grouping.agentStarted(0);
-    installBridges(shared);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
-    const make = (content: unknown[], reason = "toolUse") => new components.AssistantMessageComponent(
-      assistantMessage(content, reason), true, markdownTheme, "Thinking...", 1, [],
-    );
+    const make = (content: unknown[], reason = "toolUse") => newAssistant(assistantMessage(content, reason));
     const progress = make([{ type: "text", text: "progress" }]);
     const thinking = make([{ type: "thinking", thinking: "reasoning" }]);
     const final = make([{ type: "text", text: "final" }], "stop");
     for (const compact of [false, true, false]) {
       shared.config.set("thinkingAsToolCall", compact);
       assert.deepEqual(progress.render(80), []);
-      assert.deepEqual(thinking.render(80).map(plain).map((line: string) => line.trimEnd()), ["", " ▌ ✓ think ×1"]);
-      assert.match(final.render(80).map(plain).join("\n"), /final/);
+      assert.deepEqual(linesOf(thinking), ["", " ▌ ✓ think ×1"]);
+      assert.match(textOf(final), /final/);
     }
     shared.config.set("foldIntermediateActivity", false);
-    assert.match(progress.render(80).map(plain).join("\n"), /progress/);
-    assert.deepEqual(thinking.render(80).map(plain).map((line: string) => line.trimEnd()), ["", " Thinking..."]);
+    assert.match(textOf(progress), /progress/);
+    assert.deepEqual(linesOf(thinking), ["", " Thinking..."]);
   });
 
   it("shows a compact preview instead of the bare Thinking... label", async () => {
     const { components, markdownTheme } = await loadPi();
-    installBridges(state({ thinkingAsToolCall: true }));
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    install(components, { thinkingAsToolCall: true }, "assistant");
 
     const message = assistantMessage([{ type: "thinking", thinking: "The user wants a preview" }]);
     const component = new components.AssistantMessageComponent(
@@ -334,47 +308,45 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
       [],
     );
 
-    const text = component.render(80).map(plain).join("\n");
+    const text = textOf(component);
     assert.ok(text.includes("✓ think The user wants a preview"), text);
     assert.ok(!text.includes("Thinking..."), text);
   });
 
   it("keeps a STREAMING compact thinking block collapsed by default", async () => {
-    const { components, markdownTheme } = await loadPi();
-    installBridges(state({ thinkingAsToolCall: true }));
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    const { components, newAssistant } = await loadPi();
+    install(components, { thinkingAsToolCall: true }, "assistant");
 
     const message = assistantMessage([{ type: "thinking", thinking: "partial reasoning" }]);
-    const component = new components.AssistantMessageComponent(message, true, markdownTheme, "Thinking...", 1, []);
+    const component = newAssistant(message);
 
     component.updateContent(message, true);
-    const streaming = component.render(80).map(plain).join("\n");
+    const streaming = textOf(component);
     // The compact preview already shows the newest text, so the default no
     // longer force-expands a streaming block (it used to, before the setting
     // existed). The running glyph marks it as still going.
     assert.ok(streaming.includes("• think partial reasoning"), streaming);
 
     component.updateContent(message, false);
-    const done = component.render(80).map(plain).join("\n");
+    const done = textOf(component);
     assert.ok(done.includes("✓ think partial reasoning"), done);
     assert.equal(component.hideThinkingBlock, true);
   });
 
   it("expands a STREAMING thinking block when configured, restoring the override after", async () => {
-    const { components, markdownTheme } = await loadPi();
-    installBridges(state({ thinkingAsToolCall: true, keepActiveThinkingExpanded: true }));
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    const { components, newAssistant } = await loadPi();
+    install(components, { thinkingAsToolCall: true, keepActiveThinkingExpanded: true }, "assistant");
 
     const message = assistantMessage([{ type: "thinking", thinking: "partial reasoning" }]);
-    const component = new components.AssistantMessageComponent(message, true, markdownTheme, "Thinking...", 1, []);
+    const component = newAssistant(message);
 
     component.updateContent(message, true);
-    const streaming = component.render(80).map(plain).join("\n");
+    const streaming = textOf(component);
     assert.ok(streaming.includes("partial reasoning"), streaming);
     assert.ok(!streaming.includes("think partial reasoning"), "configured streaming must not collapse");
 
     component.updateContent(message, false);
-    const done = component.render(80).map(plain).join("\n");
+    const done = textOf(component);
     assert.ok(done.includes("✓ think partial reasoning"), done);
     // The user's own hide setting survived the temporary streaming override.
     assert.equal(component.hideThinkingBlock, true);
@@ -382,8 +354,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("recolors expanded thinking to a single purple hue when compact thinking is enabled", async () => {
     const { components, markdownTheme } = await loadPi();
-    installBridges(state({ thinkingAsToolCall: true }));
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    install(components, { thinkingAsToolCall: true }, "assistant");
 
     const message = assistantMessage([{ type: "thinking", thinking: "# Heading\n\nplain text" }]);
     const component = new components.AssistantMessageComponent(
@@ -405,54 +376,42 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     assert.deepEqual(extra, [], `heading kept token colors: ${JSON.stringify(heading)}`);
   });
 
-  it("keeps thinking and prose in transcript order for quiet folding", async () => {
-    const { components, markdownTheme } = await loadPi();
-    installBridges(state({ groupToolRuns: true, thinkingAsToolCall: true }));
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+  it("keeps thinking and prose in transcript order for run folding", async () => {
+    const { components, newAssistant } = await loadPi();
+    install(components, { groupToolRuns: true, thinkingAsToolCall: true }, "assistant");
 
     const message = assistantMessage([
       { type: "thinking", thinking: "first" },
       { type: "text", text: "visible prose" },
       { type: "thinking", thinking: "second" },
     ]);
-    const component = new components.AssistantMessageComponent(message, true, markdownTheme, "Thinking...", 1, []);
+    const component = newAssistant(message);
     component.render(80);
 
     // Prose between two thinking runs must break the run, so neither folds away.
-    const text = component.render(80).map(plain).join("\n");
+    const text = textOf(component);
     assert.ok(text.includes("think first"), text);
     assert.ok(text.includes("visible prose"), text);
     assert.ok(text.includes("think second"), text);
   });
 
   it("folds earlier prose into one summary with a single leading blank when a final answer streams in", async () => {
-    const { components, markdownTheme } = await loadPi();
-    const shared = state({ foldIntermediateActivity: true });
+    const { components, newAssistant, newProse } = await loadPi();
+    const shared = install(components, { foldIntermediateActivity: true }, "assistant");
     shared.grouping.agentStarted(0);
-    installBridges(shared);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
-    const prose = (text: string, phase: "commentary" | "final_answer", stopReason: string, lead: unknown[] = []) =>
-      new components.AssistantMessageComponent(
-        assistantMessage([...lead, { type: "text", text, textSignature: JSON.stringify({ v: 1, phase }) }], stopReason),
-        true,
-        markdownTheme,
-        "Thinking...",
-        1,
-        [],
-      );
     // A thinking block is activity; a cycle of prose alone is never folded.
-    const first = prose("first progress note", "commentary", "toolUse", [{ type: "thinking", thinking: "thought" }]);
-    const second = prose("second progress note", "commentary", "toolUse");
+    const first = newProse("first progress note", "toolUse", [{ type: "thinking", thinking: "thought" }]);
+    const second = newProse("second progress note", "toolUse");
 
     // A non-empty first delta of the final answer creates its Markdown child
     // and folds every earlier prose component on the same repaint.
     const finalMessage = assistantMessage([{ type: "text", text: "final answer starts" }], "stop");
-    const final = new components.AssistantMessageComponent(finalMessage, true, markdownTheme, "Thinking...", 1, []);
+    const final = newAssistant(finalMessage);
     final.updateContent(finalMessage, true);
 
     assert.deepEqual(first.render(80), []);
-    const proseSummary = second.render(80).map(plain).map((line: string) => line.trimEnd());
+    const proseSummary = linesOf(second);
     assert.equal(proseSummary.length, 2, `summary must have exactly one leading spacer: ${proseSummary}`);
     assert.equal(proseSummary[0], "");
     assert.match(proseSummary[1], /Worked for/);
@@ -465,97 +424,58 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   });
 
   it("keeps exactly one blank separator before a tool-hosted activity summary", async () => {
-    const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
-    const shared = state({ foldIntermediateActivity: true, activitySummary: "tools" });
+    const { components, newAssistant, newTool, builtIn } = await loadPi();
+    const shared = install(components, { foldIntermediateActivity: true, activitySummary: "tools" }, "assistant", "tool");
     shared.grouping.agentStarted(0);
-    installBridges(shared);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
-    patchToolExecution(components.ToolExecutionComponent.prototype);
 
     const commentary = assistantMessage([{ type: "text", text: "progress" }], "toolUse");
-    const prose = new components.AssistantMessageComponent(commentary, true, markdownTheme, "Thinking...", 1, []);
-    const tool = new components.ToolExecutionComponent(
-      "read",
-      "summary-anchor",
-      { path: "a.ts" },
-      {},
-      withBuiltInRenderers("read", undefined),
-      fakeUi(),
-      process.cwd(),
-    );
+    const prose = newAssistant(commentary);
+    const tool = newTool("read", "summary-anchor", { path: "a.ts" }, builtIn("read"));
     tool.updateResult({ content: [{ type: "text", text: "ok" }], details: {} });
     tool.render(80); // register before the final prose arrives
 
     const finalMessage = assistantMessage([{ type: "text", text: "final" }], "stop");
-    const final = new components.AssistantMessageComponent(finalMessage, true, markdownTheme, "Thinking...", 1, []);
+    const final = newAssistant(finalMessage);
     final.updateContent(finalMessage, true);
 
     assert.deepEqual(prose.render(80), []);
-    const summary = tool.render(80).map(plain).map((line: string) => line.trimEnd());
+    const summary = linesOf(tool);
     assert.deepEqual(summary, ["", " ▌ ✓ read ×1"], "summary must have exactly one blank separator");
   });
 
   it("removes interstitial spacers left by fully hidden mixed assistant messages", async () => {
-    const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
-    const shared = state({ foldIntermediateActivity: true, activitySummary: "tools" });
+    const { components, newAssistant, newTool, builtIn } = await loadPi();
+    const shared = install(components, { foldIntermediateActivity: true, activitySummary: "tools" }, "assistant", "tool");
     shared.grouping.agentStarted(0);
-    installBridges(shared);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
-    patchToolExecution(components.ToolExecutionComponent.prototype);
 
     const mixed = (thinking: string, text: string) =>
-      new components.AssistantMessageComponent(
-        assistantMessage([{ type: "thinking", thinking }, { type: "text", text }], "toolUse"),
-        true,
-        markdownTheme,
-        "Thinking...",
-        1,
-        [],
-      );
+      newAssistant(assistantMessage([{ type: "thinking", thinking }, { type: "text", text }], "toolUse"));
     const hidden = [mixed("thought one", "progress one"), mixed("thought two", "progress two")];
-    const tool = new components.ToolExecutionComponent(
-      "read",
-      "mixed-summary-anchor",
-      { path: "a.ts" },
-      {},
-      withBuiltInRenderers("read", undefined),
-      fakeUi(),
-      process.cwd(),
-    );
+    const tool = newTool("read", "mixed-summary-anchor", { path: "a.ts" }, builtIn("read"));
     tool.updateResult({ content: [{ type: "text", text: "ok" }], details: {} });
     tool.render(80);
     const finalMessage = assistantMessage([{ type: "text", text: "final" }], "stop");
-    const final = new components.AssistantMessageComponent(finalMessage, true, markdownTheme, "Thinking...", 1, []);
+    const final = newAssistant(finalMessage);
     final.updateContent(finalMessage, true);
 
     for (const row of hidden) assert.deepEqual(row.render(80), [], "hidden message must not retain an inner spacer");
     assert.deepEqual(
-      tool.render(80).map(plain).map((line: string) => line.trimEnd()),
+      linesOf(tool),
       ["", " ▌ ✓ think ×2, read ×1"],
     );
   });
 
   it("preserves each historical interaction's final prose during session replay", async () => {
-    const { components, markdownTheme } = await loadPi();
-    installBridges(state({ foldIntermediateActivity: true }));
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    const { components, newProse } = await loadPi();
+    install(components, { foldIntermediateActivity: true }, "assistant");
 
-    const prose = (text: string, phase: "commentary" | "final_answer", stopReason: string, lead: unknown[] = []) =>
-      new components.AssistantMessageComponent(
-        assistantMessage([...lead, { type: "text", text, textSignature: JSON.stringify({ v: 1, phase }) }], stopReason),
-        true,
-        markdownTheme,
-        "Thinking...",
-        1,
-        [],
-      );
     const thought = [{ type: "thinking", thinking: "thought" }];
     // No agentStarted(): replay only emits finalized historical messages.
     const rows = [
-      prose("old progress one", "commentary", "toolUse", thought),
-      prose("FINAL ONE", "final_answer", "stop"),
-      prose("old progress two", "commentary", "toolUse", thought),
-      prose("FINAL TWO", "final_answer", "stop"),
+      newProse("old progress one", "toolUse", thought),
+      newProse("FINAL ONE", "stop"),
+      newProse("old progress two", "toolUse", thought),
+      newProse("FINAL TWO", "stop"),
     ];
     const text = rows.flatMap((row) => row.render(80)).map(plain).join("\n");
 
@@ -568,18 +488,12 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   for (const activitySummary of ["elapsed", "tools"] as const) {
     it(`leaves a prose-only cycle fully visible with normal spacing (${activitySummary})`, async () => {
-      const { components, markdownTheme } = await loadPi();
-      const shared = state({ foldIntermediateActivity: true, activitySummary });
+      const { components, newProse } = await loadPi();
+      const shared = install(components, { foldIntermediateActivity: true, activitySummary }, "assistant");
       shared.grouping.agentStarted(0);
-      installBridges(shared);
-      patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
-      const prose = (text: string, stopReason: string) =>
-        new components.AssistantMessageComponent(
-          assistantMessage([{ type: "text", text }], stopReason), true, markdownTheme, "Thinking...", 1, [],
-        );
-      const rows = [prose("note one", "stop"), prose("note two", "stop"), prose("note three", "stop")];
-      const lines = rows.map((row) => row.render(80).map(plain).map((line: string) => line.trimEnd()));
+      const rows = [newProse("note one", "stop"), newProse("note two", "stop"), newProse("note three", "stop")];
+      const lines = rows.map((row) => linesOf(row));
 
       assert.deepEqual(lines, [["", " note one"], ["", " note two"], ["", " note three"]]);
       assert.ok(!lines.flat().join("\n").includes("Worked for"));
@@ -587,25 +501,15 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   }
 
   it("still folds a mixed cycle, and keeps an earlier prose-only interaction open during replay", async () => {
-    const { components, markdownTheme } = await loadPi();
-    installBridges(state({ foldIntermediateActivity: true }));
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    const { components, newProse } = await loadPi();
+    install(components, { foldIntermediateActivity: true }, "assistant");
 
-    const prose = (text: string, phase: "commentary" | "final_answer", stopReason: string, lead: unknown[] = []) =>
-      new components.AssistantMessageComponent(
-        assistantMessage([...lead, { type: "text", text, textSignature: JSON.stringify({ v: 1, phase }) }], stopReason),
-        true,
-        markdownTheme,
-        "Thinking...",
-        1,
-        [],
-      );
     // No agentStarted(): replay. Interaction one is prose only; interaction two has thinking.
     const rows = [
-      prose("quiet one", "commentary", "toolUse"),
-      prose("FINAL ONE", "final_answer", "stop"),
-      prose("busy two", "commentary", "toolUse", [{ type: "thinking", thinking: "thought" }]),
-      prose("FINAL TWO", "final_answer", "stop"),
+      newProse("quiet one", "toolUse"),
+      newProse("FINAL ONE", "stop"),
+      newProse("busy two", "toolUse", [{ type: "thinking", thinking: "thought" }]),
+      newProse("FINAL TWO", "stop"),
     ];
     const text = rows.flatMap((row) => row.render(80)).map(plain).join("\n");
 
@@ -616,17 +520,15 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     assert.equal(text.match(/Worked for/g)?.length, 1, text);
   });
 
-  it("folds thinking together with adjacent tool rows under /quiet", async () => {
-    // REGRESSION: decorateThinking passed `!hidden` to the quietThinking bridge,
+  it("folds thinking together with adjacent tool rows", async () => {
+    // REGRESSION: decorateThinking passed `!hidden` to the thinking bridge,
     // which negates it into `expanded` itself. The double negation made COLLAPSED
     // thinking non-foldable, so every thinking row split the run in two and a
     // transcript rendered as "think / read ×2 / think / bash" instead of one
     // summary. Expanded thinking got the mirror-image bug: it became foldable and
     // swallowed whole runs of visible tool rows into a single summary line.
-    const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
-    installBridges(state({ groupToolRuns: true, thinkingAsToolCall: true }));
-    patchToolExecution(components.ToolExecutionComponent.prototype);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    const { components, markdownTheme, withBuiltInRenderers, newTool } = await loadPi();
+    install(components, { groupToolRuns: true, thinkingAsToolCall: true }, "tool", "assistant");
 
     const thinkingMessage = (text: string) =>
       new components.AssistantMessageComponent(
@@ -638,15 +540,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
         [],
       );
     const toolRow = (name: string, id: string, args: object) => {
-      const row = new components.ToolExecutionComponent(
-        name,
-        id,
-        args,
-        {},
-        withBuiltInRenderers(name, undefined),
-        fakeUi(),
-        process.cwd(),
-      );
+      const row = newTool(name, id, args, withBuiltInRenderers(name, undefined));
       row.updateResult({ content: [{ type: "text", text: "out" }], details: {} });
       return row;
     };
@@ -658,7 +552,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
       thinkingMessage("second thought"),
       toolRow("bash", "b1", { command: "ls" }),
     ];
-    // First pass registers every row with quiet mode; second folds the run.
+    // First pass registers every row with the run grouping; second folds the run.
     for (const row of rows) row.render(80);
     const visible = rows
       .flatMap((row) => row.render(80))
@@ -671,22 +565,13 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   describe("a folded run never jumps over something visible", () => {
     async function chronology(setup: (grouping: RunGrouping) => void, between: "subagent" | "user" | "cycle") {
-      const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
-      const shared = state({ groupToolRuns: true, thinkingAsToolCall: true, excludeTools: ["subagent"] });
-      installBridges(shared);
-      patchToolExecution(components.ToolExecutionComponent.prototype);
-      patchAssistantMessage(components.AssistantMessageComponent.prototype);
-      patchUserMessage(components.UserMessageComponent.prototype);
+      const { components, markdownTheme, newAssistant, newTool } = await loadPi();
+      const shared = install(components, { groupToolRuns: true, thinkingAsToolCall: true, excludeTools: ["subagent"] }, "tool", "assistant", "user");
       const think = (text: string) =>
-        new components.AssistantMessageComponent(
-          assistantMessage([{ type: "thinking", thinking: text }, { type: "toolCall" }]),
-          true, markdownTheme, "Thinking...", 1, [],
-        );
+        newAssistant(assistantMessage([{ type: "thinking", thinking: text }, { type: "toolCall" }]));
       const items: any[] = [think("A")];
       if (between === "subagent") {
-        const card = new components.ToolExecutionComponent(
-          "subagent", "sub-1", { task: "x" }, {}, undefined, fakeUi(), process.cwd(),
-        );
+        const card = newTool("subagent", "sub-1", { task: "x" });
         card.updateResult({ content: [{ type: "text", text: "card body" }], details: {} });
         items.push(card);
       } else if (between === "user") {
@@ -724,16 +609,13 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   /** A chat like Pi's, built from messages. Calling it again is a REBUILD: new components, same data. */
   async function transcriptOf(messages: any[], tools: string[]) {
-    const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
+    const { newAssistant, newTool, builtIn } = await loadPi();
     return () => {
       const items: unknown[] = [];
       messages.forEach((message, index) => {
-        items.push(new components.AssistantMessageComponent(message, true, markdownTheme, "Thinking...", 1, []));
+        items.push(newAssistant(message));
         if (!tools[index]) return;
-        const row = new components.ToolExecutionComponent(
-          "read", tools[index], { path: `${tools[index]}.ts` }, {}, withBuiltInRenderers("read", undefined), fakeUi(),
-          process.cwd(),
-        );
+        const row = newTool("read", tools[index], { path: `${tools[index]}.ts` }, builtIn("read"));
         row.updateResult({ content: [{ type: "text", text: "out" }], details: {} });
         items.push(row);
       });
@@ -746,9 +628,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // components on every rebuild (Ctrl+T, tree navigation...), so the dropped
     // components left ghost thinking entries that were counted in the summary.
     const { components } = await loadPi();
-    installBridges(state({ groupToolRuns: true, thinkingAsToolCall: true }));
-    patchToolExecution(components.ToolExecutionComponent.prototype);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    install(components, { groupToolRuns: true, thinkingAsToolCall: true }, "tool", "assistant");
     const messages = [1, 2, 3].map((n) => ({
       ...assistantMessage([{ type: "thinking", thinking: `thought ${n}` }, { type: "toolCall" }]),
       timestamp: 1000 + n,
@@ -768,22 +648,16 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   it("does not append a new barrier for the same user message on every rebuild", async () => {
     // REGRESSION: barrier ids came from a per-component counter. Every chat rebuild
     // appended fresh barriers at the END, which cut rows added later into a second summary.
-    const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
-    const shared = state({ groupToolRuns: true, thinkingAsToolCall: true });
-    installBridges(shared);
-    patchToolExecution(components.ToolExecutionComponent.prototype);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
-    patchUserMessage(components.UserMessageComponent.prototype);
+    const { components, markdownTheme, newAssistant, newTool, builtIn } = await loadPi();
+    const shared = install(components, { groupToolRuns: true, thinkingAsToolCall: true }, "tool", "assistant", "user");
     const turn = (n: number) => {
       const message = {
         ...assistantMessage([{ type: "thinking", thinking: `thought ${n}` }, { type: "toolCall" }]),
         timestamp: 4000 + n,
       };
-      const row = new components.ToolExecutionComponent(
-        "read", `u${n}`, { path: `${n}.ts` }, {}, withBuiltInRenderers("read", undefined), fakeUi(), process.cwd(),
-      );
+      const row = newTool("read", `u${n}`, { path: `${n}.ts` }, builtIn("read"));
       row.updateResult({ content: [{ type: "text", text: "out" }], details: {} });
-      return [new components.AssistantMessageComponent(message, true, markdownTheme, "Thinking...", 1, []), row];
+      return [newAssistant(message), row];
     };
     const build = (turns: number[]) =>
       chatOf(new components.UserMessageComponent("same prompt", markdownTheme), ...turns.flatMap(turn));
@@ -803,9 +677,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   it("does not count an empty thinking block, before or after a rebuild", async () => {
     // Pi draws nothing for a thinking block with no text, so it must not be counted.
     const { components } = await loadPi();
-    installBridges(state({ groupToolRuns: true, thinkingAsToolCall: true }));
-    patchToolExecution(components.ToolExecutionComponent.prototype);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    install(components, { groupToolRuns: true, thinkingAsToolCall: true }, "tool", "assistant");
     const messages = [
       { ...assistantMessage([{ type: "thinking", thinking: "  " }, { type: "toolCall" }]), timestamp: 2001 },
       { ...assistantMessage([{ type: "thinking", thinking: "" }, { type: "thinking", thinking: "real" }, { type: "toolCall" }]), timestamp: 2002 },
@@ -820,10 +692,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("keeps rebuilt prose and an opened run on the same entries", async () => {
     const { components } = await loadPi();
-    const shared = state({ foldIntermediateActivity: true });
-    installBridges(shared);
-    patchToolExecution(components.ToolExecutionComponent.prototype);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    const shared = install(components, { foldIntermediateActivity: true }, "tool", "assistant");
     const messages = [
       { ...assistantMessage([{ type: "thinking", thinking: "plan" }, { type: "text", text: "first" }, { type: "toolCall" }], "toolUse"), timestamp: 3001 },
       { ...assistantMessage([{ type: "text", text: "final answer" }]), timestamp: 3002 },
@@ -841,14 +710,11 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   it("opens a clicked run summary instead of expanding only its last row", async () => {
     // REGRESSION: the summary is drawn by the run's LAST row and the others draw
     // zero lines, so Pi's MouseRegion click expanded only that last tool.
-    const { components, withBuiltInRenderers } = await loadPi();
-    installBridges(state({ groupToolRuns: true }));
-    patchToolExecution(components.ToolExecutionComponent.prototype);
+    const { components, newTool, builtIn } = await loadPi();
+    install(components, { groupToolRuns: true }, "tool");
 
     const rows = ["a.ts", "b.ts"].map((path, index) => {
-      const row = new components.ToolExecutionComponent(
-        "read", `click-${index}`, { path }, {}, withBuiltInRenderers("read", undefined), fakeUi(), process.cwd(),
-      );
+      const row = newTool("read", `click-${index}`, { path }, builtIn("read"));
       row.updateResult({ content: [{ type: "text", text: "out" }], details: {} });
       return row;
     });
@@ -864,8 +730,8 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // The opened run keeps a header above its first row: spacer, header, ONE blank, row.
     const header = "   ▾ Expanded · click to fold"; // blank padding, no gutter bar
     assert.deepEqual(visible(), [header, " ▌ ✓ read a.ts", " ▌ ✓ read b.ts"]);
-    assert.deepEqual(rows[0].render(80).map(plain).map((line: string) => line.trimEnd()), ["", header, "", " ▌ ✓ read a.ts"]);
-    assert.deepEqual(rows[1].render(80).map(plain).map((line: string) => line.trimEnd()), ["", " ▌ ✓ read b.ts"]);
+    assert.deepEqual(linesOf(rows[0]), ["", header, "", " ▌ ✓ read a.ts"]);
+    assert.deepEqual(linesOf(rows[1]), ["", " ▌ ✓ read b.ts"]);
 
     // The blank line below the header is not ours: Pi's own click applies, and
     // it expands the row (y=2 is the blank, below the spacer at 0 and the header at 1).
@@ -899,7 +765,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   function chatOf(...items: unknown[]) {
     const chat = new Container();
     for (const item of items) chat.addChild(item as never);
-    const lines = () => chat.render(80).map(plain).map((line: string) => line.trimEnd());
+    const lines = () => linesOf(chat);
     const click = (y: number) =>
       chat.handleMouse({
         type: "click", button: "left", x: 5, y, screenX: 5, screenY: y, width: 80, height: chat.render(80).length,
@@ -908,19 +774,13 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   }
 
   it("opens a prose-hosted 'Worked for' summary by click, and folds it back by its header", async () => {
-    const { components, markdownTheme } = await loadPi();
-    const shared = state({ foldIntermediateActivity: true });
+    const { components, newProse } = await loadPi();
+    const shared = install(components, { foldIntermediateActivity: true }, "assistant");
     shared.grouping.agentStarted(0);
-    installBridges(shared);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
-    const prose = (text: string, stopReason: string, lead: unknown[] = []) =>
-      new components.AssistantMessageComponent(
-        assistantMessage([...lead, { type: "text", text }], stopReason), true, markdownTheme, "Thinking...", 1, [],
-      );
-    const first = prose("first note", "toolUse", [{ type: "thinking", thinking: "thought" }]);
-    const second = prose("second note", "toolUse");
-    const final = prose("final answer", "stop");
+    const first = newProse("first note", "toolUse", [{ type: "thinking", thinking: "thought" }]);
+    const second = newProse("second note", "toolUse");
+    const final = newProse("final answer", "stop");
     const chat = chatOf(first, second, final);
 
     chat.lines(); // first pass registers every message
@@ -961,14 +821,12 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   });
 
   it("opens a summary hosted by native (non-compact) thinking, and leaves its own toggle alone", async () => {
-    const { components, markdownTheme } = await loadPi();
-    const shared = state({ foldIntermediateActivity: true, thinkingAsToolCall: false });
+    const { components, newAssistant } = await loadPi();
+    const shared = install(components, { foldIntermediateActivity: true, thinkingAsToolCall: false }, "assistant");
     shared.grouping.agentStarted(0);
-    installBridges(shared);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
     const message = (content: unknown[], stopReason: string) =>
-      new components.AssistantMessageComponent(assistantMessage(content, stopReason), true, markdownTheme, "Thinking...", 1, []);
+      newAssistant(assistantMessage(content, stopReason));
     const lead = message([{ type: "text", text: "lead note" }], "toolUse");
     const thinking = message([{ type: "thinking", thinking: "ponder" }, { type: "toolCall" }], "toolUse");
     const final = message([{ type: "text", text: "final answer" }], "stop");
@@ -996,14 +854,12 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   });
 
   it("keeps an opened run's header above a compact thinking head, collapsed or Ctrl+T-expanded", async () => {
-    const { components, markdownTheme } = await loadPi();
-    const shared = state({ foldIntermediateActivity: true, thinkingAsToolCall: true });
+    const { components, newAssistant } = await loadPi();
+    const shared = install(components, { foldIntermediateActivity: true, thinkingAsToolCall: true }, "assistant");
     shared.grouping.agentStarted(0);
-    installBridges(shared);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
 
     const message = (content: unknown[], stopReason: string) =>
-      new components.AssistantMessageComponent(assistantMessage(content, stopReason), true, markdownTheme, "Thinking...", 1, []);
+      newAssistant(assistantMessage(content, stopReason));
     const thinking = message([{ type: "thinking", thinking: "ponder deeply" }], "toolUse");
     const second = message([{ type: "text", text: "second note" }], "toolUse");
     const final = message([{ type: "text", text: "final answer" }], "stop");
@@ -1044,13 +900,11 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     assert.match(chat.lines().join("\n"), /▌ Worked for/);
   });
 
-  it("lets EXPANDED thinking break a quiet run instead of folding it", async () => {
+  it("lets EXPANDED thinking break a run instead of folding it", async () => {
     // The other half of the same inversion: expanded thinking must stay visible
     // and act as a run boundary, never fold neighbouring tool rows away.
-    const { components, markdownTheme, withBuiltInRenderers } = await loadPi();
-    installBridges(state({ groupToolRuns: true, thinkingAsToolCall: true }));
-    patchToolExecution(components.ToolExecutionComponent.prototype);
-    patchAssistantMessage(components.AssistantMessageComponent.prototype);
+    const { components, markdownTheme, newTool, builtIn } = await loadPi();
+    install(components, { groupToolRuns: true, thinkingAsToolCall: true }, "tool", "assistant");
 
     const expandedThinking = new components.AssistantMessageComponent(
       assistantMessage([{ type: "thinking", thinking: "visible reasoning" }, { type: "toolCall" }]),
@@ -1060,15 +914,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
       1,
       [],
     );
-    const row = new components.ToolExecutionComponent(
-      "read",
-      "solo",
-      { path: "a.ts" },
-      {},
-      withBuiltInRenderers("read", undefined),
-      fakeUi(),
-      process.cwd(),
-    );
+    const row = newTool("read", "solo", { path: "a.ts" }, builtIn("read"));
     row.updateResult({ content: [{ type: "text", text: "out" }], details: {} });
 
     for (const item of [expandedThinking, row]) item.render(80);
@@ -1081,15 +927,11 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   });
 
   it("switches an existing built-in row between compact and native shells in both directions", async () => {
-    const { components, withBuiltInRenderers } = await loadPi();
-    const shared = state();
-    installBridges(shared);
-    patchToolExecution(components.ToolExecutionComponent.prototype);
+    const { components, withBuiltInRenderers, newTool } = await loadPi();
+    const shared = install(components, {}, "tool");
     const definition = withBuiltInRenderers("read", undefined);
     const makeRow = (id: string) => {
-      const row = new components.ToolExecutionComponent(
-        "read", id, { path: "src/a.ts" }, {}, definition, fakeUi(), process.cwd(),
-      );
+      const row = newTool("read", id, { path: "src/a.ts" }, definition);
       row.updateResult({
         content: [{ type: "text", text: "file body" }],
         details: { path: "src/a.ts", content: "file body", truncated: false },
@@ -1105,7 +947,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     shared.config.set("compactToolRows", false);
     const nativeRow = makeRow("native-read");
     assert.deepEqual(row.render(80).map(plain), nativeRow.render(80).map(plain));
-    assert.ok(!row.render(80).map(plain).join("\n").includes("▌ ✓ read"));
+    assert.ok(!textOf(row).includes("▌ ✓ read"));
     assert.equal(row.expanded, true);
 
     shared.config.set("compactToolRows", true);
@@ -1116,34 +958,28 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   });
 
   it("switches rendererless rows through Pi's fallback, including excludeTools", async () => {
-    const { components } = await loadPi();
-    const shared = state({ excludeTools: [] });
-    installBridges(shared);
-    patchToolExecution(components.ToolExecutionComponent.prototype);
-    const row = new components.ToolExecutionComponent(
-      "mystery_tool", "live-fallback", { command: "run" }, {}, undefined, fakeUi(), process.cwd(),
-    );
+    const { components, newTool } = await loadPi();
+    const shared = install(components, { excludeTools: [] }, "tool");
+    const row = newTool("mystery_tool", "live-fallback", { command: "run" });
     row.updateResult({ content: [{ type: "text", text: "raw result" }], details: {} });
-    assert.ok(row.render(80).map(plain).join("\n").includes("▌ ✓ mystery_tool run"));
+    assert.ok(textOf(row).includes("▌ ✓ mystery_tool run"));
 
     shared.config.set("excludeTools", ["mystery_tool"]);
-    const native = row.render(80).map(plain).join("\n");
+    const native = textOf(row);
     assert.ok(native.includes("raw result"), native);
     assert.ok(!native.includes("▌ ✓ mystery_tool"), native);
     assert.equal(row.children[1], row.contentTextRegion);
 
     shared.config.set("excludeTools", []);
-    assert.ok(row.render(80).map(plain).join("\n").includes("▌ ✓ mystery_tool run"));
+    assert.ok(textOf(row).includes("▌ ✓ mystery_tool run"));
     shared.config.set("compactToolRows", false);
-    assert.ok(row.render(80).map(plain).join("\n").includes("raw result"));
+    assert.ok(textOf(row).includes("raw result"));
     assert.equal(row.children.length, 2);
   });
 
   it("rebuilds the renderer when ownership changes but a native self shell stays attached", async () => {
-    const { components } = await loadPi();
-    const shared = state({ excludeTools: [] });
-    installBridges(shared);
-    patchToolExecution(components.ToolExecutionComponent.prototype);
+    const { components, newTool } = await loadPi();
+    const shared = install(components, { excludeTools: [] }, "tool");
     const firstNativeComponents: unknown[] = [];
     const firstNativeResults: unknown[] = [];
     const definition = {
@@ -1157,17 +993,15 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
         return { render: () => ["native self result"], invalidate() {} };
       },
     };
-    const row = new components.ToolExecutionComponent(
-      "custom_self", "live-self", { command: "run" }, {}, definition, fakeUi(), process.cwd(),
-    );
+    const row = newTool("custom_self", "live-self", { command: "run" }, definition);
     row.updateResult({ content: [{ type: "text", text: "raw result" }], details: {} });
-    assert.ok(row.render(80).map(plain).join("\n").includes("▌ ✓ custom_self run"));
+    assert.ok(textOf(row).includes("▌ ✓ custom_self run"));
 
     shared.config.set("excludeTools", ["custom_self"]);
     assert.deepEqual(row.render(80).map(plain), ["", "native self call", "native self result"]);
     assert.equal(row.children[1], row.selfRenderContainer);
     shared.config.set("excludeTools", []);
-    assert.ok(row.render(80).map(plain).join("\n").includes("▌ ✓ custom_self run"));
+    assert.ok(textOf(row).includes("▌ ✓ custom_self run"));
     shared.config.set("excludeTools", ["custom_self"]);
     assert.deepEqual(row.render(80).map(plain), ["", "native self call", "native self result"]);
     assert.deepEqual(firstNativeComponents, [undefined, undefined], "native call cache must not reuse a compact row");
@@ -1176,18 +1010,13 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   });
 
   it("keeps image children after switching shells", async () => {
-    const { components, withBuiltInRenderers } = await loadPi();
+    const { components, newTool, builtIn } = await loadPi();
     const { getCapabilities, setCapabilities } = await import(`${PI_ROOT}/node_modules/@earendil-works/pi-tui/dist/index.js`);
     const caps = getCapabilities();
     setCapabilities({ ...caps, images: "iterm2" });
     try {
-      const shared = state();
-      installBridges(shared);
-      patchToolExecution(components.ToolExecutionComponent.prototype);
-      const row = new components.ToolExecutionComponent(
-        "read", "live-image", { path: "tiny.png" }, {},
-        withBuiltInRenderers("read", undefined), fakeUi(), process.cwd(),
-      );
+      const shared = install(components, {}, "tool");
+      const row = newTool("read", "live-image", { path: "tiny.png" }, builtIn("read"));
       row.updateResult({
         content: [{ type: "image", mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9N+xNioAAAAASUVORK5CYII=" }],
         details: {},
@@ -1206,15 +1035,12 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
   });
 
   it("stops a running compact row's ticker when switching to Pi's renderer", async () => {
-    const { components, withBuiltInRenderers } = await loadPi();
+    const { components, newTool, builtIn } = await loadPi();
     const shared = state();
     const timers = fakeTimers();
     installBridges({ ...shared, timers });
     patchToolExecution(components.ToolExecutionComponent.prototype);
-    const row = new components.ToolExecutionComponent(
-      "read", "live-timer", { path: "src/a.ts" }, {},
-      withBuiltInRenderers("read", undefined), fakeUi(), process.cwd(),
-    );
+    const row = newTool("read", "live-timer", { path: "src/a.ts" }, builtIn("read"));
     row.markExecutionStarted();
     assert.equal(timers.pending(), 1);
     shared.config.set("compactToolRows", false);
@@ -1234,8 +1060,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     // excluded rendererless tool were both compacted anyway. Caught by an
     // end-to-end check against the real bundle, not by the unit tests.
     const { components } = await loadPi();
-    installBridges(state({ compactToolRows: false }));
-    patchToolExecution(components.ToolExecutionComponent.prototype);
+    install(components, { compactToolRows: false }, "tool");
 
     const row = new components.ToolExecutionComponent(
       "goland__execute_tool",
@@ -1248,48 +1073,31 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     );
     row.updateResult({ content: [{ type: "text", text: "ide output" }], details: {} });
 
-    const text = row.render(80).map(plain).join("\n");
+    const text = textOf(row);
     assert.ok(!text.includes("▌ ✓ goland__execute_tool"), `master switch ignored: ${text}`);
     // Pi's own fallback rendering shows the output instead.
     assert.ok(text.includes("ide output"), text);
   });
 
   it("leaves an excluded rendererless tool to Pi", async () => {
-    const { components } = await loadPi();
-    installBridges(state({ excludeTools: ["mystery_tool"] }));
-    patchToolExecution(components.ToolExecutionComponent.prototype);
+    const { components, newTool } = await loadPi();
+    install(components, { excludeTools: ["mystery_tool"] }, "tool");
 
-    const row = new components.ToolExecutionComponent(
-      "mystery_tool",
-      "excluded-rendererless",
-      { path: "x" },
-      {},
-      undefined,
-      fakeUi(),
-      process.cwd(),
-    );
+    const row = newTool("mystery_tool", "excluded-rendererless", { path: "x" });
     row.updateResult({ content: [{ type: "text", text: "raw" }], details: {} });
-    const text = row.render(80).map(plain).join("\n");
+    const text = textOf(row);
     assert.ok(!text.includes("▌ ✓ mystery_tool"), text);
   });
 
   it("is idempotent, so /reload never stacks wrappers", async () => {
-    const { components, withBuiltInRenderers } = await loadPi();
+    const { components, newTool, builtIn } = await loadPi();
     installBridges(state());
     for (let i = 0; i < 3; i++) patchToolExecution(components.ToolExecutionComponent.prototype);
 
-    const row = new components.ToolExecutionComponent(
-      "read",
-      "call-idem",
-      { path: "src/a.ts" },
-      {},
-      withBuiltInRenderers("read", undefined),
-      fakeUi(),
-      process.cwd(),
-    );
+    const row = newTool("read", "call-idem", { path: "src/a.ts" }, builtIn("read"));
     row.updateResult({ content: [{ type: "text", text: "x" }], details: {} });
     assert.deepEqual(
-      row.render(80).map(plain).map((line: string) => line.trimEnd()),
+      linesOf(row),
       ["", " ▌ ✓ read src/a.ts"],
     );
   });

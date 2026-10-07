@@ -9,7 +9,6 @@ import {
   customSeed,
   hasComments,
   loadSettings,
-  migratedQuiet,
   saveBasicSettings,
   stripJsonComments,
 } from "../src/config-file.ts";
@@ -30,8 +29,7 @@ function sandbox(): { env: NodeJS.ProcessEnv; cwd: string; settingsPath: string 
 
 describe("agentDir", () => {
   it("honours PI_CODING_AGENT_DIR", () => {
-    // The old code hardcoded ~/.pi/agent, so anyone using this variable had
-    // their /quiet preference written where it would never be read back.
+    // Hardcoding ~/.pi/agent would write settings where Pi never reads them back.
     assert.equal(agentDir({ PI_CODING_AGENT_DIR: "/custom/dir" } as NodeJS.ProcessEnv), "/custom/dir");
   });
 
@@ -164,27 +162,6 @@ describe("saveBasicSettings", () => {
     // JSON.stringify would silently destroy the comment, which is worse than
     // asking the user to edit one line by hand.
     assert.equal(readFileSync(settingsPath, "utf8"), original, "file must be untouched");
-  });
-});
-
-describe("migratedQuiet", () => {
-  it("adopts the legacy /quiet preference once", () => {
-    const { env } = sandbox();
-    writeFileSync(join(agentDir(env), "pi-minimalist.json"), JSON.stringify({ quiet: true }));
-    assert.equal(migratedQuiet(env), true);
-  });
-
-  it("never overrides an explicit setting", () => {
-    const { env, settingsPath } = sandbox();
-    writeFileSync(join(agentDir(env), "pi-minimalist.json"), JSON.stringify({ quiet: true }));
-    writeFileSync(settingsPath, JSON.stringify({ minimalist: { groupToolRuns: false } }));
-    // Otherwise a stale legacy file would resurrect a preference the user has
-    // since turned off.
-    assert.equal(migratedQuiet(env), undefined);
-  });
-
-  it("returns undefined with no legacy file", () => {
-    assert.equal(migratedQuiet(sandbox().env), undefined);
   });
 });
 

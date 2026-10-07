@@ -426,7 +426,7 @@ Dependencies point one way, so no module needs to know about a layer above it.
 
 ```
 index.ts                 wiring only: shared state, bridges, /minimalist
-  ├─ config-file.ts      settings.json I/O, migration
+  ├─ config-file.ts      settings.json I/O
   ├─ config-ui.ts        /minimalist screen and status summary
   └─ bridge.ts           symbol table + installation
        ├─ core-patch.ts  prototype wrappers
@@ -442,7 +442,7 @@ index.ts                 wiring only: shared state, bridges, /minimalist
 | File | Contents |
 | --- | --- |
 | `src/config.ts` | setting schema, defaults, `Config` (no filesystem access) |
-| `src/config-file.ts` | global settings.json path, read/save, comment handling, legacy migration |
+| `src/config-file.ts` | global settings.json path, read/save, comment handling |
 | `src/config-ui.ts` | `/minimalist` field list + `SettingsList` wiring |
 | `src/bridge.ts` | `BRIDGE_SYMBOLS`, `sharedState()`, `installBridges()` |
 | `src/core-patch.ts` | the two runtime prototype wrappers |

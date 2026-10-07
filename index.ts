@@ -23,7 +23,7 @@ import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { SettingsList } from "@earendil-works/pi-tui";
 import { installBridges, sharedState } from "./src/bridge.ts";
 import { type BasicKey, type BasicSettings, type Config } from "./src/config.ts";
-import { customSeed, loadSettings, migratedQuiet, saveBasicSettings } from "./src/config-file.ts";
+import { customSeed, loadSettings, saveBasicSettings } from "./src/config-file.ts";
 import { argumentCompletions, createConfigScreen, summary } from "./src/config-ui.ts";
 import { patchCore } from "./src/core-patch.ts";
 import { refreshMcpTools } from "./src/tools.ts";
@@ -33,12 +33,6 @@ export default function (pi: ExtensionAPI) {
   // over these and resolve appearance at render time, so replacing them would
   // strand every row on stale state.
   const { config, grouping } = sharedState(loadSettings());
-
-  // One-time migration of the preference written by the removed `/quiet`
-  // command. A session override, so the per-turn re-read below cannot revert it
-  // before the user has saved anything.
-  const migrated = migratedQuiet();
-  if (migrated !== undefined) config.setSessionOverride("groupToolRuns", migrated);
 
   installBridges({ config, grouping });
   // Runtime replacement for editing Pi's compiled bundle. Idempotent, so a

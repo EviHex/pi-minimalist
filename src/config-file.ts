@@ -57,11 +57,6 @@ export function globalSettingsPath(env = process.env): string {
   return join(agentDir(env), "settings.json");
 }
 
-/** Legacy state file written by the removed `/quiet` command. */
-export function legacyQuietPath(env = process.env): string {
-  return join(agentDir(env), "pi-minimalist.json");
-}
-
 type Json = Record<string, unknown>;
 
 function isRecord(value: unknown): value is Json {
@@ -218,24 +213,6 @@ export function customSeed(env = process.env): Record<string, boolean> | undefin
   const block = readSettingsFile(globalSettingsPath(env))[SETTINGS_KEY];
   const own = isRecord(block) && LOOK_KEYS.some((key) => key in block);
   return own ? undefined : PRESETS.lite;
-}
-
-/**
- * One-time migration of the old `/quiet` preference.
- *
- * Returns a value only when settings.json has no `groupToolRuns` yet, so an
- * explicit new setting always wins and a stale legacy file cannot resurrect a
- * preference the user has since changed.
- */
-export function migratedQuiet(env = process.env): boolean | undefined {
-  const existing = readSettingsFile(globalSettingsPath(env))[SETTINGS_KEY];
-  if (isRecord(existing) && typeof existing.groupToolRuns === "boolean") return undefined;
-  try {
-    const legacy = JSON.parse(readFileSync(legacyQuietPath(env), "utf8"));
-    return isRecord(legacy) && legacy.quiet === true ? true : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 // ---------------------------------------------------------------------------

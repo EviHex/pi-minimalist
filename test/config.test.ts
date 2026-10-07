@@ -49,6 +49,12 @@ describe("stripJsonComments", () => {
     assert.equal(parsed.url, "https://example.com//x");
   });
 
+  it("keeps comment markers after an escaped quote inside a string", () => {
+    const parsed = JSON.parse(stripJsonComments('{"a":"say \\"hi\\" // not a comment", "b":2 // real\n}'));
+    assert.equal(parsed.a, 'say "hi" // not a comment');
+    assert.equal(parsed.b, 2);
+  });
+
   it("detects comments without altering comment-free files", () => {
     assert.equal(hasComments('{"url":"https://a//b"}'), false);
     assert.equal(hasComments('{"a":1} // note'), true);

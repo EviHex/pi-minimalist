@@ -70,59 +70,12 @@ function isRecord(value: unknown): value is Json {
 /**
  * Remove `//` and block comments that are outside string literals.
  *
- * Pi bundles `strip-json-comments` but does not re-export it to extensions, so
- * this is a small character scanner. The only real subtlety is that `//` inside a
- * JSON string (a URL, a Windows path) must NOT start a comment.
+ * Pi bundles `strip-json-comments` but does not re-export it to extensions. The
+ * regex matches a whole string first (escapes included) and keeps it, so `//`
+ * inside a URL or path never starts a comment.
  */
 export function stripJsonComments(text: string): string {
-  let out = "";
-  let inString = false;
-  let escaped = false;
-  let comment: "line" | "block" | undefined;
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    const next = text[i + 1];
-
-    if (comment === "line") {
-      if (char === "\n") {
-        comment = undefined;
-        out += char;
-      }
-      continue;
-    }
-    if (comment === "block") {
-      if (char === "*" && next === "/") {
-        comment = undefined;
-        i++;
-      }
-      continue;
-    }
-    if (inString) {
-      out += char;
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === '"') inString = false;
-      continue;
-    }
-    if (char === '"') {
-      inString = true;
-      out += char;
-      continue;
-    }
-    if (char === "/" && next === "/") {
-      comment = "line";
-      i++;
-      continue;
-    }
-    if (char === "/" && next === "*") {
-      comment = "block";
-      i++;
-      continue;
-    }
-    out += char;
-  }
-  return out;
+  return text.replace(/("(?:\\.|[^"\\])*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (_, string) => string ?? "");
 }
 
 /** True when a file carries comments, so writing it back would destroy them. */

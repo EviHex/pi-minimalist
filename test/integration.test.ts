@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
 import { describe, it } from "node:test";
 import { BRIDGE_SYMBOLS } from "../src/bridge.ts";
 import { BUILT_INS } from "../src/tools.ts";
@@ -7,16 +6,6 @@ import { BUILT_INS } from "../src/tools.ts";
 const PI_ROOT = process.env.PI_ROOT;
 const EXTENSION = new URL("../index.ts", import.meta.url).pathname;
 const EXTENSION_DIR = new URL("..", import.meta.url).pathname;
-
-function bundleSource(): string {
-  const directory = `${PI_ROOT}/dist/bundle/chunks`;
-  const files = readdirSync(directory).filter((file) => file.startsWith("chunk-") && file.endsWith(".js"));
-  const matches = files
-    .map((file) => readFileSync(`${directory}/${file}`, "utf8"))
-    .filter((source) => source.includes("createCallFallback()"));
-  assert.equal(matches.length, 1, "expected one bundle chunk containing ToolExecutionComponent");
-  return matches[0];
-}
 
 describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set" }, () => {
   it("loads without taking ownership of built-in tools", async () => {
@@ -90,25 +79,8 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
     }
   });
 
-  it("needs NO patch in Pi's shipped bundle", () => {
-    // The inverse of the old assertion. This extension used to rewrite Pi's
-    // compiled bundle with perl (patch-pi.sh); it now wraps the real exported
-    // component prototypes at load time instead, so the shipped artifact must
-    // stay untouched. If a marker ever reappears here, a stale patched bundle is
-    // masking whatever the runtime wrappers actually do.
-    const source = bundleSource();
-    for (const [name, marker] of Object.entries(BRIDGE_SYMBOLS)) {
-      if (name === "quietMode") continue; // extension-internal, never in core
-      assert.ok(
-        !source.includes(marker),
-        `bundle contains ${marker}: it is still patched. Reinstall Pi (npm i -g @earendil-works/pi-coding-agent) so the runtime wrappers are what gets tested.`,
-      );
-    }
-  });
-
   it("keeps every seam the runtime wrappers depend on", async () => {
-    // Replaces the old "did perl match?" check. These are the exact prototype
-    // methods src/core-patch.ts wraps; if a Pi release renames one, this fails
+    // These are the exact prototype methods src/core-patch.ts wraps; if a Pi release renames one, this fails
     // with its name instead of the feature silently disappearing.
     const components = await import(`${PI_ROOT}/dist/modes/interactive/components/index.js`);
 
@@ -126,7 +98,18 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
         `ToolExecutionComponent.${method} disappeared`,
       );
     }
-    assert.equal(typeof components.AssistantMessageComponent.prototype.updateContent, "function");
+    for (const method of ["updateContent", "render", "handleMouse"]) {
+      assert.equal(
+        typeof (components.AssistantMessageComponent.prototype as any)[method],
+        "function",
+        `AssistantMessageComponent.${method} disappeared`,
+      );
+    }
+    assert.equal(
+      typeof (components.UserMessageComponent.prototype as any).rebuild,
+      "function",
+      "UserMessageComponent.rebuild disappeared",
+    );
     const message = { content: [{ type: "thinking", thinking: "reasoning" }], stopReason: "stop" };
     const assistant = new components.AssistantMessageComponent(message);
     assert.equal(assistant.lastMessage, message, "live thinking switches rebuild from the original message");

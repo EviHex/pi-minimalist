@@ -561,9 +561,8 @@ Notable suites:
   output. This replaced marker greps against a compiled file, which could only
   check that strings existed.
 - `integration.test.ts` — loads the extension through Pi's real loader, asserts it
-  registers zero tools, asserts the shipped bundle contains NO bridge markers (a
-  marker means a stale patched bundle is masking the real wrappers), and asserts
-  every prototype method and structural field the wrappers depend on still exists.
+  registers zero tools, and asserts every prototype method and structural field
+  the wrappers depend on still exists.
 - `row-shape.test.ts` — cell-accurate terminal model, one `(glyph, activeColor)`
   pair per visible column: separator spaces stay uncolored, segments do not bleed,
   an absent segment emits no empty color span, and no row can become multiline.

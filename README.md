@@ -51,6 +51,8 @@ The **Preset** row at the top of `/minimalist` sets four options at once: **Comp
 | `max` | `full` plus collapsed earlier activity (`Worked for …`). |
 | `custom` | Your own values for those four options. |
 
+<img src="docs/presets.png" width="600" alt="Clicking a folded line opens it into rows; clicking one row expands only that row">
+
 A preset never overwrites your settings. While `off`, `lite`, `full` or `max` is selected, only those four rows are greyed out and show the preset's values; pressing Enter on one does nothing. Every other option (Left border, Elapsed timer, Symbols and so on) stays yours and stays editable. Your own values are kept and come back when you choose `custom`. The first time you choose `custom`, it starts from `lite`.
 
 **Upgrading:** if your settings already contain a `minimalist` block, you stay on `custom` and nothing changes. Only a user with no `minimalist` settings at all starts on `full`, which makes thinking rows compact. To pick another look, change **Preset**.

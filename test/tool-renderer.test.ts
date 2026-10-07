@@ -169,69 +169,60 @@ describe("renderCall", () => {
     assert.equal(timers.pending(), 0, "no interval may survive completion");
   });
 
-  it("keeps an expanded command's lines under the hanging indent; a collapsed one stays one clipped row", () => {
+  // Expanded bash rows: every SOURCE line gets its own row(s) under the hanging indent.
+  const expandedCases: { name: string; command: string; width: number; expected: string[] }[] = [
+    {
+      name: "wide enough for everything: one row per source line",
+      command: "python3 - <<'EOF'\nprint(1)\nprint(2)\nEOF",
+      width: 60,
+      expected: [" ▌ ✓ bash python3 - <<'EOF'", " ▌        print(1)", " ▌        print(2)", " ▌        EOF"],
+    },
+    {
+      name: "narrow: the long first line wraps and later lines still indent",
+      command: "python3 - <<'EOF'\nprint(1)\nprint(2)\nEOF",
+      width: 22,
+      expected: [" ▌ ✓ bash python3 -", " ▌        <<'EOF'", " ▌        print(1)", " ▌        print(2)", " ▌        EOF"],
+    },
+    {
+      name: "a long source line inside a heredoc wraps and the lines after it keep indenting",
+      command: "cat <<'EOF'\n" + "word ".repeat(12).trim() + "\ntail\nEOF",
+      width: 30,
+      expected: [
+        " ▌ ✓ bash cat <<'EOF'",
+        ...Array(3).fill(" ▌        word word word word"),
+        " ▌        tail",
+        " ▌        EOF",
+      ],
+    },
+    {
+      name: "own indentation kept, CRLF normalized, tabs become two spaces, outer blank lines dropped",
+      command: "\n\nif x; then\r\n\techo hi   \r\n    echo there\r\nfi\n\n",
+      width: 40,
+      expected: [" ▌ ✓ bash if x; then", " ▌          echo hi", " ▌            echo there", " ▌        fi"],
+    },
+    {
+      name: "blank lines inside a command stay",
+      command: "a\n\nb",
+      width: 40,
+      expected: [" ▌ ✓ bash a", " ▌", " ▌        b"],
+    },
+    {
+      name: "too narrow to wrap: ONE clipped, whitespace-collapsed line",
+      command: "echo a\necho b",
+      width: 16,
+      expected: [" ▌ ✓ bash echo …"],
+    },
+  ];
+  for (const { name, command, width, expected } of expandedCases) {
+    it(`expanded bash row: ${name}`, () => {
+      const { renderer: r } = renderer();
+      const row = r.renderCall("bash", { command }, widthTheme, makeContext("completed", { expanded: true }));
+      assert.deepEqual(row.render(width).map(plain).map((line) => line.trimEnd()), expected);
+    });
+  }
+
+  it("shows an enormous expanded command without a cap", () => {
     const { renderer: r } = renderer();
-    const command = "python3 - <<'EOF'\nprint(1)\nprint(2)\nEOF";
-    const expandedRow = () => r.renderCall("bash", { command }, widthTheme, makeContext("completed", { expanded: true }));
-
-    // Wide enough for everything: still one row per SOURCE line.
-    assert.deepEqual(expandedRow().render(60).map(plain), [
-      " ▌ ✓ bash python3 - <<'EOF'",
-      " ▌        print(1)",
-      " ▌        print(2)",
-      " ▌        EOF",
-    ]);
-
-    // Narrow: the long first source line wraps, and later lines still indent.
-    assert.deepEqual(expandedRow().render(22).map(plain), [
-      " ▌ ✓ bash python3 -",
-      " ▌        <<'EOF'",
-      " ▌        print(1)",
-      " ▌        print(2)",
-      " ▌        EOF",
-    ]);
-  });
-
-  it("wraps a long source line inside a heredoc and keeps indenting the lines after it", () => {
-    const { renderer: r } = renderer();
-    const command = "cat <<'EOF'\n" + "word ".repeat(12).trim() + "\ntail\nEOF";
-    const lines = r
-      .renderCall("bash", { command }, widthTheme, makeContext("completed", { expanded: true }))
-      .render(30)
-      .map(plain);
-    assert.deepEqual(lines, [
-      " ▌ ✓ bash cat <<'EOF'",
-      " ▌        word word word word",
-      " ▌        word word word word",
-      " ▌        word word word word",
-      " ▌        tail",
-      " ▌        EOF",
-    ]);
-  });
-
-  it("keeps each line's own indentation, turns tabs into two spaces, and drops outer blank lines", () => {
-    const { renderer: r } = renderer();
-    const command = "\n\nif x; then\r\n\techo hi   \r\n    echo there\r\nfi\n\n";
-    const lines = r
-      .renderCall("bash", { command }, widthTheme, makeContext("completed", { expanded: true }))
-      .render(40)
-      .map(plain);
-    assert.deepEqual(lines, [
-      " ▌ ✓ bash if x; then",
-      " ▌          echo hi",
-      " ▌            echo there",
-      " ▌        fi",
-    ]);
-  });
-
-  it("keeps blank lines inside a command and shows an enormous one without a cap", () => {
-    const { renderer: r } = renderer();
-    const inner = r
-      .renderCall("bash", { command: "a\n\nb" }, widthTheme, makeContext("completed", { expanded: true }))
-      .render(40)
-      .map(plain);
-    assert.deepEqual(inner.map((line) => line.trimEnd()), [" ▌ ✓ bash a", " ▌", " ▌        b"]);
-
     const word = "abcdefghi ";
     const huge = word.repeat(1500).trim(); // ~15000 chars
     const text = r
@@ -270,14 +261,6 @@ describe("renderCall", () => {
         }
       }
     }
-  });
-
-  it("falls back to ONE clipped, whitespace-collapsed line when too narrow to wrap a multi-line command", () => {
-    const { renderer: r } = renderer();
-    const lines = r
-      .renderCall("bash", { command: "echo a\necho b" }, widthTheme, makeContext("completed", { expanded: true }))
-      .render(16);
-    assert.deepEqual(lines.map(plain), [" ▌ ✓ bash echo …"]);
   });
 
   it("colors every line of an expanded command on its own, so no escape bleeds across a newline", () => {

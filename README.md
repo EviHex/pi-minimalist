@@ -72,7 +72,7 @@ Settings apply to existing conversation history and are saved globally. If a sym
 
 Turn off **Compact tool rows** to restore native tool cards. Or choose the `off` preset.
 
-To disable the extension completely, run `pi config`, disable pi-minimalist, and restart Pi. To uninstall:
+To disable the extension completely, run `pi config`, disable pi-minimalist, and restart Pi
 
 ## Compatibility
 

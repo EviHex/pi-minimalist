@@ -1,6 +1,6 @@
 {
   "name": "pi-minimalist",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Compact one-line tool and thinking rows for Pi's interactive transcript",
   "keywords": ["pi-package"],
   "license": "MIT",
@@ -16,6 +16,7 @@
     "@earendil-works/pi-tui": "*"
   },
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": ["./index.ts"],
+    "image": "https://raw.githubusercontent.com/EviHex/pi-minimalist/main/docs/click.png"
   }
 }

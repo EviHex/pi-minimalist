@@ -76,8 +76,11 @@ effective view on read (`layer()`: user keys < preset look keys; `custom` adds
 nothing). Switching preset never touches the user's keys; other settings stay
 editable. There is no reset row: presets are the reset points.
 
-- Under a preset the four look rows are greyed: their only value is the dimmed
-  current text, and `onChange` returns early.
+- Under a preset the four look rows are greyed: label AND value are dimmed (the
+  default value colour `muted` is too close to the hint colour to stand out alone),
+  their only value is the dimmed current text, and `onChange` returns early.
+- `custom` is DISPLAYED as `custom (editable)` (`presetLabel`/`presetFromLabel`); the
+  stored preset name stays `custom`.
 - A fresh install (no basic key in the block, `isFresh`) gets `full`
   (`FRESH_PRESET`); the first write pins `"preset": "full"`. A block with basic
   keys but no `preset` stays `custom`.

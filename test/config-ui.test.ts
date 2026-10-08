@@ -150,8 +150,29 @@ describe("presets in the config screen", () => {
   it("puts the Preset row first and cycles all five presets", () => {
     const first = items(DEFAULTS)[0];
     assert.equal(first.id, "preset");
-    assert.equal(first.currentValue, "custom");
-    assert.deepEqual(first.values, ["off", "lite", "full", "max", "custom"]);
+    assert.equal(first.currentValue, "custom (editable)");
+    assert.deepEqual(first.values, ["off", "lite", "full", "max", "custom (editable)"]);
+  });
+
+  it("stores the preset named 'custom' when 'custom (editable)' is picked", () => {
+    const config = new Config({ ...DEFAULTS, preset: "lite" });
+    const changes: [string, unknown][] = [];
+    screen(config, (k, v) => changes.push([k, v])).onChange("preset", "custom (editable)");
+    assert.deepEqual(changes, [["preset", "custom"]]);
+    assert.equal(config.all().preset, "custom");
+  });
+
+  it("dims the label AND the value of a locked row, and only of a locked row", () => {
+    const dim = (text: string) => `<d>${text}</d>`;
+    const locked = items({ ...DEFAULTS, preset: "lite" }, dim);
+    const group = locked.find((row) => row.id === "groupToolRuns")!;
+    assert.match(group.label, /^<d>.*<\/d>$/);
+    assert.match(group.currentValue, /^<d>.*<\/d>$/);
+    const timer = locked.find((row) => row.id === "timer")!;
+    assert.equal(timer.label.includes("<d>"), false, "an editable row keeps its normal colours");
+    assert.equal(timer.currentValue.includes("<d>"), false);
+    const open = items({ ...DEFAULTS, preset: "custom" });
+    assert.equal(open.some((row) => row.label.includes("<d>")), false, "nothing is dimmed under custom");
   });
 
   it("switching preset keeps the user's own keys and shows the preset's look keys", () => {
@@ -161,7 +182,7 @@ describe("presets in the config screen", () => {
     assert.deepEqual(changes, [["preset", "lite"]]);
     assert.equal(config.get("groupToolRuns"), false);
     assert.equal(config.get("gutter"), false, "not a look key: the user's value stays");
-    screen(config).onChange("preset", "custom");
+    screen(config).onChange("preset", "custom (editable)");
     assert.equal(config.get("groupToolRuns"), true);
   });
 
@@ -194,6 +215,10 @@ describe("presets in the config screen", () => {
     });
     assert.match(component.render(200).at(-1)!, /Changes apply live/);
     assert.equal(FakeSettingsList.last!.items.some((item) => /restore/i.test(item.label)), false);
+  });
+
+  it("status shows 'custom (editable)' for the custom preset", () => {
+    assert.match(summary(new Config(DEFAULTS).all()), /Preset\s+custom \(editable\)/);
   });
 
   it("status marks preset-controlled rows", () => {

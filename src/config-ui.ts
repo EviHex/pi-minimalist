@@ -84,8 +84,14 @@ type InputComponent = Component & { handleInput(data: string): void };
 type SettingsListConstructor = new (...args: ConstructorParameters<typeof SettingsList>) => SettingsList;
 type BasicValue = BasicSettings[BasicKey];
 
+/** `custom` is the only preset whose look rows you can edit; say so where it is shown. */
+const CUSTOM_LABEL = "custom (editable)";
+const presetLabel = (preset: string) => (preset === "custom" ? CUSTOM_LABEL : preset);
+/** Back from the displayed text to the stored preset name. */
+const presetFromLabel = (text: string) => (text === CUSTOM_LABEL ? "custom" : text);
+
 const CHOICES: Partial<Record<BasicKey, string[]>> = {
-  preset: [...PRESET_NAMES],
+  preset: PRESET_NAMES.map(presetLabel),
   activitySummary: ["elapsed time", "tools used"],
   glyphStyle: ["Unicode", "ASCII"],
 };
@@ -99,10 +105,13 @@ export function items(settings: Settings, dim?: (text: string) => string): Setti
       const value = displayValue(settings[key]);
       // SettingsList has no disabled rows, so a locked row shows its dimmed value
       // as its ONLY value: Enter "cycles" to the same text and nothing changes.
+      // The label is dimmed too: ordinary values are already `muted`, which is too
+      // close to the hint colour to tell a locked row apart, while ordinary labels
+      // are the default colour.
       if (dim && isLook(key)) {
         const shown = dim(value);
-        const hint = `Set by the '${settings.preset}' preset. Switch Preset to 'custom' to edit (your custom values are kept).`;
-        return { id: key, label, description: hint, currentValue: shown, values: [shown] };
+        const hint = `Set by the '${settings.preset}' preset. Switch Preset to 'custom (editable)' to edit (your custom values are kept).`;
+        return { id: key, label: dim(label), description: hint, currentValue: shown, values: [shown] };
       }
       return { id: key, label, description, currentValue: value, values: CHOICES[key] ?? ["on", "off"] };
     },
@@ -188,7 +197,8 @@ export function createConfigScreen(deps: ConfigScreenDeps): InputComponent {
       (id, displayValue) => {
         if (!isBasicKey(id)) return;
         if (id === "preset") {
-          const value = isPreset(displayValue) ? displayValue : "custom";
+          const picked = presetFromLabel(displayValue);
+          const value = isPreset(picked) ? picked : "custom";
           config.set(id, value);
           onChange(id, value);
           list = build();
@@ -236,7 +246,7 @@ function isBasicKey(id: string): id is BasicKey {
 }
 
 function displayValue(value: BasicValue): string {
-  if (isPreset(value)) return value;
+  if (isPreset(value)) return presetLabel(value);
   if (value === "elapsed") return "elapsed time";
   if (value === "tools") return "tools used";
   if (value === "unicode") return "Unicode";

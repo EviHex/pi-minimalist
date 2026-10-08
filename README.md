@@ -1,5 +1,7 @@
 # pi-minimalist
 
+**English** | [简体中文](README.zh-CN.md) | [Français](README.fr.md)
+
 **Less scrolling. More room for the answer.**
 
 A quieter transcript for [Pi](https://pi.dev): turn bulky tool calls into one-line summaries, and open the full output whenever you need it.
@@ -36,6 +38,7 @@ Run **`/minimalist`** to change settings live. Start with compact tool rows, or 
 - **Collapse earlier activity** so the latest reply stays in focus. Replace the preceding activity with elapsed work time or tool counts.
 - **Compact thinking rows**, or keep thinking visible as it arrives.
 - **Keep running tools visible** while grouping other calls, with an elapsed timer to show how long they take.
+- **Excluded tools**: let chosen tools (for example `subagent`) keep their own card instead of a one-line row. Open the row in `/minimalist`, type to search, and press Enter on a tool to flip it.
 
 A fresh install starts on the **`full`** preset (see below): compact tool rows, grouped calls and compact thinking. Activity folding is opt-in. Choose `lite` if you prefer to see each call separately.
 

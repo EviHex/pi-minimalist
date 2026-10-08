@@ -23,7 +23,16 @@ cd "$(dirname "$0")"
 # lives at <root>/dist/bundle/cli.js, so three dirname steps reach the root.
 PI_BIN="$(readlink -f "$(command -v pi)")"
 PI_ROOT="$(dirname "$(dirname "$(dirname "$PI_BIN")")")"
+# Managed installs: `pi` is a launcher in <agent>/bin that runs the release
+# named by <agent>/install/current-version, installed as a flat node_modules.
+AGENT_DIR="$(dirname "$(dirname "$PI_BIN")")"
+if [[ -f "$AGENT_DIR/install/current-version" ]]; then
+  PI_ROOT="$AGENT_DIR/install/releases/$(cat "$AGENT_DIR/install/current-version")/node_modules/@earendil-works/pi-coding-agent"
+fi
 PI_MODULES="$PI_ROOT/node_modules/@earendil-works"
+[[ -d "$PI_MODULES" ]] || PI_MODULES="$(dirname "$PI_ROOT")"
+TYPES_NODE="$PI_ROOT/node_modules/@types/node"
+[[ -d "$TYPES_NODE" ]] || TYPES_NODE="$(dirname "$PI_MODULES")/@types/node"
 
 if [[ ! -d "$PI_MODULES/pi-tui" ]]; then
   echo "error: cannot find pi-tui under $PI_MODULES" >&2
@@ -35,8 +44,8 @@ mkdir -p node_modules/@earendil-works node_modules/@types
 ln -sfn "$PI_MODULES/pi-tui" node_modules/@earendil-works/pi-tui
 ln -sfn "$PI_ROOT" node_modules/@earendil-works/pi-coding-agent
 # Reuse Pi's own @types/node so the typecheck needs no extra download.
-if [[ -d "$PI_ROOT/node_modules/@types/node" ]]; then
-  ln -sfn "$PI_ROOT/node_modules/@types/node" node_modules/@types/node
+if [[ -d "$TYPES_NODE" ]]; then
+  ln -sfn "$TYPES_NODE" node_modules/@types/node
 fi
 
 if [[ "${1:-}" == "--typecheck" ]]; then

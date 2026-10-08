@@ -71,7 +71,7 @@ export const FIELDS: Field[] = [
   {
     key: "keepActiveThinkingExpanded",
     label: "Show thinking while generating",
-    description: "Show the full thinking block as it arrives, instead of a one-line preview.",
+    description: "Show the full thinking block as it arrives (and for 3s after), instead of a one-line preview.",
   },
   {
     key: "glyphStyle",

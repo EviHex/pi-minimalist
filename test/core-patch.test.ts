@@ -246,7 +246,9 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("keeps streaming expansion independent from compact thinking", async () => {
     const { components, newAssistant } = await loadPi();
-    install(components, { thinkingAsToolCall: false, keepActiveThinkingExpanded: true }, "assistant");
+    const shared = install(components, { thinkingAsToolCall: false, keepActiveThinkingExpanded: true }, "assistant");
+    const timers = fakeTimers();
+    installBridges({ ...shared, timers });
     const message = assistantMessage([{ type: "thinking", thinking: "full reasoning" }]);
     const row = newAssistant(message);
     row.updateContent(message, true);
@@ -254,6 +256,7 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     assert.match(streaming, /full reasoning/);
     assert.doesNotMatch(streaming, /▌|[✓•] think/);
     row.updateContent(message, false);
+    timers.fire();
     const done = textOf(row);
     assert.match(done, /Thinking\.\.\./);
     assert.doesNotMatch(done, /▌|✓ think|full reasoning/);
@@ -333,7 +336,10 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
 
   it("expands a STREAMING thinking block when configured, restoring the override after", async () => {
     const { components, newAssistant } = await loadPi();
-    install(components, { thinkingAsToolCall: true, keepActiveThinkingExpanded: true }, "assistant");
+    const shared = install(components, { thinkingAsToolCall: true, keepActiveThinkingExpanded: true }, "assistant");
+    const timers = fakeTimers();
+    let repaints = 0;
+    installBridges({ ...shared, timers, requestRender: () => repaints++ });
 
     const message = assistantMessage([{ type: "thinking", thinking: "partial reasoning" }]);
     const component = newAssistant(message);
@@ -342,12 +348,45 @@ describe("runtime core patches against real Pi components", { skip: PI_ROOT ? fa
     const streaming = textOf(component);
     assert.ok(streaming.includes("partial reasoning"), streaming);
     assert.ok(!streaming.includes("think partial reasoning"), "configured streaming must not collapse");
+    assert.equal(timers.pending(), 0, "no linger while still streaming");
 
+    // The stream ended: the block lingers open so a short thought can be read.
     component.updateContent(message, false);
+    const lingering = textOf(component);
+    assert.ok(lingering.includes("partial reasoning"), lingering);
+    assert.ok(!lingering.includes("think partial reasoning"), "must stay open during the linger");
+    assert.equal(timers.pending(), 1);
+    // Further non-streaming updates during the linger keep it open and add no timer.
+    component.updateContent(message, false);
+    assert.ok(!textOf(component).includes("think partial reasoning"));
+    assert.equal(timers.pending(), 1);
+
+    timers.fire();
+    assert.equal(timers.pending(), 0, "the linger is one-shot");
+    assert.equal(repaints, 1, "the linger end repaints");
     const done = textOf(component);
     assert.ok(done.includes("✓ think partial reasoning"), done);
     // The user's own hide setting survived the temporary streaming override.
     assert.equal(component.hideThinkingBlock, true);
+  });
+
+  it("never lingers for replayed history or when not configured", async () => {
+    const { components, newAssistant } = await loadPi();
+    for (const keepActiveThinkingExpanded of [true, false]) {
+      const shared = install(components, { thinkingAsToolCall: true, keepActiveThinkingExpanded }, "assistant");
+      const timers = fakeTimers();
+      installBridges({ ...shared, timers });
+      const message = assistantMessage([{ type: "thinking", thinking: "old reasoning" }]);
+      const replayed = newAssistant(message);
+      replayed.updateContent(message, false);
+      assert.ok(textOf(replayed).includes("✓ think old reasoning"));
+      if (!keepActiveThinkingExpanded) {
+        replayed.updateContent(message, true);
+        replayed.updateContent(message, false);
+        assert.ok(textOf(replayed).includes("✓ think old reasoning"));
+      }
+      assert.equal(timers.pending(), 0);
+    }
   });
 
   it("recolors expanded thinking to a single purple hue when compact thinking is enabled", async () => {

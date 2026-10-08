@@ -264,7 +264,10 @@ function isMouseRegion(value: any): boolean {
  *    `hideThinkingBlock` + the override map, then restoring both. Either way the
  *    click handler stores into the LIVE map, so an explicit Ctrl+T expansion
  *    always survives — the default only decides what happens when the user has
- *    not expressed a preference.
+ *    not expressed a preference. When a streamed message ends, the forced
+ *    expansion LINGERS for `THINKING_LINGER_MS`, then the message re-renders
+ *    collapsed: a one-phrase thought would otherwise vanish before it is read.
+ *    Replayed history never streamed, so it never lingers.
  *  - collapsed preview: swap the hidden run's `Text` for our compact line.
  *  - expanded theme: recolor the run's `Markdown` in place (its private `theme`
  *    field is read at render time, and this runs before the first render).
@@ -283,13 +286,26 @@ export function patchAssistantMessage(proto: AssistantProto): void {
     // its mouse layout, so Pi's y (relative to the lines we returned) would
     // miss the summary by that shift. Remember it to translate clicks back.
     const mouseShift = new WeakMap<AssistantProto, { shift: number; height: number }>();
+    // Messages seen streaming, and those still inside their post-stream linger.
+    const streamed = new WeakSet<AssistantProto>();
+    const lingering = new WeakSet<AssistantProto>();
 
     proto.updateContent = function (this: AssistantProto, message: any, isStreaming = this.isStreaming) {
       const savedHide = this.hideThinkingBlock;
       const savedOverrides = this.thinkingVisibilityOverrides;
+      const b = bridge();
+      const keepOpen = b?.keepActiveThinkingExpanded() === true;
+      if (isStreaming) streamed.add(this);
+      else if (streamed.delete(this) && keepOpen && b) {
+        lingering.add(this);
+        b.afterThinkingLinger(() => {
+          lingering.delete(this);
+          if (this.lastMessage) this.updateContent(this.lastMessage, false);
+        });
+      }
       // Default: a streaming block stays collapsed to its compact preview, which
       // already shows the newest text. Opt in to force it open instead.
-      const forceOpen = isStreaming && bridge()?.keepActiveThinkingExpanded() === true;
+      const forceOpen = keepOpen && (isStreaming || lingering.has(this));
       if (forceOpen) {
         this.hideThinkingBlock = false;
         this.thinkingVisibilityOverrides = new Map();

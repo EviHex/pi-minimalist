@@ -29,7 +29,7 @@ at load time.
 | Elapsed timer on running tools | on | `timer` |
 | Collapsed thinking rendered like a tool row | off | `thinkingAsToolCall` |
 | Keep a running tool out of a fold | off | `keepActiveToolsExpanded` |
-| Keep streaming thinking expanded | off | `keepActiveThinkingExpanded` |
+| Keep streaming thinking expanded (+3s after it ends) | off | `keepActiveThinkingExpanded` |
 
 `pi-markdown-chrome` (code-block corners, blockquote gutter) is a separate
 extension. Do not reintroduce it here.
@@ -312,6 +312,16 @@ native (non-compact) thinking, and leaves its own toggle alone", "keeps an opene
 run's header above a compact thinking head, collapsed or Ctrl+T-expanded" (the
 last three drive Pi's real `Container.handleMouse`); `run-grouping.test.ts`
 "re-folding an opened run".
+
+### Streamed thinking lingers open; repaint goes through a hidden widget
+
+With `keepActiveThinkingExpanded`, a message that WAS streamed stays expanded
+for `THINKING_LINGER_MS` (3s) after its final `updateContent(_, false)`, then a
+one-shot timer re-runs `updateContent` and repaints. Replayed history never
+streamed, so it never lingers. Extensions get no TUI handle outside a factory,
+so `index.ts` registers a zero-line `belowEditor` widget only to capture
+`tui.requestRender`. → `core-patch.test.ts` "expands a STREAMING thinking block
+when configured…", "never lingers for replayed history or when not configured".
 
 ### Do not call runtime actions during extension load
 

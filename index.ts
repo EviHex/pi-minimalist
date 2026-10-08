@@ -34,7 +34,11 @@ export default function (pi: ExtensionAPI) {
   // strand every row on stale state.
   const { config, grouping } = sharedState(loadSettings());
 
-  installBridges({ config, grouping });
+  // A timer (the post-stream thinking linger) must repaint outside any render.
+  // Extensions get no TUI handle except through a factory, so an invisible
+  // widget (zero lines, below the editor, no spacer) captures it.
+  let tui: { requestRender(): void } | undefined;
+  installBridges({ config, grouping, requestRender: () => tui?.requestRender() });
   // Idempotent, so a /reload only refreshes the Bridge the wrappers read.
   patchCore(core);
 
@@ -46,7 +50,19 @@ export default function (pi: ExtensionAPI) {
     // restart. Session overrides are re-applied by Config.replace().
     config.replace(loadSettings());
   };
-  pi.on("session_start", refresh);
+  pi.on("session_start", (_event, ctx) => {
+    refresh();
+    if (ctx.hasUI && ctx.mode === "tui") {
+      ctx.ui.setWidget(
+        "pi-minimalist-repaint",
+        (captured) => {
+          tui = captured;
+          return { render: () => [], invalidate() {} };
+        },
+        { placement: "belowEditor" },
+      );
+    }
+  });
   pi.on("turn_start", refresh);
   pi.on("agent_start", () => grouping.agentStarted());
   pi.on("agent_settled", () => grouping.agentSettled());

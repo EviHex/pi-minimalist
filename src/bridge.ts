@@ -16,7 +16,7 @@ import { RunGrouping } from "./run-grouping.ts";
 import { Painter, type Row, type ThemeLike } from "./row.ts";
 import { createToolRenderer, type ToolRenderer } from "./tool-renderer.ts";
 import { createThinkingPreview, singleHueThinkingTheme, type ThinkingPreview } from "./thinking.ts";
-import type { Timers } from "./components.ts";
+import { realTimers, type Timers } from "./components.ts";
 
 export const BRIDGE_SYMBOLS = {
   /** The `Bridge` object: everything the prototype wrappers call. */
@@ -42,6 +42,11 @@ export type Bridge = {
   compactThinking: () => boolean;
   /** Keep a STREAMING thinking block expanded. */
   keepActiveThinkingExpanded: () => boolean;
+  /**
+   * Run `callback` once, `THINKING_LINGER_MS` after a streamed message ends,
+   * then repaint. Keeps a short thought on screen long enough to be read.
+   */
+  afterThinkingLinger: (callback: () => void) => void;
 
   /** Chronology hooks that keep thinking and prose in transcript order. */
   observeThinking: (owner: object, runIndex: number, streaming: boolean, hidden: boolean, timestamp?: number) => string;
@@ -103,7 +108,12 @@ export function sharedState(settings?: ConstructorParameters<typeof Config>[0]):
 export type InstallOptions = SharedState & {
   /** Injectable repaint scheduler; production uses Node's timers. */
   timers?: Timers;
+  /** Repaint the TUI from outside a render (a timer). No-op without a TUI. */
+  requestRender?: () => void;
 };
+
+/** How long expanded thinking stays open after its message stops streaming. */
+export const THINKING_LINGER_MS = 3000;
 
 /**
  * Install the bridge.
@@ -112,7 +122,7 @@ export type InstallOptions = SharedState & {
  * from `session_shutdown`: reload ordering can let an old shutdown hook erase the
  * newly installed bridge. Process exit clears globalThis naturally.
  */
-export function installBridges({ config, grouping, timers }: InstallOptions): void {
+export function installBridges({ config, grouping, timers = realTimers, requestRender }: InstallOptions): void {
   const globals = globalThis as Globals;
   const painter = (theme: ThemeLike) => new Painter(theme, config);
 
@@ -122,6 +132,14 @@ export function installBridges({ config, grouping, timers }: InstallOptions): vo
     thinkingMarkdownTheme: (base, theme) => singleHueThinkingTheme(base, theme, config),
     compactThinking: () => config.get("thinkingAsToolCall") === true,
     keepActiveThinkingExpanded: () => config.get("keepActiveThinkingExpanded"),
+    afterThinkingLinger: (callback) => {
+      // Timers only has intervals; clearing on the first tick makes it one-shot.
+      const handle = timers.setInterval(() => {
+        timers.clearInterval(handle);
+        callback();
+        requestRender?.();
+      }, THINKING_LINGER_MS);
+    },
 
     // Chronology: core walks message content in transcript order, and run
     // folding depends on that order.

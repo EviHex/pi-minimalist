@@ -63,7 +63,9 @@ describe("tool renderer bridge contract", () => {
     for (const name of ["read", "bash", "write", "mcp", "mcpScript", "mcp__atlassian"]) {
       assert.equal(r.handles(name), true, name);
     }
-    assert.equal(r.handles("subagent"), false);
+    assert.equal(r.handles("subagent"), true);
+    const { renderer: excluding } = renderer(testState({ excludeTools: ["subagent"] }));
+    assert.equal(excluding.handles("subagent"), false);
   });
 });
 

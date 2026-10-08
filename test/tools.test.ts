@@ -22,14 +22,14 @@ describe("Config.compacts", () => {
   });
 
   it("exempts only the configured tool names", () => {
-    // `subagent` is excluded by DEFAULT, because its own renderer shows a run id
-    // and state that one line cannot carry.
-    assert.equal(new Config().compacts("subagent"), false);
+    // Nothing is excluded by default.
+    assert.equal(new Config().compacts("subagent"), true);
 
-    const custom = new Config({ excludeTools: ["web_search"] });
+    const custom = new Config({ excludeTools: ["web_search", "subagent"] });
     assert.equal(custom.compacts("web_search"), false);
-    // Replacing the list also un-excludes subagent: the list IS the policy.
-    assert.equal(custom.compacts("subagent"), true);
+    assert.equal(custom.compacts("subagent"), false);
+    // The list IS the policy: unnamed tools stay compact.
+    assert.equal(custom.compacts("read"), true);
   });
 
   it("labels pi-mcp-adapter tools as mcp without deciding what compacts", () => {

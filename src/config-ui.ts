@@ -114,8 +114,53 @@ export type ConfigScreenDeps = {
   theme: SettingsListTheme;
   config: Config;
   onChange: (key: BasicKey, value: BasicValue) => void;
+  /** Names of every tool known right now; read each time the picker opens, so it is never stale. */
+  toolNames: () => string[];
+  /** Called with the new `excludeTools` after every toggle in the picker. */
+  onExcludeChange: (names: string[]) => void;
   onClose: () => void;
 };
+
+const EXCLUDE_ID = "excludeTools";
+const PICKER_ROWS = 12;
+
+/** "none", the names when there are one or two, else a count. */
+export function excludedSummary(names: string[]): string {
+  if (names.length === 0) return "none";
+  return names.length <= 2 ? names.join(", ") : `${names.length} tools`;
+}
+
+/**
+ * One row per tool; Enter flips it between `compact` and `excluded`. It reuses
+ * SettingsList with its built-in search, so it has Pi's own keys and look and
+ * no list/filter code of ours. Names in `excludeTools` that no loaded tool
+ * carries (an extension not loaded this session) stay listed, or opening the
+ * picker would quietly forget them.
+ */
+function toolPicker(deps: ConfigScreenDeps, done: (summary: string) => void): Component {
+  const { SettingsList, theme, config, toolNames, onExcludeChange } = deps;
+  let excluded = [...config.get("excludeTools")];
+  const known = new Set(toolNames());
+  const names = [...new Set([...known, ...excluded])].sort((a, b) => a.localeCompare(b));
+  const rows: SettingItem[] = names.map((name) => ({
+    id: name,
+    label: name,
+    description: known.has(name) ? undefined : "Not loaded in this session; kept in your settings.",
+    currentValue: excluded.includes(name) ? "excluded" : "compact",
+    values: ["compact", "excluded"],
+  }));
+  return new SettingsList(
+    rows,
+    Math.min(PICKER_ROWS, Math.max(rows.length, 1)),
+    theme,
+    (name, value) => {
+      excluded = value === "excluded" ? [...excluded, name] : excluded.filter((n) => n !== name);
+      onExcludeChange(excluded);
+    },
+    () => done(excludedSummary(excluded)),
+    { enableSearch: true },
+  );
+}
 
 /** Build a live screen; toggling prose folding immediately adds/removes its two child rows. */
 export function createConfigScreen(deps: ConfigScreenDeps): InputComponent {
@@ -126,7 +171,16 @@ export function createConfigScreen(deps: ConfigScreenDeps): InputComponent {
   const build = () => {
     const preset = config.all().preset;
     locked = preset !== "custom";
-    const rows = items(config.all(), locked ? theme.hint : undefined);
+    const rows = [
+      ...items(config.all(), locked ? theme.hint : undefined),
+      {
+        id: EXCLUDE_ID,
+        label: "Excluded tools",
+        description: "Tools drawn with their own card instead of a one-line row, e.g. subagent. Enter to pick; type to search.",
+        currentValue: excludedSummary(config.get("excludeTools")),
+        submenu: (_current: string, done: (selected?: string) => void) => toolPicker(deps, done),
+      },
+    ];
     return new SettingsList(
       rows,
       rows.length,
@@ -211,6 +265,7 @@ export function summary(settings: Settings): string {
     }),
     "",
     "  /minimalist          change these",
-    "  settings.json        custom glyphs, colours, excluded tools",
+    `  Excluded tools       ${excludedSummary(settings.excludeTools)}`,
+    "  settings.json        custom glyphs and colours",
   ].join("\n");
 }

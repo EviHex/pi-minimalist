@@ -4,7 +4,14 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { BASIC_KEYS, Config, DEFAULTS } from "../src/config.ts";
 import { FIELDS, argumentCompletions, createConfigScreen, items, summary } from "../src/config-ui.ts";
 
-type Item = { id: string; label: string; description?: string; currentValue: string; values?: string[] };
+type Item = {
+  id: string;
+  label: string;
+  description?: string;
+  currentValue: string;
+  values?: string[];
+  submenu?: (current: string, done: (selected?: string) => void) => { render(w: number): string[] };
+};
 
 /**
  * Minimal stand-in for pi-tui's SettingsList, capturing what it was handed.
@@ -20,6 +27,7 @@ class FakeSettingsList {
   theme: unknown;
   onChange: (id: string, value: string) => void;
   onCancel: () => void;
+  options: unknown;
 
   constructor(
     items: Item[],
@@ -27,12 +35,14 @@ class FakeSettingsList {
     theme: unknown,
     onChange: (id: string, value: string) => void,
     onCancel: () => void,
+    options?: unknown,
   ) {
     this.items = items;
     this.maxVisible = maxVisible;
     this.theme = theme;
     this.onChange = onChange;
     this.onCancel = onCancel;
+    this.options = options;
     FakeSettingsList.last = this;
   }
   render(): string[] {
@@ -49,6 +59,8 @@ function screen(config: Config, onChange = (_k: string, _v: unknown) => {}, onCl
     theme: { hint: (text: string) => text } as never,
     config,
     onChange: onChange as never,
+    toolNames: () => [],
+    onExcludeChange: () => {},
     onClose,
   });
   const list = FakeSettingsList.last;
@@ -125,6 +137,8 @@ describe("config screen contents", () => {
       theme: { hint: (text: string) => text } as never,
       config: new Config(DEFAULTS),
       onChange: () => {},
+      toolNames: () => [],
+      onExcludeChange: () => {},
       onClose: () => {},
     });
     assert.match(component.render(80).at(-1)!, /Changes apply live · Ctrl\+O reveals tool output/);
@@ -174,6 +188,8 @@ describe("presets in the config screen", () => {
       theme: { hint: (text: string) => text } as never,
       config: new Config({ ...DEFAULTS, preset: "full" }),
       onChange: () => {},
+      toolNames: () => [],
+      onExcludeChange: () => {},
       onClose: () => {},
     });
     assert.match(component.render(200).at(-1)!, /Changes apply live/);
@@ -256,5 +272,63 @@ describe("argumentCompletions", () => {
     assert.deepEqual(argumentCompletions("con")?.map(({ value }) => value), ["config"]);
     assert.deepEqual(argumentCompletions("sta")?.map(({ value }) => value), ["status"]);
     assert.equal(argumentCompletions("x"), null, "no match means no menu");
+  });
+});
+
+describe("excluded tools picker", () => {
+  function open(excludeTools: string[], tools: string[]) {
+    const excluded: string[][] = [];
+    const config = new Config({ ...DEFAULTS, excludeTools });
+    createConfigScreen({
+      SettingsList: FakeSettingsList as never,
+      theme: { hint: (text: string) => text } as never,
+      config,
+      onChange: () => {},
+      toolNames: () => tools,
+      onExcludeChange: (names) => excluded.push(names),
+      onClose: () => {},
+    });
+    const main = FakeSettingsList.last!;
+    const row = main.items.at(-1)!;
+    const closed: (string | undefined)[] = [];
+    row.submenu!(row.currentValue, (selected) => closed.push(selected));
+    return { main, row, picker: FakeSettingsList.last!, excluded, closed };
+  }
+
+  it("adds an 'Excluded tools' row that shows its current value", () => {
+    assert.equal(open([], ["read"]).row.currentValue, "none");
+    assert.equal(open(["subagent"], []).row.currentValue, "subagent");
+    assert.equal(open(["a", "b", "c"], []).row.currentValue, "3 tools");
+  });
+
+  it("lists every known tool, sorted, with a search box and the current state", () => {
+    const { picker } = open(["web_search"], ["web_search", "read", "bash"]);
+    assert.deepEqual(picker.items.map((i) => [i.id, i.currentValue]), [
+      ["bash", "compact"],
+      ["read", "compact"],
+      ["web_search", "excluded"],
+    ]);
+    assert.deepEqual(picker.options, { enableSearch: true });
+  });
+
+  it("keeps an excluded name that no loaded tool carries", () => {
+    const { picker } = open(["gone"], ["read"]);
+    const gone = picker.items.find((i) => i.id === "gone")!;
+    assert.equal(gone.currentValue, "excluded");
+    assert.match(gone.description!, /Not loaded/);
+  });
+
+  it("reports the full new list on every toggle", () => {
+    const { picker, excluded } = open(["a"], ["a", "b"]);
+    picker.onChange("b", "excluded");
+    picker.onChange("a", "compact");
+    assert.deepEqual(excluded, [["a", "b"], ["b"]]);
+  });
+
+  it("closes with the new summary on Escape", () => {
+    const { picker, closed } = open([], ["a"]);
+    picker.onChange("a", "excluded");
+    picker.onCancel();
+    assert.deepEqual(closed, ["a"]);
   });
 });

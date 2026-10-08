@@ -55,15 +55,18 @@ are ignored, because `coerce` reads only known keys.
   "thinkingAsToolCall": false, "keepActiveToolsExpanded": false,
   "keepActiveThinkingExpanded": false, "glyphStyle": "unicode",
 
-  "excludeTools": ["subagent"], "glyphs": {}, "tokens": {}
+  "excludeTools": [], "glyphs": {}, "tokens": {}
 }
 ```
 
 `/minimalist` (alias `config`) opens an editor on pi-tui's `SettingsList`;
 `/minimalist status` prints the state. The eleven keys above the blank line are
 in the editor; `activitySummary` shows only while `foldIntermediateActivity` is
-on. `excludeTools`, `glyphs` and `tokens` are JSON-only: they need exact tool
-names or knowledge of Pi's palette. Default symbols are plain Unicode (no Nerd
+on. A twelfth row, "Excluded tools", opens a submenu (a second `SettingsList` with
+`enableSearch`) listing every tool from `pi.getAllTools()`, read when it opens;
+Enter flips a tool between `compact` and `excluded`. Names in `excludeTools` that no
+loaded tool carries stay listed, so opening the picker never forgets them. `glyphs`
+and `tokens` are JSON-only: they need knowledge of Pi's palette. Default symbols are plain Unicode (no Nerd
 Font); `glyphStyle: "ascii"` uses one-column symbols only.
 
 **Presets are a layer, not a write.** A preset names four keys (`LOOK_KEYS`:
@@ -83,8 +86,8 @@ editable. There is no reset row: presets are the reset points.
 
 → `config.test.ts` "presets", `config-ui.test.ts` "presets in the config screen".
 
-**Writing rules.** The editor writes only the changed basic key. Hand-written
-`glyphs`/`tokens`/`excludeTools` survive every write. It REFUSES to write a
+**Writing rules.** The editor writes only the changed key: a basic key, or
+`excludeTools` from the picker. Hand-written `glyphs`/`tokens` survive every write. It REFUSES to write a
 settings.json containing comments (`JSON.stringify` would delete them) and
 applies the change for the session instead. Settings are re-read on every
 `turn_start`; a value that could not be persisted lives in `Config.overrides`
@@ -386,9 +389,9 @@ multi-line command to ONE clipped line with spaces".
 
 ### Claiming is a blacklist
 
-Every tool is compacted unless named in `excludeTools`. `subagent` is excluded by
-NAME: its own renderer shows a run id, state and `ctrl+o` hint that one line
-cannot carry. `renderResult` still delegates to the native renderer, so `Ctrl+O`
+Every tool is compacted unless named in `excludeTools` (empty by default). To keep
+a tool's own card, e.g. `"excludeTools": ["subagent"]`, whose renderer shows a run
+id, state and `ctrl+o` hint that one line cannot carry, name it there. `renderResult` still delegates to the native renderer, so `Ctrl+O`
 on a compacted third-party tool shows its own expanded output.
 
 ---

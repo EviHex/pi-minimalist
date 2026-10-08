@@ -144,6 +144,21 @@ describe("saveBasicSettings", () => {
     assert.equal(written.minimalist.glyphStyle, "ascii", "Symbols remains unchanged");
   });
 
+  it("writes excludeTools from the picker and leaves the glyph map alone", () => {
+    const { env, settingsPath } = sandbox();
+    writeFileSync(settingsPath, JSON.stringify({ minimalist: { glyphs: { done: "OK" }, excludeTools: ["x"], timer: false } }));
+
+    assert.deepEqual(saveBasicSettings({ excludeTools: ["subagent"] }, env), { ok: true });
+    const written = JSON.parse(readFileSync(settingsPath, "utf8"));
+    assert.deepEqual(written.minimalist.excludeTools, ["subagent"]);
+    assert.deepEqual(written.minimalist.glyphs, { done: "OK" });
+    assert.equal(written.minimalist.timer, false);
+    assert.deepEqual(loadSettings(env).excludeTools, ["subagent"]);
+
+    assert.deepEqual(saveBasicSettings({ excludeTools: [] }, env), { ok: true });
+    assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")).minimalist.excludeTools, [], "an empty list is written, not dropped");
+  });
+
   it("refuses malformed global settings rather than overwriting them", () => {
     const { env, settingsPath } = sandbox();
     for (const original of ['{"minimalist":', '{"minimalist": false}']) {
@@ -184,9 +199,9 @@ describe("Config", () => {
   });
 
   it("treats the exclusion list as the only exemption", () => {
-    assert.equal(new Config(DEFAULTS).compacts("subagent"), false);
+    assert.equal(new Config(DEFAULTS).compacts("subagent"), true);
     assert.equal(new Config(DEFAULTS).compacts("read"), true);
-    assert.equal(new Config({ ...DEFAULTS, excludeTools: [] }).compacts("subagent"), true);
+    assert.equal(new Config({ ...DEFAULTS, excludeTools: ["subagent"] }).compacts("subagent"), false);
     assert.equal(new Config({ ...DEFAULTS, compactToolRows: false }).compacts("read"), false);
   });
 

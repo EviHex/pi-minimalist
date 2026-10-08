@@ -125,7 +125,7 @@ export type BasicSettings = {
   glyphStyle: GlyphStyle;
 };
 
-/** Settings only reachable by editing settings.json by hand. */
+/** Settings the `/minimalist` rows do not cover; `excludeTools` has a picker, the rest need settings.json. */
 export type AdvancedSettings = {
   /** Tool names left to their own renderer. Everything else is compacted. */
   excludeTools: string[];
@@ -161,10 +161,11 @@ export const PRESETS: Record<Exclude<Preset, "custom">, Record<LookKey, boolean>
 };
 
 export const DEFAULT_ADVANCED: AdvancedSettings = {
-  // `subagent` ships a renderer showing run id, state and a ctrl+o hint that one
-  // line cannot carry. Excluded by NAME rather than by a "does this tool
-  // have its own renderer?" rule, which would silently exempt every third-party tool.
-  excludeTools: ["subagent"],
+  // Empty by default: every tool is compacted. A tool whose own renderer carries
+  // more than one line can show (e.g. `subagent`: run id, state, ctrl+o hint)
+  // is opted out BY NAME here, never by a "does this tool have its own renderer?"
+  // rule, which would silently exempt every third-party tool.
+  excludeTools: [],
   glyphs: {},
   tokens: {},
 };
@@ -180,6 +181,10 @@ export const DEFAULTS: Settings = { ...DEFAULT_BASIC, ...DEFAULT_ADVANCED };
 export const BASIC_KEYS = Object.keys(DEFAULT_BASIC) as (keyof BasicSettings)[];
 
 export type BasicKey = keyof BasicSettings;
+
+/** What `/minimalist` may write: the basic keys plus the tool picker's `excludeTools`. */
+export type EditableSettings = BasicSettings & Pick<AdvancedSettings, "excludeTools">;
+export const EDITABLE_KEYS = [...BASIC_KEYS, "excludeTools"] as (keyof EditableSettings)[];
 
 // ---------------------------------------------------------------------------
 // Live configuration

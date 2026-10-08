@@ -25,6 +25,7 @@ import {
   DEFAULT_BASIC,
   DEFAULTS,
   DEFAULT_TOKENS,
+  EDITABLE_KEYS,
   GLYPH_PRESETS,
   FRESH_PRESET,
   LOOK_KEYS,
@@ -32,7 +33,7 @@ import {
   isFresh,
   isPreset,
   SETTINGS_KEY,
-  type BasicSettings,
+  type EditableSettings,
   type Glyphs,
   type Settings,
   type Tokens,
@@ -176,13 +177,14 @@ export type SaveResult =
 /**
  * Persist only the supplied editor-managed settings into the global agent file.
  * A normal edit passes one key.
- * Hand-written `glyphs`/`tokens`/`excludeTools` values survive untouched.
+ * Hand-written `glyphs`/`tokens` values survive untouched, and so does a hand-written
+ * `excludeTools` unless the tool picker is what changed it.
  *
  * REFUSES to write a file containing comments. `JSON.stringify` would silently
  * delete them, and quietly destroying an annotated config is far worse than
  * asking the user to edit one line by hand.
  */
-export function saveBasicSettings(settings: Partial<BasicSettings>, env = process.env): SaveResult {
+export function saveBasicSettings(settings: Partial<EditableSettings>, env = process.env): SaveResult {
   const path = globalSettingsPath(env);
 
   let raw = "";
@@ -208,7 +210,7 @@ export function saveBasicSettings(settings: Partial<BasicSettings>, env = proces
   const merged: Json = { ...existing };
   // The first write must pin the fresh-install preset, or the file would stop looking fresh and become `custom`.
   if (isFresh(existing)) merged.preset = FRESH_PRESET;
-  for (const key of BASIC_KEYS) {
+  for (const key of EDITABLE_KEYS) {
     if (settings[key] !== undefined) merged[key] = settings[key];
   }
 

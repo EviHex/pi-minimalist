@@ -22,7 +22,7 @@ import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 // keybindings and colours, as Pi's own `/settings`.
 import { SettingsList } from "@earendil-works/pi-tui";
 import { installBridges, sharedState } from "./src/bridge.ts";
-import { type BasicKey, type BasicSettings, type Config } from "./src/config.ts";
+import { type Config, type EditableSettings } from "./src/config.ts";
 import { customSeed, loadSettings, saveBasicSettings } from "./src/config-file.ts";
 import { argumentCompletions, createConfigScreen, summary } from "./src/config-ui.ts";
 import { patchCore } from "./src/core-patch.ts";
@@ -75,6 +75,8 @@ export default function (pi: ExtensionAPI) {
           theme: getSettingsListTheme(),
           config,
           onChange: (key, value) => persist(ctx, config, key, value),
+          toolNames: () => pi.getAllTools().map((tool) => tool.name),
+          onExcludeChange: (names) => persist(ctx, config, "excludeTools", names),
           onClose: () => done(),
         }),
       );
@@ -84,17 +86,17 @@ export default function (pi: ExtensionAPI) {
 
 type NotifyContext = { ui: { notify(message: string, type?: "info" | "warning" | "error"): void } };
 
-function persist(
+function persist<K extends keyof EditableSettings>(
   ctx: NotifyContext,
   config: Config,
-  key: BasicKey,
-  value: BasicSettings[BasicKey],
+  key: K,
+  value: EditableSettings[K],
 ): void {
   // The first switch to `custom` starts from the `lite` look (see customSeed).
   const seed = key === "preset" && value === "custom" ? customSeed() : undefined;
-  const changes: Partial<Record<BasicKey, unknown>> = { ...seed, [key]: value };
-  const result = saveBasicSettings(changes as Partial<BasicSettings>);
-  for (const [k, v] of Object.entries(changes) as [BasicKey, never][]) {
+  const changes: Partial<Record<keyof EditableSettings, unknown>> = { ...seed, [key]: value };
+  const result = saveBasicSettings(changes as Partial<EditableSettings>);
+  for (const [k, v] of Object.entries(changes) as [keyof EditableSettings, never][]) {
     config.set(k, v);
     // On success the file agrees, so it becomes the source of truth again.
     if (result.ok) config.clearSessionOverride(k);

@@ -197,11 +197,7 @@ export class Painter {
     const glyphs = this.config.glyphs();
     return counts
       .map(({ name, count }) => {
-        // Thinking keeps its own hue inside a summary — unless it is configured to
-        // behave exactly like a tool, in which case it should look like one too.
-        const keepsThinkingHue =
-          name === "think" && color === tokens.label && !this.config.get("thinkingAsToolCall");
-        const token = keepsThinkingHue ? tokens.thinking : color;
+        const token = name === "think" && color === tokens.label ? tokens.thinking : color;
         return `${this.theme.fg(token, name)} ${this.theme.fg(tokens.details, `${glyphs.count}${count}`)}`;
       })
       .join(this.theme.fg(tokens.details, ", "));

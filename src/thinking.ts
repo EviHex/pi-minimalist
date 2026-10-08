@@ -49,7 +49,8 @@ export function createThinkingPreview(deps: ThinkingDeps): ThinkingPreview {
       return new Painter(theme, config).labeled({
         glyph: streaming ? glyphs.running : glyphs.done,
         label: "think",
-        labelColor: tokens.label,
+        labelColor: tokens.thinking,
+        glyphColor: tokens.thinking,
         details: text.replace(/\s+/g, " ").trim(),
       });
     };

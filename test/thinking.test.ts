@@ -20,10 +20,10 @@ describe("thinking preview", () => {
     ]);
   });
 
-  it("uses success for the glyph and label, toolTitle for the preview text", () => {
+  it("uses the thinking colour for the glyph and label, toolTitle for the preview text", () => {
     assert.equal(
       preview("why", theme, false).render(500)[0],
-      " <success>▌</success> <success>✓</success> <success>think</success> <toolTitle>why</toolTitle>",
+      " <thinkingText>▌</thinkingText> <thinkingText>✓</thinkingText> <thinkingText>think</thinkingText> <toolTitle>why</toolTitle>",
     );
   });
 

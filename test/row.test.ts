@@ -89,13 +89,6 @@ describe("run summaries", () => {
     assert.ok(row.text.includes("<success>bash</success>"), row.text);
   });
 
-  it("paints think like a tool when configured to behave like one", () => {
-    const row = testPainter({ thinkingAsToolCall: true }).summary(
-      runSummary({ done: [{ name: "think", count: 2 }] }),
-    );
-    assert.ok(row.text.includes("<success>think</success>"), row.text);
-  });
-
   it("orders the groups done, failed, running", () => {
     const row = painter.summary({
       done: [{ name: "read", count: 2 }],

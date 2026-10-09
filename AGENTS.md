@@ -60,7 +60,10 @@ are ignored, because `coerce` reads only known keys.
 ```
 
 `/minimalist` (alias `config`) opens an editor on pi-tui's `SettingsList`;
-`/minimalist status` prints the state. The eleven keys above the blank line are
+`/minimalist status` prints the state. **Ctrl+Shift+O** (a registered shortcut,
+handled in `index.ts`) flips `preset` to `off` and back to the preset it came
+from (session memory, default `full`), through the same `persist()` path as the
+editor. The eleven keys above the blank line are
 in the editor; `activitySummary` shows only while `foldIntermediateActivity` is
 on. A twelfth row, "Excluded tools", opens a submenu (a second `SettingsList` with
 `enableSearch`) listing every tool from `pi.getAllTools()`, read when it opens;

@@ -20,9 +20,9 @@ import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 // SettingsList lives in pi-tui; its Pi-styled theme comes from pi-coding-agent.
 // Using both means `/minimalist` is the same component, with the same
 // keybindings and colours, as Pi's own `/settings`.
-import { SettingsList } from "@earendil-works/pi-tui";
+import { Key, SettingsList } from "@earendil-works/pi-tui";
 import { installBridges, sharedState } from "./src/bridge.ts";
-import { type Config, type EditableSettings } from "./src/config.ts";
+import { type Config, type EditableSettings, type Preset } from "./src/config.ts";
 import { customSeed, loadSettings, saveBasicSettings } from "./src/config-file.ts";
 import { argumentCompletions, createConfigScreen, summary } from "./src/config-ui.ts";
 import { patchCore } from "./src/core-patch.ts";
@@ -50,6 +50,27 @@ export default function (pi: ExtensionAPI) {
   pi.on("turn_start", refresh);
   pi.on("agent_start", () => grouping.agentStarted());
   pi.on("agent_settled", () => grouping.agentSettled());
+
+  // Ctrl+Shift+O flips the preset to `off` (Pi's native tool cards, calls and
+  // results in full) and back to the preset it came from, so the full view is
+  // one keypress away without losing the chosen look. Goes through persist()
+  // exactly like a `/minimalist` edit, so existing rows re-render in place.
+  let compactPreset: Preset | undefined;
+  pi.registerShortcut(Key.ctrlShift("o"), {
+    description: "pi-minimalist: toggle full tool calls and results",
+    handler: (ctx) => {
+      const current = config.get("preset");
+      if (current === "off") {
+        const back = compactPreset ?? "full";
+        persist(ctx, config, "preset", back);
+        ctx.ui.notify(`pi-minimalist preset: ${back}`, "info");
+        return;
+      }
+      compactPreset = current;
+      persist(ctx, config, "preset", "off");
+      ctx.ui.notify("pi-minimalist preset: off (native tool cards; Ctrl+Shift+O restores)", "info");
+    },
+  });
 
   pi.registerCommand("minimalist", {
     description: "Open pi-minimalist settings; `status` shows current state",

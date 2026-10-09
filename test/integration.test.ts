@@ -71,6 +71,15 @@ describe("installed Pi integration", { skip: PI_ROOT ? false : "PI_ROOT not set"
     assert.equal(screens.length, 2, "RPC has UI notifications but no custom TUI");
   });
 
+  it("registers the preset toggle on Ctrl+Shift+O", async () => {
+    const { loadExtensions } = await import(`${PI_ROOT}/dist/core/extensions/loader.js`);
+    const loaded = await loadExtensions([EXTENSION], EXTENSION_DIR);
+    assert.deepEqual(loaded.errors, []);
+    const shortcut = loaded.extensions[0].shortcuts.get("ctrl+shift+o");
+    assert.ok(shortcut, "Ctrl+Shift+O must stay registered");
+    assert.match(shortcut.description ?? "", /tool calls and results/);
+  });
+
   it("keeps the built-in name list aligned with Pi", async () => {
     const tools = await import(`${PI_ROOT}/dist/core/tools/index.js`);
     for (const name of BUILT_INS) {

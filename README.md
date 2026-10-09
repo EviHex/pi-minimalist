@@ -68,6 +68,7 @@ A preset never overwrites your settings. While `off`, `lite`, `full` or `max` is
 | `/minimalist status` | Show current settings |
 | Ctrl+O | Expand or collapse tool output |
 | Ctrl+T | Expand or collapse thinking |
+| Ctrl+Shift+O | Switch to `off` (native tool cards, full calls and results); press again to return to your preset |
 
 Settings apply to existing conversation history and are saved globally. If a symbol looks wrong in your terminal, choose **Symbols → ASCII**. No Nerd Font required.
 
